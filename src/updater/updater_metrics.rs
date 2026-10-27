@@ -4,7 +4,7 @@ use crate::updater::startup_crash_classifier::classify_startup_crash;
 use crate::utils::{
     append_line, check_process_liveness, create_logger, ensure_dir, flatten_to_strings,
     get_today_date_string, read_startup_crash, resolve_local_ip, ProcessCommandPattern,
-    ProcessLiveness, ProcessLivenessProbe, COLLECTOR_PROCESS_PATTERNS,
+    ProcessLivenessProbe, COLLECTOR_PROCESS_PATTERNS,
 };
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
@@ -289,7 +289,7 @@ fn _patterns(patterns: &[ProcessCommandPattern<'_>]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::{PidFileState, ProcessLivenessSource};
+    use crate::utils::{PidFileState, ProcessLiveness, ProcessLivenessSource};
     use std::sync::Mutex;
 
     fn down(reason: &str) -> ProcessLiveness {

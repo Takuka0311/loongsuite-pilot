@@ -205,10 +205,7 @@ fn mask_json_value<'a>(
             let mut changed = None;
             for (index, item) in items.iter().enumerate() {
                 if let Cow::Owned(masked) = mask_json_value(item, plan, options, depth + 1) {
-                    changed
-                        .get_or_insert_with(|| items.clone())
-                        .get_mut(index)
-                        .map(|slot| *slot = masked);
+                    changed.get_or_insert_with(|| items.clone())[index] = masked;
                 }
             }
             match changed {

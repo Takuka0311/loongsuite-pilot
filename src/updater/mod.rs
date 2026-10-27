@@ -7,9 +7,10 @@ mod activation_transaction;
 mod auto_update_config;
 mod package_archive;
 mod release_manifest;
+#[path = "updater.rs"]
+mod runtime;
 mod runtime_state;
 mod startup_crash_classifier;
-mod updater;
 mod updater_metrics;
 mod version_utils;
 
@@ -17,14 +18,14 @@ pub(crate) use activation_transaction::ActivationTransaction;
 pub use auto_update_config::{build_auto_update_config, build_auto_update_config_with};
 pub use package_archive::{unpack as unpack_release_archive, UnpackedPackage};
 pub use release_manifest::{ArchiveFormat, LatestManifest, ReleaseAsset, VersionManifest};
-pub use runtime_state::{updater_runtime_path, UpdaterRuntimeState, UpdaterRuntimeStatus};
-pub use startup_crash_classifier::{
-    classify_startup_crash, StartupCrashClassification, StartupCrashReason,
-};
-pub use updater::{
+pub use runtime::{
     backoff_ms, build_paths, build_paths_for, collector_command_invocation, format_command_failure,
     pilot_bin_path, verify_checksum, LocalVersion, ResolvedTarget, UpdateChannel, Updater,
     UpdaterNet, UpdaterPaths, MAX_BACKOFF_MS, MAX_CONSECUTIVE_FAILURES,
+};
+pub use runtime_state::{updater_runtime_path, UpdaterRuntimeState, UpdaterRuntimeStatus};
+pub use startup_crash_classifier::{
+    classify_startup_crash, StartupCrashClassification, StartupCrashReason,
 };
 pub use updater_metrics::{UpdaterEventExtra, UpdaterMetrics, UpdaterMetricsOptions};
 pub use version_utils::{compare_versions, compute_sha256, deterministic_bucket};
@@ -71,7 +72,7 @@ pub async fn run_updater_main() -> i32 {
     }
     logger.info("updater process starting", None);
     let config_path = crate::utils::config_json_path();
-    let file = match updater::read_config_for_update(&config_path).await {
+    let file = match runtime::read_config_for_update(&config_path).await {
         Ok(file) => file,
         Err(err) => {
             eprintln!("更新器配置读取失败：{err}");

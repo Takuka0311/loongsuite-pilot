@@ -743,10 +743,7 @@ fn apply_usage(entry: &mut AgentActivityEntry, usage: &TokenUsage) {
 }
 
 fn missing_model(value: Option<&str>) -> bool {
-    match value {
-        None | Some("") | Some("auto") | Some("unknown") => true,
-        _ => false,
-    }
+    matches!(value, None | Some("") | Some("auto") | Some("unknown"))
 }
 
 fn group_by_turn(entries: Vec<AgentActivityEntry>) -> IndexMap<String, Vec<AgentActivityEntry>> {

@@ -357,49 +357,14 @@ pub async fn read_local_worker_view(
         "running"
     } else if pid.is_some() {
         "stale"
-    } else if let Some(text) = supervisor
-        .as_ref()
-        .and_then(|value| value.get("state"))
-        .and_then(Value::as_str)
-    {
-        return Ok(view_from(
-            instance,
-            text,
-            &supervisor,
-            &worker,
-            &runtime_snapshot,
-            &matrix_snapshot,
-            runtime_member,
-            pid,
-            &l_dir,
-        ));
     } else {
-        "pending"
+        supervisor
+            .as_ref()
+            .and_then(|value| value.get("state"))
+            .and_then(Value::as_str)
+            .unwrap_or("pending")
     };
-    Ok(view_from(
-        instance,
-        state,
-        &supervisor,
-        &worker,
-        &runtime_snapshot,
-        &matrix_snapshot,
-        runtime_member,
-        pid,
-        &l_dir,
-    ))
-}
 
-fn view_from(
-    instance: &LocalWorkerInstance,
-    state: &str,
-    supervisor: &Option<Value>,
-    worker: &Option<Value>,
-    runtime_snapshot: &Option<Value>,
-    matrix_snapshot: &Option<Value>,
-    runtime_member: Option<&Map<String, Value>>,
-    pid: Option<u32>,
-    log_dir: &str,
-) -> LocalWorkerView {
     let supervisor_failed = state == "failed"
         && supervisor
             .as_ref()
@@ -422,7 +387,7 @@ fn view_from(
             .or_else(|| read_string(worker.as_ref().and_then(|value| value.get("error"))))
             .or_else(|| read_string(supervisor.as_ref().and_then(|value| value.get("error"))))
     };
-    LocalWorkerView {
+    Ok(LocalWorkerView {
         id: instance.id.clone(),
         runtime: instance.runtime.clone(),
         work_dir: instance.work_dir.clone(),
@@ -473,11 +438,11 @@ fn view_from(
         }),
         updated_at: read_string(worker.as_ref().and_then(|value| value.get("updatedAt")))
             .unwrap_or_else(|| instance.updated_at.clone()),
-        log_path: Path::new(log_dir)
+        log_path: Path::new(&l_dir)
             .join("worker.log")
             .to_string_lossy()
             .into_owned(),
-    }
+    })
 }
 
 pub async fn read_bootstrap_token(

@@ -193,11 +193,15 @@ mod tests {
 
     #[test]
     fn converts_roots_and_warns_about_unparented_children() {
-        let mut root = AgentActivityEntry::default();
-        root.agent_id = Some("root".to_string());
-        root.event_name = Some(crate::types::AgentEventName::Other);
-        let mut child = AgentActivityEntry::default();
-        child.agent_id = Some("child".to_string());
+        let root = AgentActivityEntry {
+            agent_id: Some("root".to_string()),
+            event_name: Some(crate::types::AgentEventName::Other),
+            ..AgentActivityEntry::default()
+        };
+        let mut child = AgentActivityEntry {
+            agent_id: Some("child".to_string()),
+            ..AgentActivityEntry::default()
+        };
         child.extra.insert(
             "gen_ai.agent.scope".to_string(),
             serde_json::Value::String("subagent".to_string()),

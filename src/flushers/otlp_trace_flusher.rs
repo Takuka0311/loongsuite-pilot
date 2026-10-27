@@ -33,6 +33,14 @@ use crate::utils::{
     normalize_agent_type, read_installed_version,
 };
 
+struct ConvertScope<'a> {
+    agent_type: &'a str,
+    service_name: &'a str,
+    system: &'a str,
+    framework: &'a str,
+    convert_key: &'a str,
+}
+
 const VALID_TRACE_ID: &str = "^[0-9a-f]{32}$";
 const MAX_TURN_BUFFERS: usize = 64;
 const MAX_RUNTIME_AGENTS: usize = 64;
@@ -774,13 +782,15 @@ impl OtlpInner {
                 let converter = Arc::clone(&inner.converter);
                 inner
                     .do_convert(
-                        &agent_type,
-                        &service_name,
+                        ConvertScope {
+                            agent_type: &agent_type,
+                            service_name: &service_name,
+                            system: &system,
+                            framework: &framework,
+                            convert_key: &key,
+                        },
                         records,
                         projected,
-                        &system,
-                        &framework,
-                        &key,
                         converter.as_ref(),
                     )
                     .await;
@@ -803,15 +813,18 @@ impl OtlpInner {
 
     async fn do_convert(
         self: &Arc<Self>,
-        agent_type: &str,
-        service_name: &str,
+        scope: ConvertScope<'_>,
         records: Vec<AgentActivityEntry>,
         projected: Map<String, Value>,
-        system: &str,
-        framework: &str,
-        convert_key: &str,
         converter: &dyn EventLogConverter,
     ) {
+        let ConvertScope {
+            agent_type,
+            service_name,
+            system,
+            framework,
+            convert_key,
+        } = scope;
         {
             let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
             let entry = state
@@ -1656,9 +1669,15 @@ fn enrich_openclaw(
     }
 }
 
+#[derive(Default)]
+struct ClaudeResponseMetadata {
+    error: Option<String>,
+    status: Option<i64>,
+    request: Option<String>,
+}
+
 fn enrich_claude(records: &[AgentActivityEntry], spans: &mut [ReadableSpan]) {
-    let mut by_response: HashMap<String, (Option<String>, Option<i64>, Option<String>)> =
-        HashMap::new();
+    let mut by_response: HashMap<String, ClaudeResponseMetadata> = HashMap::new();
     for record in records {
         let name = entry_str(record, "event.name");
         if name.as_deref() != Some("llm.request") && name.as_deref() != Some("llm.response") {
@@ -1667,15 +1686,15 @@ fn enrich_claude(records: &[AgentActivityEntry], spans: &mut [ReadableSpan]) {
         let Some(response_id) = entry_str(record, "gen_ai.response.id") else {
             continue;
         };
-        let slot = by_response.entry(response_id).or_insert((None, None, None));
+        let slot = by_response.entry(response_id).or_default();
         if let Some(error) = entry_str(record, "error.type") {
-            slot.0 = Some(error);
+            slot.error = Some(error);
         }
         if let Some(status) = record.http_response_status_code {
-            slot.1 = Some(status);
+            slot.status = Some(status);
         }
         if let Some(request_id) = record.request_id.clone() {
-            slot.2 = Some(request_id);
+            slot.request = Some(request_id);
         }
     }
     for span in spans {
@@ -1694,7 +1713,12 @@ fn enrich_claude(records: &[AgentActivityEntry], spans: &mut [ReadableSpan]) {
         else {
             continue;
         };
-        let Some((error, status, request)) = by_response.get(response_id) else {
+        let Some(ClaudeResponseMetadata {
+            error,
+            status,
+            request,
+        }) = by_response.get(response_id)
+        else {
             continue;
         };
         if let Some(request) = request {

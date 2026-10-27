@@ -30,7 +30,6 @@ pub struct ScanStats {
 
 pub struct ReadLines {
     pub items: Vec<JsonLine>,
-    pub next_offset: i64,
 }
 
 fn observe_read(runtime: Option<&InputRuntime>, bytes_read: u64, requested: u64, started: f64) {
@@ -157,21 +156,15 @@ pub async fn read_json_lines(
     runtime: Option<&InputRuntime>,
 ) -> anyhow::Result<ReadLines> {
     if end_offset <= start_offset {
-        return Ok(ReadLines {
-            items: Vec::new(),
-            next_offset: start_offset,
-        });
+        return Ok(ReadLines { items: Vec::new() });
     }
     let mut items = Vec::new();
-    let stats = scan_json_lines(file_path, start_offset, end_offset, runtime, |line| {
+    scan_json_lines(file_path, start_offset, end_offset, runtime, |line| {
         items.push(line);
         true
     })
     .await?;
-    Ok(ReadLines {
-        items,
-        next_offset: stats.next_offset,
-    })
+    Ok(ReadLines { items })
 }
 
 pub async fn last_complete_jsonl_offset(
@@ -285,28 +278,9 @@ pub fn select_owner_session_meta_offset(
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ForkAnchorKind {
-    InitialHook,
-    UuidV7,
-    TerminalRecovery,
-}
-
-impl ForkAnchorKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::InitialHook => "initial-hook",
-            Self::UuidV7 => "uuidv7",
-            Self::TerminalRecovery => "terminal-recovery",
-        }
-    }
-}
-
 pub struct TurnStart {
     pub start_offset: Option<i64>,
     pub next_offset: i64,
-    pub turn_id: Option<String>,
-    pub anchor_kind: Option<ForkAnchorKind>,
 }
 
 pub fn bounded_search_offset(value: i64, file_size: i64) -> i64 {
@@ -327,8 +301,6 @@ pub async fn find_turn_start_offset(
     runtime: Option<&InputRuntime>,
 ) -> anyhow::Result<TurnStart> {
     let mut turn_start = None;
-    let mut matched = None;
-    let mut anchor = None;
     let safe_start = bounded_search_offset(start_offset, file_size);
     let scan_end = file_size.min(safe_start.saturating_add(16 * 1024 * 1024));
     let owner_timestamp = uuid_v7_timestamp_ms(owner_thread_id);
@@ -345,8 +317,6 @@ pub async fn find_turn_start_offset(
         };
         if initial_turn_id.is_some_and(|id| id == candidate) {
             turn_start = Some(line.start_offset);
-            matched = Some(candidate);
-            anchor = Some(ForkAnchorKind::InitialHook);
             return false;
         }
         if initial_turn_id.is_some() {
@@ -358,14 +328,10 @@ pub async fn find_turn_start_offset(
             && candidate_timestamp >= owner_timestamp
         {
             turn_start = Some(line.start_offset);
-            matched = Some(candidate);
-            anchor = Some(ForkAnchorKind::UuidV7);
             return false;
         }
         if recovery_turn_id.is_some_and(|id| id == candidate) {
             turn_start = Some(line.start_offset);
-            matched = Some(candidate);
-            anchor = Some(ForkAnchorKind::TerminalRecovery);
             return false;
         }
         true
@@ -374,8 +340,6 @@ pub async fn find_turn_start_offset(
     Ok(TurnStart {
         start_offset: turn_start,
         next_offset: stats.next_offset,
-        turn_id: matched,
-        anchor_kind: anchor,
     })
 }
 

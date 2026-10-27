@@ -196,7 +196,6 @@ mod tests {
                 commands: vec![],
             })
             .await
-                || true
         );
         let empty = tempfile::tempdir().unwrap();
         let empty_pattern = empty

@@ -842,13 +842,19 @@ mod tests {
         let root = std::env::temp_dir().join("mm-root");
         let root_s = root.to_string_lossy().to_string();
         let inside_path = root.join("a.png").to_string_lossy().to_string();
-        assert!(is_path_inside_roots(&inside_path, &[root_s.clone()]));
+        assert!(is_path_inside_roots(
+            &inside_path,
+            std::slice::from_ref(&root_s)
+        ));
         let outside = root
             .join("..")
             .join("outside.png")
             .to_string_lossy()
             .to_string();
-        assert!(!is_path_inside_roots(&outside, &[root_s.clone()]));
+        assert!(!is_path_inside_roots(
+            &outside,
+            std::slice::from_ref(&root_s)
+        ));
         assert!(is_path_inside_roots(&root_s, std::slice::from_ref(&root_s)));
     }
 

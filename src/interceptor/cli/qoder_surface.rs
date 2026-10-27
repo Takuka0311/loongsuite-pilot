@@ -3,7 +3,8 @@
 use crate::interceptor::types::QoderSurface;
 use std::path::Path;
 
-pub struct WindowsExecOptions {
+#[cfg(test)]
+struct WindowsExecOptions {
     pub windows_hide: bool,
     pub timeout_ms: u64,
 }
@@ -122,7 +123,8 @@ fn read_process(pid: i64) -> Option<ProcessInfo> {
     None
 }
 
-pub fn windows_process_command(pid: u32) -> (String, Vec<String>, WindowsExecOptions) {
+#[cfg(test)]
+fn windows_process_command(pid: u32) -> (String, Vec<String>, WindowsExecOptions) {
     let script = [
         format!(
             "$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\" -ErrorAction Stop"
@@ -209,6 +211,7 @@ mod tests {
         let mut seen = None;
         let info = read_windows_process(456, |file, args, options| {
             seen = Some((file.to_string(), args.to_vec(), options.windows_hide));
+            assert_eq!(options.timeout_ms, 1000);
             Ok("qodercli.exe\r\n123\r\n".to_string())
         })
         .unwrap();

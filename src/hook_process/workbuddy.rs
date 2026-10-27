@@ -11,9 +11,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn run(request: &mut HookRequest<'_>) -> i32 {
-    if let Err(err) = write_event(request) {
-        err;
-    }
+    let _ = write_event(request);
     write_empty(request.stdout);
     0
 }

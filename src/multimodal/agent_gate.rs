@@ -11,10 +11,7 @@ pub fn is_agent_multimodal_enabled(agent_id: Option<&str>, agent: &AgentConfig) 
     if !is_multimodal_supported_agent(agent_id) {
         return false;
     }
-    match agent.multimodal.as_ref().map(|config| config.upload_mode) {
-        Some(mode) if mode != MultimodalUploadMode::None => true,
-        _ => false,
-    }
+    matches!(agent.multimodal.as_ref().map(|config| config.upload_mode), Some(mode) if mode != MultimodalUploadMode::None)
 }
 
 pub fn any_agent_multimodal_enabled(agents: &AgentsConfig) -> bool {

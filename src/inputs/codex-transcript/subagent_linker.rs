@@ -258,8 +258,12 @@ pub fn extract_codex_spawn_descriptors(
     source_records: &[CodexTranscriptSourceRecord],
     parent_trace_id: &str,
 ) -> Vec<CodexSpawnDescriptor> {
-    let mut activities: IndexMap<String, (Option<String>, Option<String>, Option<f64>)> =
-        IndexMap::new();
+    struct SpawnActivity {
+        thread_id: Option<String>,
+        agent_path: Option<String>,
+        occurred_at_ms: Option<f64>,
+    }
+    let mut activities: IndexMap<String, SpawnActivity> = IndexMap::new();
     for source in source_records {
         if source.record.get("type").and_then(|value| value.as_str()) != Some("event_msg") {
             continue;
@@ -277,11 +281,11 @@ pub fn extract_codex_spawn_descriptors(
         };
         activities.insert(
             call_id.to_owned(),
-            (
-                string_value(payload.get("agent_thread_id")).map(str::to_owned),
-                string_value(payload.get("agent_path")).map(str::to_owned),
-                number_value(payload.get("occurred_at_ms")),
-            ),
+            SpawnActivity {
+                thread_id: string_value(payload.get("agent_thread_id")).map(str::to_owned),
+                agent_path: string_value(payload.get("agent_path")).map(str::to_owned),
+                occurred_at_ms: number_value(payload.get("occurred_at_ms")),
+            },
         );
     }
 
@@ -306,11 +310,11 @@ pub fn extract_codex_spawn_descriptors(
                 parent_trace_id: parent_trace_id.to_owned(),
                 parent_tool_call_id: tool.call_id.clone(),
                 spawned_at_ms: activity
-                    .and_then(|item| item.2)
+                    .and_then(|item| item.occurred_at_ms)
                     .unwrap_or(tool.started_at_ms),
                 task_name,
-                agent_path: activity.and_then(|item| item.1.clone()),
-                child_thread_id: activity.and_then(|item| item.0.clone()),
+                agent_path: activity.and_then(|item| item.agent_path.clone()),
+                child_thread_id: activity.and_then(|item| item.thread_id.clone()),
             });
         }
     }

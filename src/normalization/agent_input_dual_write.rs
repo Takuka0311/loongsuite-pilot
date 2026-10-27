@@ -99,7 +99,7 @@ fn sha1(message: &[u8]) -> [u8; 20] {
         }
 
         let (mut a, mut b, mut c, mut d, mut e) = (h0, h1, h2, h3, h4);
-        for index in 0..80 {
+        for (index, word) in words.iter().enumerate() {
             let (f, k) = match index {
                 0..=19 => ((b & c) | ((!b) & d), 0x5A82_7999),
                 20..=39 => (b ^ c ^ d, 0x6ED9_EBA1),
@@ -111,7 +111,7 @@ fn sha1(message: &[u8]) -> [u8; 20] {
                 .wrapping_add(f)
                 .wrapping_add(e)
                 .wrapping_add(k)
-                .wrapping_add(words[index]);
+                .wrapping_add(*word);
             e = d;
             d = c;
             c = b.rotate_left(30);

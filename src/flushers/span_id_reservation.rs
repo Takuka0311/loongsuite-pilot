@@ -191,11 +191,12 @@ mod tests {
         response_id: Option<&str>,
         span_id: Option<&str>,
     ) -> AgentActivityEntry {
-        let mut entry = AgentActivityEntry::default();
-        entry.event_name = Some(name);
-        entry.response_id = response_id.map(str::to_string);
-        entry.span_id = span_id.map(str::to_string);
-        entry
+        AgentActivityEntry {
+            event_name: Some(name),
+            response_id: response_id.map(str::to_string),
+            span_id: span_id.map(str::to_string),
+            ..AgentActivityEntry::default()
+        }
     }
 
     #[test]

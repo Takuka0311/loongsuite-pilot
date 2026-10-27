@@ -282,7 +282,6 @@ struct SessionMeta {
     cwd: String,
     agents: Vec<String>,
     tools: Vec<String>,
-    trace_id: String,
 }
 
 struct ActiveTurn {
@@ -550,7 +549,6 @@ impl QoderWorkLogBody {
                         cwd,
                         agents,
                         tools,
-                        trace_id: hex::encode(uuid::Uuid::new_v4().as_bytes()),
                     },
                 );
                 None

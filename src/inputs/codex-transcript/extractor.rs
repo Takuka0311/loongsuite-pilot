@@ -26,6 +26,8 @@ static IMAGE_OPEN_RE: LazyLock<Regex> =
 static IMAGE_CLOSE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^</image>\s*$").expect("image close"));
 
+type BlobUriResolver<'a> = dyn Fn(&BlobToUriParams) -> Option<UriResult> + 'a;
+
 #[derive(Default)]
 pub struct ExtractOptions<'a> {
     pub require_terminal: bool,
@@ -35,7 +37,7 @@ pub struct ExtractOptions<'a> {
     pub model: Option<String>,
     pub cwd: Option<String>,
     pub developer_instructions: Option<String>,
-    pub blob_to_uri: Option<&'a (dyn Fn(&BlobToUriParams) -> Option<UriResult> + 'a)>,
+    pub blob_to_uri: Option<&'a BlobUriResolver<'a>>,
     pub upload_mode: Option<MultimodalUploadMode>,
 }
 
@@ -970,7 +972,7 @@ struct ToolOutput {
 fn transcript_tool_output(
     item_type: Option<&str>,
     payload: &Map<String, Value>,
-    blob_to_uri: Option<&dyn Fn(&BlobToUriParams) -> Option<UriResult>>,
+    blob_to_uri: Option<&BlobUriResolver<'_>>,
     timestamp_ms: f64,
     record_offset: Option<i64>,
 ) -> Option<ToolOutput> {
@@ -1082,7 +1084,7 @@ fn part_to_json(part: MessagePart) -> Option<Value> {
 fn transcript_input_message(
     role: &str,
     content: Option<&Value>,
-    blob_to_uri: Option<&dyn Fn(&BlobToUriParams) -> Option<UriResult>>,
+    blob_to_uri: Option<&BlobUriResolver<'_>>,
     timestamp_ms: f64,
     record_offset: Option<i64>,
 ) -> Option<Value> {
@@ -1098,7 +1100,7 @@ fn transcript_input_message(
 
 fn extract_message_parts(
     content: Option<&Value>,
-    blob_to_uri: Option<&dyn Fn(&BlobToUriParams) -> Option<UriResult>>,
+    blob_to_uri: Option<&BlobUriResolver<'_>>,
     timestamp_ms: f64,
     record_offset: Option<i64>,
 ) -> Vec<MessagePart> {

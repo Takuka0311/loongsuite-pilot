@@ -715,7 +715,6 @@ mod tests {
                 .init_reader_from_checkpoint(&path, &first.checkpoint)
                 .await
         );
-        use std::io::Write as _;
         let mut handle = std::fs::OpenOptions::new()
             .append(true)
             .open(&file)

@@ -387,33 +387,6 @@ async fn emits_entries_saves_and_keeps_polling_after_errors() {
     input.stop().await.unwrap();
 }
 
-struct HookProbe {
-    script_entries: Mutex<Option<AgentActivityEntry>>,
-    calls: AtomicUsize,
-}
-
-#[async_trait]
-impl HookBody for HookProbe {
-    fn id(&self) -> &str {
-        "test-hook"
-    }
-    fn agent_type(&self) -> ClientType {
-        ClientType::QoderCliHook
-    }
-    fn paths(&self) -> &HookPaths {
-        // Replaced per instance via a leaked... no, store paths on the struct.
-        unreachable!("paths provided by HookProbeOwned")
-    }
-    async fn transform_record(
-        &self,
-        _rt: &InputRuntime,
-        record: &mut Map<String, Value>,
-    ) -> anyhow::Result<Option<AgentActivityEntry>> {
-        let _ = (self, record);
-        Ok(None)
-    }
-}
-
 struct OwnedHook {
     paths: HookPaths,
     transform_null: AtomicUsize,
@@ -1088,9 +1061,4 @@ async fn hook_history_checkpoint_baselines_existing_bytes() {
     .await
     .unwrap();
     assert!(again.is_none());
-}
-
-#[allow(dead_code)]
-fn _hook_probe_unused(probe: HookProbe) {
-    let _ = probe.calls.load(Ordering::SeqCst);
 }

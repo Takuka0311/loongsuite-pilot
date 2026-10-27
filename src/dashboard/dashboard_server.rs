@@ -367,7 +367,7 @@ mod tests {
         });
         server.start().unwrap();
         let address = server.address().unwrap();
-        let (status, head, body) = request(&address, "/", None);
+        let (status, _, body) = request(&address, "/", None);
         assert_eq!(status, 200);
         assert!(body.contains("dashboard fixture"));
         let (status, head, body) = request(&address, "/metrics-summary.json", None);

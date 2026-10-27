@@ -112,13 +112,12 @@ pub fn enrich_cli_from_segments(entries: &mut [AgentActivityEntry], segments: &[
             request_index.and_then(|index| parse_nanos(&entries[index].time_unix_nano));
         let response_ns = parse_nanos(&entries[matches[0]].time_unix_nano);
         let hook_ok = request_ns.is_some() && response_ns.is_some() && request_ns < response_ns;
-        if request_index.is_some()
-            && !hook_ok
-            && segment.response_end_ts > 0
-            && segment.request_start_ts > 0
-            && segment.request_start_ts < segment.response_end_ts
-        {
-            let request_index = request_index.unwrap();
+        if let Some(request_index) = request_index.filter(|_| {
+            !hook_ok
+                && segment.response_end_ts > 0
+                && segment.request_start_ts > 0
+                && segment.request_start_ts < segment.response_end_ts
+        }) {
             entries[request_index].time_unix_nano =
                 (segment.request_start_ts as i128 * 1_000_000).to_string();
             entries[matches[0]].time_unix_nano =
@@ -289,11 +288,9 @@ pub fn enrich_ide_turn(entries: &mut [AgentActivityEntry], sqlite_rows: &[Sqlite
                     .find(|(previous, _)| entries[*previous].turn_id == turn_id)
                     .unwrap()
                     .0;
-                for cursor in (previous_index + 1)..index {
-                    if is_name(&entries[cursor], "tool.result")
-                        && entries[cursor].turn_id == turn_id
-                    {
-                        if let Some(result_time) = parse_nanos(&entries[cursor].time_unix_nano) {
+                for entry in entries.iter().take(index).skip(previous_index + 1) {
+                    if is_name(entry, "tool.result") && entry.turn_id == turn_id {
+                        if let Some(result_time) = parse_nanos(&entry.time_unix_nano) {
                             if result_time > latest {
                                 latest = result_time;
                             }
@@ -327,16 +324,12 @@ pub fn enrich_ide_turn(entries: &mut [AgentActivityEntry], sqlite_rows: &[Sqlite
             .get(ordinal + 1)
             .map(|(next, _)| *next)
             .unwrap_or(entries.len());
-        for cursor in (index + 1)..right {
-            if is_name(&entries[cursor], "tool.call")
-                && parse_nanos(&entries[cursor].time_unix_nano).is_none()
-            {
-                entries[cursor].time_unix_nano = tool_call_ts.clone();
+        for entry in entries.iter_mut().take(right).skip(index + 1) {
+            if is_name(entry, "tool.call") && parse_nanos(&entry.time_unix_nano).is_none() {
+                entry.time_unix_nano = tool_call_ts.clone();
             }
-            if is_name(&entries[cursor], "tool.result")
-                && parse_nanos(&entries[cursor].time_unix_nano).is_none()
-            {
-                entries[cursor].time_unix_nano = tool_result_ts.clone();
+            if is_name(entry, "tool.result") && parse_nanos(&entry.time_unix_nano).is_none() {
+                entry.time_unix_nano = tool_result_ts.clone();
             }
         }
     }

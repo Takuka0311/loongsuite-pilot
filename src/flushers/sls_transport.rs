@@ -761,9 +761,9 @@ pub fn sha1(message: &[u8]) -> [u8; 20] {
     let mut h4 = 0xC3D2E1F0_u32;
     for chunk in msg.chunks(64) {
         let mut words = [0_u32; 80];
-        for index in 0..16 {
+        for (index, word) in words.iter_mut().take(16).enumerate() {
             let offset = index * 4;
-            words[index] = u32::from_be_bytes([
+            *word = u32::from_be_bytes([
                 chunk[offset],
                 chunk[offset + 1],
                 chunk[offset + 2],
@@ -780,7 +780,7 @@ pub fn sha1(message: &[u8]) -> [u8; 20] {
         let mut c = h2;
         let mut d = h3;
         let mut e = h4;
-        for index in 0..80 {
+        for (index, word) in words.iter().enumerate() {
             let (mixed, constant) = if index < 20 {
                 ((b & c) | ((!b) & d), 0x5A827999)
             } else if index < 40 {
@@ -795,7 +795,7 @@ pub fn sha1(message: &[u8]) -> [u8; 20] {
                 .wrapping_add(mixed)
                 .wrapping_add(e)
                 .wrapping_add(constant)
-                .wrapping_add(words[index]);
+                .wrapping_add(*word);
             e = d;
             d = c;
             c = b.rotate_left(30);

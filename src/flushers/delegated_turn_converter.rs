@@ -143,9 +143,11 @@ mod tests {
     }
 
     fn record(scope: Option<&str>, trace: &str, parent: &str) -> AgentActivityEntry {
-        let mut entry = AgentActivityEntry::default();
-        entry.trace_id = Some(trace.to_string());
-        entry.parent_span_id = Some(parent.to_string());
+        let mut entry = AgentActivityEntry {
+            trace_id: Some(trace.to_string()),
+            parent_span_id: Some(parent.to_string()),
+            ..AgentActivityEntry::default()
+        };
         if let Some(scope) = scope {
             entry.extra.insert(
                 "gen_ai.agent.scope".to_string(),

@@ -405,9 +405,7 @@ pub fn parse_checkpoint_key_or_legacy(key: &str) -> Option<String> {
     let Some(last) = key.rfind('*') else {
         return Some(key.to_string());
     };
-    let Some(second) = key[..last].rfind('*') else {
-        return None;
-    };
+    let second = key[..last].rfind('*')?;
     Some(key[..second].to_string())
 }
 

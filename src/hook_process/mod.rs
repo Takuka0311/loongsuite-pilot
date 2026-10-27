@@ -642,7 +642,7 @@ mod tests {
             "tool_name": "Write",
         });
         journal
-            .rewrite(&[reordered.clone()], Some(&snapshot))
+            .rewrite(std::slice::from_ref(&reordered), Some(&snapshot))
             .unwrap();
         let remaining = journal.read_all().unwrap();
         assert_eq!(remaining.len(), 1);
@@ -669,7 +669,7 @@ mod tests {
         let remaining = journal.read_all().unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0]["tool_use_id"], "call-write-B");
-        assert!(cursor::JOURNAL_LOCK_TIMEOUT_MS > cursor::JOURNAL_LOCK_STALE_MS);
+        const { assert!(cursor::JOURNAL_LOCK_TIMEOUT_MS > cursor::JOURNAL_LOCK_STALE_MS) };
     }
 
     #[test]

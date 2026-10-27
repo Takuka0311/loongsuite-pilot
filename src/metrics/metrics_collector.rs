@@ -6,7 +6,7 @@
 use crate::metrics::runtime_health::{check_runtime, read_init_type, RuntimeProbe};
 use crate::types::{AgentsConfig, SlsEndpoint};
 use crate::utils::{
-    check_process_liveness, format_time, resolve_local_ip, ProcessLiveness, ProcessLivenessProbe,
+    check_process_liveness, format_time, resolve_local_ip, ProcessLivenessProbe,
     UPDATER_PROCESS_PATTERNS,
 };
 use base64::Engine;
@@ -971,6 +971,7 @@ fn read_proc_cpu() -> (i64, i64) {
 mod tests {
     use super::*;
     use crate::types::{SlsEndpoint, SlsEndpointKind, SlsMode};
+    use crate::utils::ProcessLiveness;
     use std::sync::atomic::{AtomicI64, Ordering};
     use std::sync::Arc;
 

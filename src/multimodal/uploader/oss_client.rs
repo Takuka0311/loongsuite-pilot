@@ -239,11 +239,8 @@ pub fn build_v4_put_request(args: V4PutArgs) -> Result<SignedRequest, String> {
     ));
     let encoded_key = http::uri_encode(&args.object_key, true);
     let url = format!(
-        "{}://{}.{}{}",
-        args.endpoint.scheme,
-        args.bucket,
-        args.endpoint.host,
-        format!("/{encoded_key}")
+        "{}://{}.{}/{encoded_key}",
+        args.endpoint.scheme, args.bucket, args.endpoint.host
     );
     Ok(SignedRequest { url, headers })
 }

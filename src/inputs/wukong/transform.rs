@@ -30,6 +30,13 @@ pub(crate) struct WukongMessage {
     pub turn_index: Option<f64>,
 }
 
+struct ActivityResult<'a> {
+    result: Option<Value>,
+    duration: Option<f64>,
+    status: &'a str,
+    error_message: Option<String>,
+}
+
 impl WukongMessage {
     fn content_truthy(&self) -> bool {
         self.content.as_ref().is_some_and(|text| !text.is_empty())
@@ -708,10 +715,12 @@ impl<'a> AssistantTurn<'a> {
             &tool_name,
             finish,
             tool_idx + 1,
-            result,
-            duration,
-            status,
-            error_message,
+            ActivityResult {
+                result,
+                duration,
+                status,
+                error_message,
+            },
         );
         self.tool_idx += 2;
         if let Some(step) = &mut self.current_step {
@@ -1053,11 +1062,14 @@ impl<'a> AssistantTurn<'a> {
         tool_name: &str,
         timestamp: f64,
         tool_idx: i64,
-        result: Option<Value>,
-        duration: Option<f64>,
-        status: &str,
-        error_message: Option<String>,
+        outcome: ActivityResult<'_>,
     ) {
+        let ActivityResult {
+            result,
+            duration,
+            status,
+            error_message,
+        } = outcome;
         let mut fields = Map::new();
         fields.insert(
             "timestamp".into(),

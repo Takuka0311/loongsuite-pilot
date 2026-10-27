@@ -895,10 +895,10 @@ fn ensure_hook_array(settings: &mut Value, json_path: &[String]) -> Result<bool,
     let mut cursor = object;
     let mut reassigned = false;
     for key in &json_path[..json_path.len() - 1] {
-        let replace = match cursor.get(key) {
-            Some(Value::Object(_)) | Some(Value::Array(_)) => false,
-            _ => true,
-        };
+        let replace = !matches!(
+            cursor.get(key),
+            Some(Value::Object(_)) | Some(Value::Array(_))
+        );
         if replace {
             cursor.insert(key.clone(), Value::Object(Map::new()));
             reassigned = true;

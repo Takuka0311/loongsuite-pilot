@@ -735,12 +735,8 @@ fn is_valid_ip_address(value: &str, start: usize, end: usize) -> bool {
     let mut part_value = 0i32;
     let mut part_length = 0i32;
     let mut first_digit = -1i32;
-    for index in start..=end {
-        let code = if index < end {
-            bytes[index] as i32
-        } else {
-            '.' as i32
-        };
+    for byte in bytes[start..end].iter().copied().chain([b'.']) {
+        let code = i32::from(byte);
         if is_ascii_digit(code) {
             if part_length == 0 {
                 first_digit = code;

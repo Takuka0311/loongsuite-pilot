@@ -85,7 +85,7 @@ pub async fn collect_recent_rollout_files(
     while let Ok(Some(entry)) = entries.next_entry().await {
         listed.push(entry);
     }
-    listed.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+    listed.sort_by_key(|entry| std::cmp::Reverse(entry.file_name()));
     for entry in listed {
         if files.len() >= max_files {
             return;

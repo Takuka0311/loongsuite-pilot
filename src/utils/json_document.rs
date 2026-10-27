@@ -716,7 +716,7 @@ fn edit_at(
                 }
                 return raw.to_string();
             }
-            edit_array(raw, node, items, *index, value, array_insert, fmt, depth)
+            edit_array(raw, node, *index, value, array_insert, fmt, depth)
         }
         _ => raw.to_string(),
     }
@@ -782,13 +782,15 @@ fn remove_property(raw: &str, node: &Cst, fields: &[Field], index: usize) -> Str
 fn edit_array(
     raw: &str,
     node: &Cst,
-    items: &[Cst],
     index: usize,
     value: Option<&Value>,
     array_insert: bool,
     fmt: &FormattingOptions,
     depth: usize,
 ) -> String {
+    let Kind::Array(items) = &node.kind else {
+        return raw.to_string();
+    };
     let Some(value) = value else {
         let Some(item) = items.get(index) else {
             return raw.to_string();

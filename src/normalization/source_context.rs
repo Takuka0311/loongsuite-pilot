@@ -217,7 +217,7 @@ fn longest_containing_root(value: &str, roots: &[String]) -> Option<String> {
             normalized_value == root.as_str() || normalized_value.starts_with(&format!("{root}/"))
         })
         .collect::<Vec<_>>();
-    matches.sort_by(|left, right| right.len().cmp(&left.len()));
+    matches.sort_by_key(|root| std::cmp::Reverse(root.len()));
     matches.first().map(|root| (*root).clone())
 }
 

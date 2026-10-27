@@ -231,7 +231,6 @@ pub fn render_token_usage(
         &color,
         "Provider",
         |item| item.get("provider"),
-        |item| number(item.get("totalTokens")),
         None,
     ));
     lines.push(String::new());
@@ -249,7 +248,6 @@ pub fn render_token_usage(
         &color,
         "Model",
         |item| item.get("model"),
-        |item| number(item.get("totalTokens")),
         Some(&model_detail),
     ));
     lines.push(String::new());
@@ -506,7 +504,6 @@ fn render_share_section(
     color: &Color,
     name_header: &str,
     name: impl Fn(&Value) -> Option<&Value>,
-    value: impl Fn(&Value) -> f64,
     detail: Option<&dyn Fn(&Value) -> String>,
 ) -> Vec<String> {
     let mut lines = vec![color.bold(title)];
@@ -528,7 +525,7 @@ fn render_share_section(
             .unwrap_or_default();
         lines.push(table_row(
             &label,
-            &compact_number(value(item)),
+            &compact_number(number(item.get("totalTokens"))),
             &percent(share),
             "",
             &render_bar(share, bar_width, color),

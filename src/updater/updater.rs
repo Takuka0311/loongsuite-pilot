@@ -1494,21 +1494,7 @@ impl Updater {
         } else {
             "stage=unknown reason=\"restart command left no diagnostics\"".into()
         };
-        let stage = breadcrumb
-            .as_ref()
-            .map(|item| item.stage.clone())
-            .unwrap_or_else(|| {
-                if is_restart_command_timeout(Some(&err.as_restart_error())) {
-                    "timeout".into()
-                } else {
-                    "unknown".into()
-                }
-            });
-        RestartDiagnosis {
-            detail,
-            diagnosis,
-            stage,
-        }
+        RestartDiagnosis { detail, diagnosis }
     }
 
     async fn wait_for_collector_health(
@@ -1668,7 +1654,6 @@ impl Updater {
 struct RestartDiagnosis {
     detail: String,
     diagnosis: String,
-    stage: String,
 }
 
 pub fn build_paths(base_dir: &str) -> UpdaterPaths {
@@ -1845,7 +1830,8 @@ pub async fn verify_checksum(archive: &Path, shasums_file: &Path, name: &str) ->
     compute_sha256(&archive.to_string_lossy()).ok().as_deref() == Some(expected.as_str())
 }
 
-pub async fn write_pointer_file(path: &str, value: &str) -> Result<(), String> {
+#[cfg(test)]
+async fn write_pointer_file(path: &str, value: &str) -> Result<(), String> {
     if !safe_pointer(value) {
         return Err("无效版本指针".into());
     }

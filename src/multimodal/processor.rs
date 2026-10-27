@@ -56,7 +56,6 @@ struct PathCacheEntry {
 
 struct PendingUpload {
     target_path: String,
-    size: usize,
     done: oneshot::Receiver<()>,
 }
 
@@ -411,7 +410,6 @@ impl MultimodalProcessor {
         let (tx, rx) = oneshot::channel();
         self.inner.lock().unwrap().pending.push(PendingUpload {
             target_path: target_path.clone(),
-            size: bytes.len(),
             done: rx,
         });
         let uploader = Arc::clone(&self.uploader);
