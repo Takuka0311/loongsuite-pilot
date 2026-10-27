@@ -4,8 +4,11 @@
 use crate::internal::webtracking_post::build_web_tracking_url;
 #[cfg(all(feature = "proprietary", not(test)))]
 use crate::internal::webtracking_post::post_web_tracking;
+#[cfg(any(feature = "proprietary", test))]
 use indexmap::IndexMap;
+#[cfg(any(feature = "proprietary", test))]
 use serde_json::{json, Map, Value};
+#[cfg(any(feature = "proprietary", test))]
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const ENDPOINT: &str = "https://cn-shanghai.log.aliyuncs.com";
@@ -13,8 +16,10 @@ const PROJECT: &str = "loongsuite-community-edition";
 const LOGSTORE: &str = "loongsuite-online";
 
 /// L1 is collected every 10 minutes; send once per 12 hours → 72 intervals.
+#[cfg(any(feature = "proprietary", test))]
 const SEND_INTERVAL_COUNT: u64 = 72;
 
+#[cfg(any(feature = "proprietary", test))]
 const SELECTED_FIELDS: &[&str] = &[
     "cpu",
     "mem",
@@ -26,6 +31,7 @@ const SELECTED_FIELDS: &[&str] = &[
     "metric_json",
 ];
 
+#[cfg(any(feature = "proprietary", test))]
 static CALL_COUNT: AtomicU64 = AtomicU64::new(0);
 
 pub fn status_url() -> String {
@@ -34,6 +40,7 @@ pub fn status_url() -> String {
 
 /// Returns the payload that would be posted, or `None` when this call falls
 /// between the 12-hour samples.
+#[cfg(any(feature = "proprietary", test))]
 pub fn next_running_status_payload(data: &IndexMap<String, String>) -> Option<Value> {
     let call = CALL_COUNT.fetch_add(1, Ordering::SeqCst);
     if !call.is_multiple_of(SEND_INTERVAL_COUNT) {

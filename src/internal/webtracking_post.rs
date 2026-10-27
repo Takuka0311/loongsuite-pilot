@@ -1,12 +1,18 @@
 //! SLS web tracking POST. Network I/O runs only with the `proprietary` feature.
 
+#[cfg(feature = "proprietary")]
 use crate::utils::create_logger;
 use serde_json::Value;
+#[cfg(feature = "proprietary")]
 use std::time::Duration;
 
+#[cfg(feature = "proprietary")]
 const TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(feature = "proprietary")]
 const RETRY_MAX_ATTEMPTS: u32 = 3;
+#[cfg(feature = "proprietary")]
 const RETRY_BASE_DELAY_MS: u64 = 1000;
+#[cfg(feature = "proprietary")]
 const RETRYABLE_STATUS: &[u16] = &[408, 429, 500, 502, 503, 504];
 
 pub fn build_web_tracking_url(endpoint: &str, project: &str, logstore: &str) -> String {
