@@ -1,0 +1,18 @@
+//! Alarm and running-status delivery.
+//!
+//! Open-source builds keep [`send_alarm`], [`send_status`], [`send_running_status`],
+//! and [`post_alarm`] as no-ops. The `proprietary` feature turns on the statistic
+//! web-tracking post from `statistic.ts`. Alarm delivery stays empty because the
+//! proprietary alarm module is not in this tree.
+
+mod alarm_sender;
+pub mod sender;
+mod statistic;
+mod webtracking_post;
+
+pub use sender::{post_alarm, send_alarm, send_running_status, send_status};
+pub use statistic::status_url;
+pub use webtracking_post::{build_web_tracking_url, post_web_tracking};
+
+#[cfg(test)]
+pub use sender::{clear_sends, inject_send_error, injected_error, recorded_sends, RecordedSend};

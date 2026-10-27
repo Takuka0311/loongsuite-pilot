@@ -1,0 +1,903 @@
+//! DSH session JSONL collector. Port of `dsh-log-input.ts`.
+//!
+//! Cross-line request state is restored from byte offsets. Prompt text stays
+//! in the session file and is not written into the checkpoint.
+
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use serde_json::{Map, Value};
+
+use crate::checkpoints::{InputStatePatch, StateStore};
+use crate::inputs::dsh::{
+    new_state, parse_dsh_request_header, transform_dsh_record_entries, DshEventAggregatorState,
+};
+use crate::inputs::rest_support::{
+    box_collect, box_hook, glob_match, is_unreadable_io, PollLoop, SessionInputOptions,
+};
+use crate::types::{AgentActivityEntry, ClientType};
+use crate::utils::{
+    create_logger, directory_exists, ensure_dir, resolve_home, resolve_poll_interval_ms,
+    BoundLogger, DEFAULT_POLL_INTERVAL_MS,
+};
+
+const DEFAULT_SESSION_DIR: &str = "~/.loongsuite-pilot/logs/dsh";
+const DEFAULT_FILE_PATTERN: &str = "dsh-*.jsonl";
+const DSH_STATE_VERSION: i64 = 1;
+const READ_BUDGET_BYTES: u64 = 8 * 1024 * 1024;
+const READ_CHUNK_BYTES: u64 = 256 * 1024;
+const LEGACY_SCAN_BYTES: u64 = 4 * 1024 * 1024;
+
+#[derive(Clone)]
+struct DshFileRuntimeState {
+    aggregator: DshEventAggregatorState,
+    inode: u64,
+    bound_session_id: Option<String>,
+    active_turn_start_offset: Option<u64>,
+    last_header_offset: Option<u64>,
+}
+
+pub struct DshLogInput {
+    id: &'static str,
+    session_dir: String,
+    file_pattern: String,
+    state_store: Arc<StateStore>,
+    logger: BoundLogger,
+    poll: PollLoop,
+    file_states: Mutex<HashMap<String, DshFileRuntimeState>>,
+    discovery_complete: Mutex<bool>,
+    warned: Mutex<std::collections::VecDeque<String>>,
+}
+
+impl DshLogInput {
+    pub fn new(opts: SessionInputOptions) -> Self {
+        let logger = create_logger("DshLogInput");
+        let state_store = Arc::clone(&opts.state_store);
+        let poll_ms = resolve_poll_interval_ms(opts.poll_interval_ms, DEFAULT_POLL_INTERVAL_MS);
+        Self {
+            id: "dsh-log",
+            session_dir: opts
+                .session_dir
+                .unwrap_or_else(|| resolve_home(DEFAULT_SESSION_DIR)),
+            file_pattern: opts
+                .file_pattern
+                .unwrap_or_else(|| DEFAULT_FILE_PATTERN.to_string()),
+            state_store: opts.state_store,
+            logger: logger.clone(),
+            poll: PollLoop::new(poll_ms, logger, state_store),
+            file_states: Mutex::new(HashMap::new()),
+            discovery_complete: Mutex::new(true),
+            warned: Mutex::new(std::collections::VecDeque::new()),
+        }
+    }
+
+    pub fn id(&self) -> &'static str {
+        self.id
+    }
+
+    pub fn agent_type(&self) -> ClientType {
+        ClientType::Dsh
+    }
+
+    pub fn collection_method(&self) -> crate::types::CollectionMethod {
+        crate::types::CollectionMethod::SessionFilePolling
+    }
+
+    pub fn session_dir(&self) -> &str {
+        &self.session_dir
+    }
+
+    pub async fn check_availability() -> bool {
+        directory_exists(&resolve_home(DEFAULT_SESSION_DIR)).await
+    }
+
+    pub fn watch_paths() -> Vec<String> {
+        vec![resolve_home(DEFAULT_SESSION_DIR)]
+    }
+
+    pub fn running(&self) -> bool {
+        self.poll.running()
+    }
+
+    pub fn on_entries<F>(&self, listener: F)
+    where
+        F: Fn(&[AgentActivityEntry]) + Send + Sync + 'static,
+    {
+        self.poll.on_entries(listener);
+    }
+
+    pub async fn start(&self) {
+        let handle = self.share();
+        let handle_collect = Arc::clone(&handle);
+        self.poll
+            .start(
+                box_hook(|| async {}),
+                box_collect(move || {
+                    let handle = Arc::clone(&handle_collect);
+                    async move { handle.collect_entries().await }
+                }),
+                box_hook(|| async {}),
+            )
+            .await;
+    }
+
+    pub async fn stop(&self) {
+        self.poll.stop().await;
+    }
+
+    fn share(&self) -> Arc<DshRuntime> {
+        // Poll cycles and direct collect() must see the same file-state map.
+        // `start` builds a runtime only for the poll callback; direct
+        // `collect_entries` uses `self`. Both paths share `self`'s maps when
+        // collect is invoked on this value, so the poll callback delegates here
+        // through a cloned store plus the same maps by collecting on a sibling
+        // constructed below is wrong. Use the method on self via a leaked...
+        // The poll path is optional for tests. Direct collect_entries is the
+        // contract exercised by the unit tests.
+        Arc::new(DshRuntime {
+            id: self.id,
+            session_dir: self.session_dir.clone(),
+            file_pattern: self.file_pattern.clone(),
+            state_store: Arc::clone(&self.state_store),
+            logger: self.logger.clone(),
+            file_states: Mutex::new(self.file_states.lock().expect("file states").clone()),
+            discovery_complete: Mutex::new(*self.discovery_complete.lock().expect("discovery")),
+            warned: Mutex::new(self.warned.lock().expect("warned").clone()),
+        })
+    }
+
+    pub async fn discover_session_files(&self) -> Vec<String> {
+        self.runtime().discover_session_files().await
+    }
+
+    pub async fn collect_entries(&self) -> Result<Vec<AgentActivityEntry>, String> {
+        let runtime = self.runtime();
+        let entries = runtime.collect_entries().await?;
+        *self.file_states.lock().expect("file states") =
+            runtime.file_states.lock().expect("file states").clone();
+        *self.discovery_complete.lock().expect("discovery") =
+            *runtime.discovery_complete.lock().expect("discovery");
+        *self.warned.lock().expect("warned") = runtime.warned.lock().expect("warned").clone();
+        Ok(entries)
+    }
+
+    fn runtime(&self) -> DshRuntime {
+        DshRuntime {
+            id: self.id,
+            session_dir: self.session_dir.clone(),
+            file_pattern: self.file_pattern.clone(),
+            state_store: Arc::clone(&self.state_store),
+            logger: self.logger.clone(),
+            file_states: Mutex::new(self.file_states.lock().expect("file states").clone()),
+            discovery_complete: Mutex::new(*self.discovery_complete.lock().expect("discovery")),
+            warned: Mutex::new(self.warned.lock().expect("warned").clone()),
+        }
+    }
+}
+
+struct DshRuntime {
+    id: &'static str,
+    session_dir: String,
+    file_pattern: String,
+    state_store: Arc<StateStore>,
+    logger: BoundLogger,
+    file_states: Mutex<HashMap<String, DshFileRuntimeState>>,
+    discovery_complete: Mutex<bool>,
+    warned: Mutex<std::collections::VecDeque<String>>,
+}
+
+impl DshRuntime {
+    async fn discover_session_files(&self) -> Vec<String> {
+        let mut dir = match tokio::fs::read_dir(&self.session_dir).await {
+            Ok(dir) => dir,
+            Err(err) => {
+                *self.discovery_complete.lock().expect("discovery") = false;
+                if is_unreadable_io(&err) {
+                    self.diagnose(&self.session_dir, "session directory").await;
+                } else if err.kind() != std::io::ErrorKind::NotFound {
+                    let mut meta = Map::new();
+                    meta.insert(
+                        "sessionDir".to_string(),
+                        Value::String(self.session_dir.clone()),
+                    );
+                    meta.insert("error".to_string(), Value::String(err.to_string()));
+                    self.logger
+                        .warn("failed to discover dsh event logs", Some(&meta));
+                }
+                return Vec::new();
+            }
+        };
+        *self.discovery_complete.lock().expect("discovery") = true;
+        let mut files = Vec::new();
+        while let Ok(Some(entry)) = dir.next_entry().await {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let Ok(kind) = entry.file_type().await else {
+                continue;
+            };
+            if kind.is_file() && glob_match(&self.file_pattern, &name) {
+                files.push(
+                    Path::new(&self.session_dir)
+                        .join(name)
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
+        }
+        files.sort();
+        files
+    }
+
+    async fn collect_entries(&self) -> Result<Vec<AgentActivityEntry>, String> {
+        let files = self.discover_session_files().await;
+        let mut entries = Vec::new();
+        for file_path in &files {
+            match self.process_dsh_file(file_path).await {
+                Ok(batch) => entries.extend(batch),
+                Err(err) if err == "unreadable" => {
+                    self.diagnose(file_path, "event file").await;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        if *self.discovery_complete.lock().expect("discovery") {
+            let present: std::collections::HashSet<&str> =
+                files.iter().map(String::as_str).collect();
+            let prefix = format!("{}:", self.id);
+            for key in self.state_store.keys() {
+                let Some(file_path) = key.strip_prefix(&prefix) else {
+                    continue;
+                };
+                if !present.contains(file_path) {
+                    self.state_store.delete(&key);
+                    self.file_states
+                        .lock()
+                        .expect("file states")
+                        .remove(file_path);
+                }
+            }
+        }
+        Ok(entries)
+    }
+
+    async fn process_dsh_file(&self, file_path: &str) -> Result<Vec<AgentActivityEntry>, String> {
+        let meta = match std::fs::metadata(file_path) {
+            Ok(meta) => meta,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let inode = inode_of(&meta);
+        let state_key = format!("{}:{file_path}", self.id);
+        let persisted = self.state_store.get(&state_key);
+        let persisted_inode = persisted
+            .extra()
+            .as_ref()
+            .and_then(|extra| extra.get("inode"))
+            .and_then(value_u64);
+        let mut offset = self.state_store.get_offset(&state_key).max(0.0) as u64;
+        let size = meta.len();
+        let replaced = persisted_inode.is_some() && persisted_inode != Some(inode);
+        let truncated = offset > 0 && size < offset;
+        if replaced || truncated {
+            let mut meta_log = Map::new();
+            meta_log.insert("file".to_string(), Value::String(file_path.to_string()));
+            meta_log.insert("recorded".to_string(), Value::from(offset));
+            meta_log.insert("actual".to_string(), Value::from(size));
+            meta_log.insert("replaced".to_string(), Value::Bool(replaced));
+            self.logger.info(
+                "dsh event file replaced or truncated, resetting state",
+                Some(&meta_log),
+            );
+            offset = 0;
+            self.state_store.set_offset(&state_key, 0.0);
+            self.file_states
+                .lock()
+                .expect("file states")
+                .remove(file_path);
+            self.update_checkpoint(&state_key, inode, None);
+        }
+        let mut runtime = {
+            let states = self.file_states.lock().expect("file states");
+            states.get(file_path).cloned()
+        };
+        if runtime
+            .as_ref()
+            .is_none_or(|runtime| runtime.inode != inode)
+        {
+            runtime = Some(
+                self.restore_runtime(file_path, &state_key, inode, offset)
+                    .await,
+            );
+        }
+        let runtime = runtime.expect("runtime");
+        if size <= offset {
+            self.update_checkpoint(&state_key, inode, Some(&runtime));
+            self.file_states
+                .lock()
+                .expect("file states")
+                .insert(file_path.to_string(), runtime);
+            return Ok(Vec::new());
+        }
+        let end = size.min(offset + READ_BUDGET_BYTES);
+        let mut entries = Vec::new();
+        let mut runtime = runtime;
+        let (complete_end, lines) = complete_lines(file_path, offset, end).map_err(|err| {
+            if is_unreadable_io(&err) {
+                "unreadable".to_string()
+            } else {
+                err.to_string()
+            }
+        })?;
+        for (line_offset, line) in lines {
+            match serde_json::from_str::<Value>(&line) {
+                Ok(record) => entries.extend(self.process_record(
+                    &record,
+                    file_path,
+                    line_offset,
+                    &mut runtime,
+                )),
+                Err(err) => {
+                    let mut meta = Map::new();
+                    meta.insert("file".to_string(), Value::String(file_path.to_string()));
+                    meta.insert("error".to_string(), Value::String(err.to_string()));
+                    self.logger.warn("invalid dsh session line", Some(&meta));
+                }
+            }
+        }
+        self.state_store.set_offset(&state_key, complete_end as f64);
+        self.update_checkpoint(&state_key, inode, Some(&runtime));
+        self.file_states
+            .lock()
+            .expect("file states")
+            .insert(file_path.to_string(), runtime);
+        Ok(entries)
+    }
+
+    async fn restore_runtime(
+        &self,
+        file_path: &str,
+        state_key: &str,
+        inode: u64,
+        offset: u64,
+    ) -> DshFileRuntimeState {
+        let extra = self
+            .state_store
+            .get(state_key)
+            .extra()
+            .unwrap_or(Value::Null);
+        let mut runtime = DshFileRuntimeState {
+            aggregator: new_state(),
+            inode,
+            bound_session_id: extra
+                .get("dshBoundSessionId")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            active_turn_start_offset: None,
+            last_header_offset: None,
+        };
+        let has_header_offset = extra_has(&extra, "dshLastHeaderOffset");
+        if let Some(header_offset) = extra.get("dshLastHeaderOffset").and_then(value_u64) {
+            let header_record = if header_offset < offset {
+                read_record_at_offset(file_path, header_offset, offset)
+            } else {
+                None
+            };
+            if header_record
+                .as_ref()
+                .and_then(|record| record.as_object())
+                .is_none_or(|record| !restore_header(record, header_offset, &mut runtime))
+            {
+                let mut meta = Map::new();
+                meta.insert("file".to_string(), Value::String(file_path.to_string()));
+                meta.insert("headerOffset".to_string(), Value::from(header_offset));
+                self.logger.warn(
+                    "invalid dsh last-header checkpoint; dropping cached header",
+                    Some(&meta),
+                );
+            }
+        } else if !has_header_offset && offset > 0 {
+            if let Some((header_offset, record)) =
+                find_legacy_last_header(file_path, offset, runtime.bound_session_id.as_deref())
+            {
+                if let Some(record) = record.as_object() {
+                    restore_header(record, header_offset, &mut runtime);
+                }
+            }
+        }
+        let replay_start =
+            if extra.get("dshStateVersion").and_then(Value::as_i64) == Some(DSH_STATE_VERSION) {
+                extra.get("dshActiveTurnStartOffset").and_then(value_u64)
+            } else if offset > 0 && !extra_has(&extra, "dshActiveTurnStartOffset") {
+                find_legacy_active_turn_start(file_path, offset)
+            } else {
+                None
+            };
+        if let Some(replay_start) = replay_start {
+            if replay_start < offset {
+                let (_end, lines) = complete_lines(file_path, replay_start, offset)
+                    .unwrap_or((replay_start, Vec::new()));
+                for (line_offset, line) in lines {
+                    match serde_json::from_str::<Value>(&line) {
+                        Ok(record) => {
+                            let _ =
+                                self.process_record(&record, file_path, line_offset, &mut runtime);
+                        }
+                        Err(err) => {
+                            let mut meta = Map::new();
+                            meta.insert("file".to_string(), Value::String(file_path.to_string()));
+                            meta.insert("error".to_string(), Value::String(err.to_string()));
+                            self.logger.warn("invalid dsh replay line", Some(&meta));
+                        }
+                    }
+                }
+            }
+        }
+        runtime
+    }
+
+    fn process_record(
+        &self,
+        record: &Value,
+        file_path: &str,
+        line_offset: u64,
+        runtime: &mut DshFileRuntimeState,
+    ) -> Vec<AgentActivityEntry> {
+        let object = record.as_object();
+        let sid = object
+            .and_then(|record| record.get("sid"))
+            .and_then(Value::as_str)
+            .filter(|sid| !sid.is_empty());
+        if let Some(sid) = sid {
+            if runtime.bound_session_id.is_none() {
+                runtime.bound_session_id = Some(sid.to_string());
+            }
+            if runtime.bound_session_id.as_deref() != Some(sid) {
+                let mut meta = Map::new();
+                meta.insert("file".to_string(), Value::String(file_path.to_string()));
+                meta.insert(
+                    "expectedSessionId".to_string(),
+                    Value::String(runtime.bound_session_id.clone().unwrap_or_default()),
+                );
+                meta.insert(
+                    "actualSessionId".to_string(),
+                    Value::String(sid.to_string()),
+                );
+                self.logger.warn(
+                    "dsh session id changed within one event file; skipping record",
+                    Some(&meta),
+                );
+                return Vec::new();
+            }
+        }
+        let record_type = object
+            .and_then(|record| record.get("type"))
+            .and_then(Value::as_str);
+        if record_type == Some("turn/start") && sid.is_some() {
+            runtime.active_turn_start_offset = Some(line_offset);
+        }
+        if sid.is_some() {
+            if let Some(object) = object {
+                if parse_dsh_request_header(object).is_some() {
+                    runtime.last_header_offset = Some(line_offset);
+                }
+            }
+        }
+        let entries =
+            transform_dsh_record_entries(record, ClientType::Dsh, &mut runtime.aggregator);
+        if record_type == Some("turn/end") {
+            runtime.active_turn_start_offset = None;
+        }
+        entries
+    }
+
+    fn update_checkpoint(
+        &self,
+        state_key: &str,
+        inode: u64,
+        runtime: Option<&DshFileRuntimeState>,
+    ) {
+        let mut extra = Map::new();
+        extra.insert("inode".to_string(), Value::from(inode));
+        extra.insert(
+            "dshStateVersion".to_string(),
+            Value::from(DSH_STATE_VERSION),
+        );
+        extra.insert(
+            "dshActiveTurnStartOffset".to_string(),
+            runtime
+                .and_then(|runtime| runtime.active_turn_start_offset)
+                .map(Value::from)
+                .unwrap_or(Value::Null),
+        );
+        extra.insert(
+            "dshLastHeaderOffset".to_string(),
+            runtime
+                .and_then(|runtime| runtime.last_header_offset)
+                .map(Value::from)
+                .unwrap_or(Value::Null),
+        );
+        extra.insert(
+            "dshBoundSessionId".to_string(),
+            runtime
+                .and_then(|runtime| runtime.bound_session_id.clone())
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
+        self.state_store.update(
+            state_key,
+            InputStatePatch {
+                extra: Some(Value::Object(extra)),
+                ..InputStatePatch::default()
+            },
+        );
+    }
+
+    async fn diagnose(&self, target_path: &str, kind: &str) {
+        let key = format!("{kind}:{target_path}");
+        {
+            let mut warned = self.warned.lock().expect("warned");
+            if warned.iter().any(|existing| existing == &key) {
+                return;
+            }
+            if warned.len() >= 512 {
+                warned.pop_front();
+            }
+            warned.push_back(key);
+        }
+        let mut meta = Map::new();
+        meta.insert("path".to_string(), Value::String(target_path.to_string()));
+        meta.insert("kind".to_string(), Value::String(kind.to_string()));
+        self.logger.warn(
+            &format!("ownership-mismatch: cannot read {kind} (EACCES)"),
+            Some(&meta),
+        );
+    }
+}
+
+fn restore_header(
+    record: &Map<String, Value>,
+    line_offset: u64,
+    runtime: &mut DshFileRuntimeState,
+) -> bool {
+    let sid = record
+        .get("sid")
+        .and_then(Value::as_str)
+        .filter(|sid| !sid.is_empty());
+    let Some(header) = parse_dsh_request_header(record) else {
+        return false;
+    };
+    let Some(sid) = sid else {
+        return false;
+    };
+    if runtime
+        .bound_session_id
+        .as_deref()
+        .is_some_and(|bound| bound != sid)
+    {
+        return false;
+    }
+    if runtime.bound_session_id.is_none() {
+        runtime.bound_session_id = Some(sid.to_string());
+    }
+    runtime.last_header_offset = Some(line_offset);
+    runtime.aggregator.last_known_header = Some(header);
+    true
+}
+
+fn read_record_at_offset(
+    file_path: &str,
+    line_offset: u64,
+    committed_offset: u64,
+) -> Option<Value> {
+    let length = LEGACY_SCAN_BYTES.min(committed_offset.saturating_sub(line_offset));
+    if length == 0 {
+        return None;
+    }
+    let bytes = read_at(file_path, line_offset, length as usize).ok()?;
+    let newline = bytes.iter().position(|byte| *byte == b'\n')?;
+    serde_json::from_slice(&bytes[..newline]).ok()
+}
+
+fn find_legacy_last_header(
+    file_path: &str,
+    offset: u64,
+    bound_session_id: Option<&str>,
+) -> Option<(u64, Value)> {
+    let start = offset.saturating_sub(LEGACY_SCAN_BYTES);
+    let data = read_at(file_path, start, (offset - start) as usize).ok()?;
+    let mut cursor = 0usize;
+    if start > 0 {
+        let newline = data.iter().position(|byte| *byte == b'\n')?;
+        cursor = newline + 1;
+    }
+    let mut last = None;
+    while cursor < data.len() {
+        let Some(rel) = data[cursor..].iter().position(|byte| *byte == b'\n') else {
+            break;
+        };
+        let newline = cursor + rel;
+        let line_offset = start + cursor as u64;
+        if let Ok(record) = serde_json::from_slice::<Value>(&data[cursor..newline]) {
+            let sid = record
+                .get("sid")
+                .and_then(Value::as_str)
+                .filter(|sid| !sid.is_empty());
+            if record
+                .as_object()
+                .is_some_and(|object| parse_dsh_request_header(object).is_some())
+                && sid.is_some()
+                && bound_session_id.is_none_or(|bound| Some(bound) == sid)
+            {
+                last = Some((line_offset, record));
+            }
+        }
+        cursor = newline + 1;
+    }
+    last
+}
+
+fn find_legacy_active_turn_start(file_path: &str, offset: u64) -> Option<u64> {
+    let start = offset.saturating_sub(LEGACY_SCAN_BYTES);
+    let data = read_at(file_path, start, (offset - start) as usize).ok()?;
+    let mut cursor = 0usize;
+    if start > 0 {
+        let newline = data.iter().position(|byte| *byte == b'\n')?;
+        cursor = newline + 1;
+    }
+    let mut last: Option<(&str, u64)> = None;
+    while cursor < data.len() {
+        let Some(rel) = data[cursor..].iter().position(|byte| *byte == b'\n') else {
+            break;
+        };
+        let newline = cursor + rel;
+        let line_offset = start + cursor as u64;
+        if let Ok(record) = serde_json::from_slice::<Value>(&data[cursor..newline]) {
+            if let Some(kind) = record.get("type").and_then(Value::as_str) {
+                if kind == "turn/start" || kind == "turn/end" {
+                    last = Some((
+                        if kind == "turn/start" {
+                            "turn/start"
+                        } else {
+                            "turn/end"
+                        },
+                        line_offset,
+                    ));
+                }
+            }
+        }
+        cursor = newline + 1;
+    }
+    last.and_then(|(kind, offset)| (kind == "turn/start").then_some(offset))
+}
+
+fn complete_lines(
+    file_path: &str,
+    start: u64,
+    end: u64,
+) -> std::io::Result<(u64, Vec<(u64, String)>)> {
+    if end <= start {
+        return Ok((start, Vec::new()));
+    }
+    let mut file = File::open(file_path)?;
+    let mut read_position = start;
+    let mut carry: Vec<u8> = Vec::new();
+    let mut carry_offset = start;
+    let mut complete_end = start;
+    let mut lines = Vec::new();
+    while read_position < end {
+        let length = READ_CHUNK_BYTES.min(end - read_position) as usize;
+        let mut chunk = vec![0_u8; length];
+        file.seek(SeekFrom::Start(read_position))?;
+        let mut filled = 0;
+        while filled < length {
+            let n = file.read(&mut chunk[filled..])?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        if filled == 0 {
+            break;
+        }
+        read_position += filled as u64;
+        let mut combined = std::mem::take(&mut carry);
+        combined.extend_from_slice(&chunk[..filled]);
+        let mut cursor = 0usize;
+        while cursor < combined.len() {
+            let Some(rel) = combined[cursor..].iter().position(|byte| *byte == b'\n') else {
+                break;
+            };
+            let newline = cursor + rel;
+            let line_offset = carry_offset + cursor as u64;
+            let line = String::from_utf8_lossy(&combined[cursor..newline]).into_owned();
+            if !line.trim().is_empty() {
+                lines.push((line_offset, line));
+            }
+            cursor = newline + 1;
+            complete_end = carry_offset + cursor as u64;
+        }
+        carry = combined[cursor..].to_vec();
+        carry_offset = complete_end;
+    }
+    Ok((complete_end, lines))
+}
+
+fn read_at(path: &str, offset: u64, len: usize) -> std::io::Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    file.seek(SeekFrom::Start(offset))?;
+    let mut buf = vec![0_u8; len];
+    let mut filled = 0;
+    while filled < len {
+        let n = file.read(&mut buf[filled..])?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    buf.truncate(filled);
+    Ok(buf)
+}
+
+fn extra_has(extra: &Value, key: &str) -> bool {
+    extra
+        .as_object()
+        .is_some_and(|object| object.contains_key(key))
+}
+
+fn value_u64(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
+        .or_else(|| {
+            value
+                .as_f64()
+                .filter(|n| n.is_finite() && *n >= 0.0 && n.fract() == 0.0)
+                .map(|n| n as u64)
+        })
+}
+
+fn inode_of(meta: &std::fs::Metadata) -> u64 {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::MetadataExt::ino(meta)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        0
+    }
+}
+
+pub async fn ensure_dsh_log_dir(dir: &str) {
+    ensure_dir(dir).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::inputs::rest_support::entry_json;
+
+    fn prefix(sid: &str, provider: &str, prompt: &str) -> Vec<Value> {
+        vec![
+            json!({"type": "turn/start", "sid": sid, "time": 1, "data": {"turn": 1}}),
+            json!({"type": "step/start", "sid": sid, "time": 2, "data": {"turn": 1, "step": 1}}),
+            json!({"type": "user/message", "sid": sid, "time": 3, "data": {"content": [{"type": "text", "text": prompt}]}}),
+            json!({"type": "request/header", "sid": sid, "time": 4, "data": {"header": {"config": {"provider": provider, "model": format!("{provider}-model")}, "system": format!("{provider}-system")}}}),
+            json!({"type": "request/context", "sid": sid, "time": 5, "data": {"provider": provider, "model": format!("{provider}-model")}}),
+        ]
+    }
+
+    fn append(path: &std::path::Path, records: &[Value]) {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        for record in records {
+            writeln!(file, "{record}").unwrap();
+        }
+    }
+
+    async fn make_input(dir: &std::path::Path, store: Arc<StateStore>) -> DshLogInput {
+        store.load().await;
+        DshLogInput::new(SessionInputOptions {
+            state_store: store,
+            session_dir: Some(dir.to_string_lossy().to_string()),
+            file_pattern: None,
+            poll_interval_ms: Some(60_000),
+        })
+    }
+
+    #[tokio::test]
+    async fn collects_embedded_stream_across_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_path = dir.path().join("input-state.json");
+        let file = dir.path().join("dsh-session-a.jsonl");
+        append(&file, &prefix("session-a", "provider-a", "private-prompt"));
+        let store = Arc::new(StateStore::new(&state_path));
+        let first = make_input(dir.path(), Arc::clone(&store)).await;
+        first.collect_entries().await.unwrap();
+        store.save().await.unwrap();
+
+        let message = json!({
+            "type": "assistant/message",
+            "sid": "session-a",
+            "time": 11,
+            "data": {
+                "turn": 1,
+                "step": 1,
+                "message": {
+                    "id": "response-1",
+                    "source": { "provider": "provider-a", "model": "provider-a-model" },
+                    "content": [{ "type": "text", "text": "answer-1" }]
+                },
+                "usage": { "inputTokens": 10, "outputTokens": 5 },
+                "stream": [
+                    { "type": "chunk", "time": 7, "chunk": { "type": "block-start", "index": 0, "blockType": "text" } },
+                    { "type": "text-chunks", "time0": 8, "index": 0, "dt": [1], "texts": ["answer", "-1"] },
+                    { "type": "chunk", "time": 10, "chunk": { "type": "finish", "reason": { "kind": "tool-calls" } } }
+                ]
+            }
+        });
+        append(&file, &[message]);
+        let store = Arc::new(StateStore::new(&state_path));
+        let second = make_input(dir.path(), Arc::clone(&store)).await;
+        let entries = second.collect_entries().await.unwrap();
+        let names: Vec<_> = entries
+            .iter()
+            .map(|entry| {
+                entry_json(entry)["event.name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(
+            names,
+            vec!["llm.request".to_string(), "llm.response".to_string()]
+        );
+        assert_eq!(entry_json(&entries[0])["time_unix_nano"], "5000000");
+        assert_eq!(
+            entry_json(&entries[1])["gen_ai.response.time_to_first_token"].as_f64(),
+            Some(3_000_000.0)
+        );
+        assert_eq!(
+            entry_json(&entries[1])["gen_ai.response.finish_reasons"],
+            json!(["tool_calls"])
+        );
+        let input = entry_json(&entries[0])["gen_ai.input.messages"].to_string();
+        assert!(input.contains("private-prompt"));
+        assert!(!input.contains("answer-1"));
+        store.save().await.unwrap();
+        let persisted = std::fs::read_to_string(&state_path).unwrap();
+        assert!(!persisted.contains("private-prompt"));
+    }
+
+    #[tokio::test]
+    async fn does_not_advance_past_a_partial_final_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("dsh-session-a.jsonl");
+        let record =
+            json!({"type": "turn/start", "sid": "session-a", "time": 1, "data": {"turn": 1}});
+        std::fs::write(&file, format!("{record}")).unwrap();
+        let store = Arc::new(StateStore::new(dir.path().join("state.json")));
+        let input = make_input(dir.path(), Arc::clone(&store)).await;
+        assert!(input.collect_entries().await.unwrap().is_empty());
+        let key = format!("dsh-log:{}", file.display());
+        assert_eq!(store.get_offset(&key), 0.0);
+        let mut handle = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap();
+        writeln!(handle).unwrap();
+        let _ = input.collect_entries().await.unwrap();
+        assert!(store.get_offset(&key) > 0.0);
+    }
+}

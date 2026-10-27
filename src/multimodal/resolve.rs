@@ -1,0 +1,1001 @@
+//! Local image path resolution and OSS endpoint parsing.
+//!
+//! Port of `src/multimodal/resolve.ts`. Windows extended-path cases follow the
+//! TypeScript checks on the raw string. `O_NOFOLLOW` is used when opening a
+//! file so a symlink is not followed.
+
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use crate::utils::{create_logger, resolve_home};
+use regex::Regex;
+use serde_json::json;
+
+use super::http::log_meta;
+use super::types::{BlobPart, MAX_MULTIMODAL_PARTS, MAX_MULTIMODAL_PATH_CHARS};
+
+const IMAGE_EXT_TO_MIME: &[(&str, &str)] = &[
+    (".png", "image/png"),
+    (".jpg", "image/jpeg"),
+    (".jpeg", "image/jpeg"),
+    (".gif", "image/gif"),
+    (".webp", "image/webp"),
+    (".bmp", "image/bmp"),
+    (".svg", "image/svg+xml"),
+    (".ico", "image/x-icon"),
+    (".tif", "image/tiff"),
+    (".tiff", "image/tiff"),
+];
+
+fn logger() -> crate::utils::BoundLogger {
+    create_logger("MultimodalResolve")
+}
+
+pub fn decode_blob_content(part: &BlobPart) -> Option<Vec<u8>> {
+    let base64 = part.content.trim();
+    if base64.is_empty() {
+        return None;
+    }
+    super::http::decode_base64_lenient(base64)
+}
+
+pub fn is_image_file_path(file_path: &str) -> bool {
+    mime_from_image_path(file_path).is_some()
+}
+
+pub fn match_all(
+    re: &Regex,
+    text: &str,
+    pick: impl Fn(&regex::Captures<'_>) -> Option<String>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for captures in re.captures_iter(text) {
+        let whole = captures.get(0).map(|item| item.as_str()).unwrap_or("");
+        if whole.is_empty() {
+            continue;
+        }
+        let Some(picked) = pick(&captures) else {
+            continue;
+        };
+        let picked = picked.trim();
+        if picked.is_empty() {
+            continue;
+        }
+        if out.len() >= MAX_MULTIMODAL_PARTS {
+            logger().debug("multimodal extract match cap reached", Some(&log_meta(&[])));
+            break;
+        }
+        out.push(picked.to_string());
+    }
+    out
+}
+
+pub fn take_unique_extracted_paths(
+    raw_paths: &[String],
+    normalize: Option<&dyn Fn(&str) -> String>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (index, raw) in raw_paths.iter().enumerate() {
+        if out.len() >= MAX_MULTIMODAL_PARTS {
+            logger().debug(
+                "multimodal extract path cap reached",
+                Some(&log_meta(&[("leftover", json!(raw_paths.len() - index))])),
+            );
+            break;
+        }
+        let normalized = match normalize {
+            Some(normalize) => normalize(raw),
+            None => raw.clone(),
+        };
+        let path = normalized.trim();
+        if path.is_empty()
+            || path.chars().count() > MAX_MULTIMODAL_PATH_CHARS
+            || seen.contains(path)
+            || !is_image_file_path(path)
+        {
+            continue;
+        }
+        seen.insert(path.to_string());
+        out.push(path.to_string());
+    }
+    out
+}
+
+fn as_win_path(file_path: &str) -> String {
+    file_path.replace('/', "\\")
+}
+
+fn strip_extended_prefix(file_path: &str) -> String {
+    if !cfg!(windows) {
+        return file_path.to_string();
+    }
+    let win = as_win_path(file_path);
+    if win_extended_drive(&win) {
+        win.chars().skip(4).collect()
+    } else {
+        file_path.to_string()
+    }
+}
+
+fn win_extended_drive(win: &str) -> bool {
+    let bytes = win.as_bytes();
+    bytes.len() >= 7
+        && bytes[0] == b'\\'
+        && bytes[1] == b'\\'
+        && bytes[2] == b'?'
+        && bytes[3] == b'\\'
+        && bytes[4].is_ascii_alphabetic()
+        && bytes[5] == b':'
+        && bytes[6] == b'\\'
+}
+
+pub fn mime_from_image_path(file_path: &str) -> Option<&'static str> {
+    let name = file_path.trim().rsplit(['/', '\\']).next().unwrap_or("");
+    if name.is_empty() {
+        return None;
+    }
+    let ext = Path::new(name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| format!(".{}", ext.to_ascii_lowercase()))?;
+    IMAGE_EXT_TO_MIME
+        .iter()
+        .find(|(candidate, _)| *candidate == ext)
+        .map(|(_, mime)| *mime)
+}
+
+pub fn is_unc_or_device_path(file_path: &str) -> bool {
+    let trimmed = file_path.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let win = as_win_path(trimmed);
+    if win.starts_with("\\??\\") || win.starts_with("\\\\.\\") {
+        return true;
+    }
+    if win_extended_drive(&win) {
+        return false;
+    }
+    if win.starts_with("\\\\") || trimmed.starts_with("//") && trimmed.chars().nth(2) != Some('/') {
+        return true;
+    }
+    false
+}
+
+pub fn normalize_local_image_path(file_path: &str) -> Option<String> {
+    let trimmed = file_path.trim();
+    if trimmed.is_empty() || is_unc_or_device_path(trimmed) {
+        return None;
+    }
+    if !cfg!(windows) && as_win_path(trimmed).starts_with("\\\\") {
+        return None;
+    }
+    let resolved = node_resolve(&strip_extended_prefix(trimmed), None);
+    is_image_file_path(&resolved).then_some(resolved)
+}
+
+pub fn resolve_image_path(raw: &str, cwd: Option<&str>) -> String {
+    let trimmed = raw.trim().trim_matches(|ch| ch == '\'' || ch == '"');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if is_absolute(trimmed) {
+        return node_normalize(trimmed);
+    }
+    if let Some(cwd) = cwd.map(str::trim).filter(|cwd| !cwd.is_empty()) {
+        return node_resolve(trimmed, Some(cwd));
+    }
+    node_resolve(trimmed, None)
+}
+
+pub fn canonicalize_root_path(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let resolved = node_resolve(&resolve_home(&strip_extended_prefix(trimmed)), None);
+    match std::fs::canonicalize(&resolved) {
+        Ok(path) => strip_extended_prefix(&path.to_string_lossy()),
+        Err(_) => resolved,
+    }
+}
+
+pub fn merge_allowed_root_paths(
+    default_paths: &[String],
+    user_paths: Option<&[String]>,
+) -> Vec<String> {
+    let mut merged = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let empty = Vec::new();
+    let user = user_paths.unwrap_or(&empty);
+    for raw in default_paths.iter().chain(user.iter()) {
+        let resolved = canonicalize_root_path(raw);
+        if resolved.is_empty() || !seen.insert(resolved.clone()) {
+            continue;
+        }
+        merged.push(resolved);
+    }
+    merged
+}
+
+pub fn is_path_inside_roots(abs_path: &str, roots: &[String]) -> bool {
+    for root in roots {
+        if root.is_empty() {
+            continue;
+        }
+        if inside(root, abs_path) {
+            return true;
+        }
+    }
+    false
+}
+
+pub async fn is_real_path_inside_roots(
+    abs_path: &str,
+    roots: &[String],
+    signal: Option<&Arc<AtomicBool>>,
+) -> bool {
+    if signal.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+        return false;
+    }
+    let real = match tokio::fs::canonicalize(abs_path).await {
+        Ok(path) => strip_extended_prefix(&path.to_string_lossy()),
+        Err(_) => return false,
+    };
+    !signal.is_some_and(|flag| flag.load(Ordering::SeqCst)) && is_path_inside_roots(&real, roots)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct FileId {
+    pub dev: u64,
+    pub ino: u64,
+}
+
+fn file_id(meta: &std::fs::Metadata) -> FileId {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        FileId {
+            dev: meta.dev(),
+            ino: meta.ino(),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        FileId { dev: 0, ino: 0 }
+    }
+}
+
+pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() >= 8
+        && bytes[0] == 0x89
+        && bytes[1] == 0x50
+        && bytes[2] == 0x4e
+        && bytes[3] == 0x47
+    {
+        return Some("image/png");
+    }
+    if bytes.len() >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff {
+        return Some("image/jpeg");
+    }
+    if bytes.len() >= 6 {
+        let gif = &bytes[..6];
+        if gif == b"GIF87a" || gif == b"GIF89a" {
+            return Some("image/gif");
+        }
+    }
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.len() >= 2 && bytes[0] == 0x42 && bytes[1] == 0x4d {
+        return Some("image/bmp");
+    }
+    if bytes.len() >= 4 && bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 1 && bytes[3] == 0 {
+        return Some("image/x-icon");
+    }
+    if bytes.len() >= 4
+        && ((bytes[0] == 0x49 && bytes[1] == 0x49 && bytes[2] == 0x2a && bytes[3] == 0)
+            || (bytes[0] == 0x4d && bytes[1] == 0x4d && bytes[2] == 0 && bytes[3] == 0x2a))
+    {
+        return Some("image/tiff");
+    }
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]);
+    let head = head.trim_start();
+    if head.starts_with("<svg") || (head.starts_with("<?xml") && svg_tag(head)) {
+        return Some("image/svg+xml");
+    }
+    None
+}
+
+fn svg_tag(head: &str) -> bool {
+    Regex::new(r"<svg[\s>]")
+        .ok()
+        .is_some_and(|re| re.is_match(head))
+}
+
+#[derive(Clone, Debug)]
+pub struct ListedFile {
+    pub size: u64,
+    pub mtime_ms: f64,
+    pub dev: u64,
+    pub ino: u64,
+}
+
+pub async fn lstat_regular_image_file(
+    resolved_path: &str,
+    signal: Option<&Arc<AtomicBool>>,
+) -> Option<ListedFile> {
+    if signal.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+        return None;
+    }
+    let meta = tokio::fs::symlink_metadata(resolved_path).await.ok()?;
+    if signal.is_some_and(|flag| flag.load(Ordering::SeqCst))
+        || meta.file_type().is_symlink()
+        || !meta.is_file()
+    {
+        return None;
+    }
+    let id = file_id(&meta);
+    Some(ListedFile {
+        size: meta.len(),
+        mtime_ms: mtime_ms(&meta),
+        dev: id.dev,
+        ino: id.ino,
+    })
+}
+
+#[derive(Clone, Debug)]
+pub struct OpenedImage {
+    pub bytes: Vec<u8>,
+    pub mime_type: String,
+    pub size: usize,
+    pub mtime_ms: f64,
+    pub resolved_path: String,
+}
+
+pub async fn open_normalized_local_image(
+    resolved_path: &str,
+    max_bytes: usize,
+    allowed_root_paths: Option<&[String]>,
+    signal: Option<&Arc<AtomicBool>>,
+) -> Option<OpenedImage> {
+    if let Some(roots) = allowed_root_paths {
+        if roots.is_empty() || !is_real_path_inside_roots(resolved_path, roots, signal).await {
+            return None;
+        }
+    }
+    if signal.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+        return None;
+    }
+    let mut file = open_nofollow(resolved_path).ok()?;
+    if signal.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+        return None;
+    }
+    let st = file.metadata().ok()?;
+    if !st.is_file() || st.len() == 0 {
+        return None;
+    }
+    if let Some(roots) = allowed_root_paths {
+        if !opened_matches(&st, resolved_path, roots, signal).await {
+            return None;
+        }
+    }
+    let to_read = (st.len() as usize).min(max_bytes.saturating_add(1));
+    let bytes = read_fully(&mut file, to_read, signal)?;
+    if bytes.len() > max_bytes {
+        return None;
+    }
+    let after = file.metadata().ok()?;
+    if !after.is_file()
+        || after.len() != st.len()
+        || mtime_ms(&after) != mtime_ms(&st)
+        || bytes.len() as u64 != st.len()
+    {
+        return None;
+    }
+    let mime = sniff_image_mime(&bytes)?;
+    Some(OpenedImage {
+        size: bytes.len(),
+        mime_type: mime.to_string(),
+        bytes,
+        mtime_ms: mtime_ms(&st),
+        resolved_path: resolved_path.to_string(),
+    })
+}
+
+async fn opened_matches(
+    opened: &std::fs::Metadata,
+    resolved_path: &str,
+    roots: &[String],
+    signal: Option<&Arc<AtomicBool>>,
+) -> bool {
+    if !is_real_path_inside_roots(resolved_path, roots, signal).await {
+        return false;
+    }
+    let Ok(current) = tokio::fs::metadata(resolved_path).await else {
+        return false;
+    };
+    let left = file_id(opened);
+    let right = file_id(&current);
+    left.dev == right.dev && left.ino == right.ino
+}
+
+fn read_fully(
+    file: &mut std::fs::File,
+    byte_length: usize,
+    signal: Option<&Arc<AtomicBool>>,
+) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; byte_length];
+    let mut offset = 0;
+    while offset < byte_length {
+        if signal.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+            return None;
+        }
+        match file.read(&mut buf[offset..]) {
+            Ok(0) => break,
+            Ok(read) => offset += read,
+            Err(_) => return None,
+        }
+    }
+    if offset == 0 || signal.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+        return None;
+    }
+    buf.truncate(offset);
+    Some(buf)
+}
+
+fn open_nofollow(path: &str) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::FromRawFd;
+        let c_path = std::ffi::CString::new(path)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+        let flags = nofollow_flag();
+        let fd = unsafe { libc_open(c_path.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    }
+    #[cfg(not(unix))]
+    {
+        let meta = std::fs::symlink_metadata(path)?;
+        if meta.file_type().is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "symlink",
+            ));
+        }
+        std::fs::File::open(path)
+    }
+}
+
+#[cfg(unix)]
+fn nofollow_flag() -> i32 {
+    if cfg!(target_os = "linux") {
+        0x20000
+    } else if cfg!(target_os = "macos") {
+        0x0100
+    } else {
+        0
+    }
+}
+
+#[cfg(unix)]
+unsafe fn libc_open(path: *const i8, flags: i32) -> i32 {
+    unsafe extern "C" {
+        fn open(path: *const i8, flags: i32, ...) -> i32;
+    }
+    unsafe { open(path, flags) }
+}
+
+fn mtime_ms(meta: &std::fs::Metadata) -> f64 {
+    meta.modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
+}
+
+pub fn ext_from_mime(mime: &str) -> &'static str {
+    let normalized = mime.to_ascii_lowercase();
+    let normalized = normalized.split(';').next().unwrap_or("").trim();
+    match normalized {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
+        "audio/mpeg" => "mp3",
+        "audio/wav" => "wav",
+        "application/pdf" => "pdf",
+        _ => "bin",
+    }
+}
+
+pub fn modality_from_mime(mime: &str) -> Option<&'static str> {
+    let normalized = mime.to_ascii_lowercase();
+    let normalized = normalized.split(';').next().unwrap_or("").trim();
+    if normalized.starts_with("image/") {
+        Some("image")
+    } else if normalized.starts_with("audio/") {
+        Some("audio")
+    } else if normalized.starts_with("video/") {
+        Some("video")
+    } else {
+        None
+    }
+}
+
+pub fn yyyymmdd_local(date: chrono::DateTime<chrono::Local>) -> String {
+    date.format("%Y%m%d").to_string()
+}
+
+pub fn yyyymmdd_from_unix_ms(
+    time_unix_ms: Option<f64>,
+    fallback: chrono::DateTime<chrono::Local>,
+) -> String {
+    if let Some(ms) = time_unix_ms.filter(|ms| ms.is_finite() && *ms > 0.0) {
+        let utc = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms as i64)
+            .unwrap_or_else(chrono::Utc::now);
+        return yyyymmdd_local(utc.with_timezone(&chrono::Local));
+    }
+    yyyymmdd_local(fallback)
+}
+
+pub fn join_storage_uri(storage_base_path: &str, target_path: &str) -> String {
+    let base = storage_base_path.trim_end_matches('/');
+    let rel = target_path.trim_start_matches('/');
+    format!("{base}/{rel}")
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OssEndpoint {
+    pub scheme: String,
+    pub host: String,
+    pub region: String,
+}
+
+pub fn normalize_oss_endpoint(endpoint: &str) -> Result<OssEndpoint, String> {
+    let mut raw = endpoint.trim().to_string();
+    if raw.is_empty() {
+        return Err("OSS endpoint is required".to_string());
+    }
+    if !raw.to_ascii_lowercase().starts_with("http://")
+        && !raw.to_ascii_lowercase().starts_with("https://")
+    {
+        raw = format!("https://{raw}");
+    }
+    let parsed = reqwest::Url::parse(&raw).map_err(|_| {
+        "OSS endpoint must be a standard regional endpoint without path/query/credentials"
+            .to_string()
+    })?;
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || (parsed.path() != "/" && !parsed.path().is_empty())
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(
+            "OSS endpoint must be a standard regional endpoint without path/query/credentials"
+                .to_string(),
+        );
+    }
+    let host = parsed
+        .host_str()
+        .unwrap_or("")
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host.starts_with("oss-accelerate.") {
+        return Err("OSS accelerate endpoints are not supported".to_string());
+    }
+    let region = regional_oss_region(&host).ok_or_else(|| {
+        "OSS endpoint must be a standard regional aliyuncs.com endpoint".to_string()
+    })?;
+    let port = parsed
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    Ok(OssEndpoint {
+        scheme: parsed.scheme().to_string(),
+        host: format!("{host}{port}"),
+        region,
+    })
+}
+
+fn regional_oss_region(host: &str) -> Option<String> {
+    let rest = host.strip_prefix("oss-")?;
+    let rest = rest
+        .strip_suffix(".aliyuncs.com.cn")
+        .or_else(|| rest.strip_suffix(".aliyuncs.com"))?;
+    let region = rest.strip_suffix("-internal").unwrap_or(rest);
+    if region.is_empty()
+        || !region
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
+    {
+        return None;
+    }
+    Some(region.to_string())
+}
+
+fn is_absolute(path: &str) -> bool {
+    path.starts_with('/') || (cfg!(windows) && windows_drive(path))
+}
+
+fn windows_drive(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+}
+
+fn node_resolve(path: &str, cwd: Option<&str>) -> String {
+    if is_absolute(path) {
+        return node_normalize(path);
+    }
+    let base = cwd.unwrap_or("");
+    let base = if base.is_empty() {
+        std::env::current_dir()
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "/".to_string())
+    } else {
+        base.to_string()
+    };
+    if base.ends_with('/') {
+        node_normalize(&format!("{base}{path}"))
+    } else {
+        node_normalize(&format!("{base}/{path}"))
+    }
+}
+
+fn node_normalize(path: &str) -> String {
+    let absolute = is_absolute(path);
+    let mut stack: Vec<&str> = Vec::new();
+    for part in path.split(['/', '\\']) {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            if stack.pop().is_none() && !absolute {
+                stack.push("..");
+            }
+            continue;
+        }
+        stack.push(part);
+    }
+    let joined = stack.join("/");
+    if absolute {
+        if cfg!(windows) && windows_drive(path) {
+            let drive = &path[..2];
+            if joined.is_empty() {
+                format!("{drive}\\")
+            } else {
+                format!("{drive}\\{}", joined.replace('/', "\\"))
+            }
+        } else if joined.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{joined}")
+        }
+    } else if joined.is_empty() {
+        ".".to_string()
+    } else {
+        joined
+    }
+}
+
+fn inside(root: &str, candidate: &str) -> bool {
+    let root = node_normalize(root);
+    let candidate = node_normalize(candidate);
+    if candidate == root {
+        return true;
+    }
+    let prefix = if root.ends_with('/') {
+        root
+    } else {
+        format!("{root}/")
+    };
+    candidate.starts_with(&prefix)
+}
+
+#[allow(dead_code)]
+fn _path_buf(path: &str) -> PathBuf {
+    PathBuf::from(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::multimodal::types::MAX_MULTIMODAL_DATA_SIZE;
+    use chrono::TimeZone;
+
+    fn temp_dir() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "mm-resolve-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn decodes_raw_base64() {
+        let bytes = b"hello".to_vec();
+        let content = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+        let decoded = decode_blob_content(&BlobPart {
+            content,
+            mime_type: None,
+            modality: None,
+        })
+        .unwrap();
+        assert_eq!(decoded, bytes);
+    }
+
+    #[test]
+    fn empty_and_garbage_base64_are_null() {
+        assert!(decode_blob_content(&BlobPart {
+            content: "".into(),
+            mime_type: None,
+            modality: None
+        })
+        .is_none());
+        assert!(decode_blob_content(&BlobPart {
+            content: "   ".into(),
+            mime_type: None,
+            modality: None
+        })
+        .is_none());
+        assert!(decode_blob_content(&BlobPart {
+            content: "!!!!".into(),
+            mime_type: None,
+            modality: None
+        })
+        .is_none());
+    }
+
+    #[test]
+    fn maps_mime_and_modality() {
+        assert_eq!(ext_from_mime("image/jpeg"), "jpg");
+        assert_eq!(ext_from_mime("image/png"), "png");
+        assert_eq!(ext_from_mime("application/octet-stream"), "bin");
+        assert_eq!(ext_from_mime("IMAGE/JPEG; charset=utf-8"), "jpg");
+        assert_eq!(ext_from_mime("unknown/type"), "bin");
+        assert_eq!(ext_from_mime(""), "bin");
+        assert_eq!(modality_from_mime("image/png"), Some("image"));
+        assert_eq!(modality_from_mime("audio/wav"), Some("audio"));
+        assert_eq!(modality_from_mime("video/mp4"), Some("video"));
+        assert_eq!(modality_from_mime("application/octet-stream"), None);
+        assert_eq!(modality_from_mime(""), None);
+    }
+
+    #[test]
+    fn joins_storage_uri_without_duplicate_slashes() {
+        assert_eq!(
+            join_storage_uri("oss://bucket/prefix/", "20260804/abc.png"),
+            "oss://bucket/prefix/20260804/abc.png"
+        );
+        assert_eq!(
+            join_storage_uri("oss://bucket/prefix", "/20260804/abc.png"),
+            "oss://bucket/prefix/20260804/abc.png"
+        );
+    }
+
+    #[test]
+    fn formats_local_yyyymmdd() {
+        let local = chrono::Local
+            .with_ymd_and_hms(2026, 8, 4, 3, 50, 18)
+            .unwrap();
+        assert_eq!(yyyymmdd_local(local), "20260804");
+        let morning = chrono::Local
+            .with_ymd_and_hms(2026, 1, 2, 0, 30, 0)
+            .unwrap();
+        assert_eq!(yyyymmdd_local(morning), "20260102");
+        if morning.offset().local_minus_utc() > 0 {
+            let utc = morning.with_timezone(&chrono::Utc);
+            let text = utc.format("%Y%m%d").to_string();
+            assert_eq!(text, "20260101");
+        }
+        assert_eq!(
+            yyyymmdd_from_unix_ms(Some(local.timestamp_millis() as f64), local),
+            "20260804"
+        );
+        assert_eq!(yyyymmdd_from_unix_ms(None, local), "20260804");
+        assert_eq!(yyyymmdd_from_unix_ms(Some(f64::NAN), local), "20260804");
+    }
+
+    #[test]
+    fn detects_image_extensions_and_unc() {
+        assert!(is_image_file_path("/a/b.png"));
+        assert!(is_image_file_path("/a/b.JPEG"));
+        assert_eq!(mime_from_image_path("/a/b.webp"), Some("image/webp"));
+        assert_eq!(mime_from_image_path("/a/b.txt"), None);
+        assert!(!is_image_file_path(""));
+        assert_eq!(mime_from_image_path("/a/b.png?x=1"), None);
+        assert!(normalize_local_image_path("/a/b.png?x=1").is_none());
+        assert_eq!(mime_from_image_path("/a/photo?.png"), Some("image/png"));
+        assert!(normalize_local_image_path("not-an-image.txt").is_none());
+        assert!(normalize_local_image_path(r"\\server\share\a.png").is_none());
+        assert!(normalize_local_image_path(r"\\.\pipe\a.png").is_none());
+        assert!(is_unc_or_device_path(r"\\server\share\a.png"));
+        assert!(is_unc_or_device_path("//server/share/a.png"));
+        assert!(!is_unc_or_device_path(r"\\?\C:\tmp\a.png"));
+        assert!(!is_unc_or_device_path("//?/C:/tmp/a.png"));
+        assert!(!is_unc_or_device_path("/tmp/a.png"));
+        if !cfg!(windows) {
+            assert!(normalize_local_image_path(r"\\?\C:\tmp\a.png").is_none());
+        }
+    }
+
+    #[test]
+    fn path_containment_and_roots() {
+        let root = std::env::temp_dir().join("mm-root");
+        let root_s = root.to_string_lossy().to_string();
+        let inside_path = root.join("a.png").to_string_lossy().to_string();
+        assert!(is_path_inside_roots(&inside_path, &[root_s.clone()]));
+        let outside = root
+            .join("..")
+            .join("outside.png")
+            .to_string_lossy()
+            .to_string();
+        assert!(!is_path_inside_roots(&outside, &[root_s.clone()]));
+        assert!(is_path_inside_roots(&root_s, std::slice::from_ref(&root_s)));
+    }
+
+    #[tokio::test]
+    async fn stats_reads_and_rejects_symlink() {
+        let dir = temp_dir();
+        let file = dir.join("x.png");
+        let bytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+        std::fs::write(&file, bytes).unwrap();
+        let resolved = normalize_local_image_path(&file.to_string_lossy()).unwrap();
+        let listed = lstat_regular_image_file(&resolved, None).await.unwrap();
+        assert_eq!(listed.size, bytes.len() as u64);
+        let loaded = open_normalized_local_image(&resolved, MAX_MULTIMODAL_DATA_SIZE, None, None)
+            .await
+            .unwrap();
+        assert_eq!(loaded.bytes, bytes);
+        assert_eq!(loaded.mime_type, "image/png");
+
+        let link = dir.join("y.png");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        #[cfg(not(unix))]
+        std::fs::copy(&file, &link).unwrap();
+        let link_s = link.to_string_lossy().to_string();
+        assert!(lstat_regular_image_file(&link_s, None).await.is_none());
+        assert!(
+            open_normalized_local_image(&link_s, MAX_MULTIMODAL_DATA_SIZE, None, None)
+                .await
+                .is_none()
+        );
+
+        let missing = dir.join("missing.png");
+        assert!(lstat_regular_image_file(&missing.to_string_lossy(), None)
+            .await
+            .is_none());
+        let empty = dir.join("empty.png");
+        std::fs::write(&empty, []).unwrap();
+        let listed_empty = lstat_regular_image_file(&empty.to_string_lossy(), None)
+            .await
+            .unwrap();
+        assert_eq!(listed_empty.size, 0);
+        let as_dir = dir.join("folder.png");
+        std::fs::create_dir(&as_dir).unwrap();
+        assert!(lstat_regular_image_file(&as_dir.to_string_lossy(), None)
+            .await
+            .is_none());
+
+        let allowed = dir.join("allowed");
+        let outside = dir.join("outside");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let secret = outside.join("secret.png");
+        std::fs::write(&secret, bytes).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, allowed.join("via")).unwrap();
+        #[cfg(not(unix))]
+        let _ = &outside;
+        let escaped = allowed.join("via").join("secret.png");
+        let roots = merge_allowed_root_paths(&[allowed.to_string_lossy().to_string()], None);
+        assert!(is_path_inside_roots(
+            &escaped.to_string_lossy(),
+            &[allowed.to_string_lossy().to_string()]
+        ));
+        assert!(!is_real_path_inside_roots(&escaped.to_string_lossy(), &roots, None).await);
+        assert!(open_normalized_local_image(
+            &escaped.to_string_lossy(),
+            MAX_MULTIMODAL_DATA_SIZE,
+            Some(&roots),
+            None
+        )
+        .await
+        .is_none());
+
+        let huge = dir.join("huge.png");
+        let mut huge_bytes = bytes.to_vec();
+        huge_bytes.extend(std::iter::repeat_n(1, 200));
+        std::fs::write(&huge, huge_bytes).unwrap();
+        assert!(
+            open_normalized_local_image(&huge.to_string_lossy(), 32, None, None)
+                .await
+                .is_none()
+        );
+
+        assert_eq!(
+            sniff_image_mime(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            Some("image/png")
+        );
+        assert_eq!(
+            sniff_image_mime(&[0xff, 0xd8, 0xff, 0xe0]),
+            Some("image/jpeg")
+        );
+        assert_eq!(sniff_image_mime(b"not-an-image"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn canonicalizes_and_merges_roots() {
+        let dir = temp_dir();
+        let missing = dir.join("does-not-exist");
+        let real = std::fs::canonicalize(&dir).unwrap();
+        assert_eq!(
+            canonicalize_root_path(&dir.to_string_lossy()),
+            real.to_string_lossy()
+        );
+        assert_eq!(
+            canonicalize_root_path(&missing.to_string_lossy()),
+            node_resolve(&missing.to_string_lossy(), None)
+        );
+        let merged = merge_allowed_root_paths(
+            &[
+                dir.to_string_lossy().to_string(),
+                std::env::temp_dir().to_string_lossy().to_string(),
+            ],
+            None,
+        );
+        let real_text = real.to_string_lossy().into_owned();
+        assert!(merged.iter().any(|path| path == &real_text));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn oss_endpoint_region() {
+        let endpoint = normalize_oss_endpoint("https://oss-cn-shanghai.aliyuncs.com").unwrap();
+        assert_eq!(endpoint.scheme, "https");
+        assert_eq!(endpoint.host, "oss-cn-shanghai.aliyuncs.com");
+        assert_eq!(endpoint.region, "cn-shanghai");
+        assert_eq!(
+            normalize_oss_endpoint("oss-cn-hangzhou.aliyuncs.com")
+                .unwrap()
+                .region,
+            "cn-hangzhou"
+        );
+        assert!(normalize_oss_endpoint("")
+            .unwrap_err()
+            .contains("OSS endpoint is required"));
+        assert!(
+            normalize_oss_endpoint("https://oss-cn-shanghai.aliyuncs.com/path")
+                .unwrap_err()
+                .contains("without path/query/credentials")
+        );
+        assert!(
+            normalize_oss_endpoint("https://oss-accelerate.aliyuncs.com")
+                .unwrap_err()
+                .contains("accelerate endpoints are not supported")
+        );
+        assert!(normalize_oss_endpoint("https://example.com")
+            .unwrap_err()
+            .contains("standard regional aliyuncs.com endpoint"));
+    }
+}
