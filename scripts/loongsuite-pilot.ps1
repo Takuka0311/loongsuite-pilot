@@ -1,4 +1,4 @@
-# loongsuite-pilot.ps1 -- Service management for loongsuite-pilot (Windows)
+﻿# loongsuite-pilot.ps1 -- Service management for loongsuite-pilot (Windows)
 # Uses Windows Task Scheduler for autostart (analogous to macOS launchd)
 #
 # Usage:
@@ -53,9 +53,14 @@ $LOG_DIR = Join-Path $DATA_DIR "logs"
 $LOG_FILE = Join-Path $LOG_DIR "loongsuite-pilot-service.log"
 $UPDATER_LOG_FILE = Join-Path $LOG_DIR "loongsuite-pilot-updater.log"
 $RUNTIME_FILE = Join-Path $LOG_DIR "runtime.json"
-$CONFIG_FILE = Join-Path $DATA_DIR "config.json"
+$CONFIG_FILE = if ($env:AGENT_DATA_COLLECTION_CONFIG) {
+    $env:AGENT_DATA_COLLECTION_CONFIG
+} elseif ($INSTALL_LAYOUT -and $INSTALL_LAYOUT.configPath) {
+    [string]$INSTALL_LAYOUT.configPath
+} else {
+    Join-Path $DATA_DIR "config.json"
+}
 $SPAN_ATTR_FILE = Join-Path $DATA_DIR "span-attributes.json"
-$NODE_PIN_FILE = Join-Path $CACHE_DIR "node-bin"
 $INIT_TYPE_FILE = Join-Path $DATA_DIR "init-type"
 $OPEN_SOURCE_INSTALLER_URL = "https://loongcollector-community-edition.oss-cn-shanghai.aliyuncs.com/loongsuite-pilot/installer.ps1"
 
@@ -130,160 +135,110 @@ function Ensure-Dirs {
     }
 }
 
-# Same rule as the installer: the node that launches the collector must load
-# node:sqlite. A major check still accepts Node 20 and 22.12.
-# Native stderr under EAP=Stop becomes a terminating error and hides $LASTEXITCODE.
-function Test-NodeSupportsSqlite {
-    param([string]$bin)
-    if (-not $bin -or -not (Test-Path -LiteralPath $bin)) { return $false }
-    $prevEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    $code = 1
+# 安装边界内只接受普通目录和文件，拒绝符号链接与 junction/reparse point。
+function Test-NativePath {
+    param([string]$Path, [bool]$Directory = $false)
     try {
-        $sqliteProbe = & $bin -e "require('node:sqlite')" 2>&1
-        $code = $LASTEXITCODE
-        if ($null -eq $code) { $code = 1 }
-    } catch {
-        $code = 1
-    } finally {
-        $ErrorActionPreference = $prevEAP
-    }
-    return ($code -eq 0)
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        return (($item.Attributes -band 0x400) -eq 0 -and $item.PSIsContainer -eq $Directory)
+    } catch { return $false }
 }
 
-function Test-NodeSuitable {
-    param([string]$bin)
-    return (Test-NodeSupportsSqlite $bin)
+# 原生入口只从已校验的 current 指针解析，不探测 PATH 或外部运行时。
+# 指针以 UTF-8 读取并去除 BOM，兼容 Windows PowerShell 5.1 的写入编码。
+function Resolve-PilotBinary {
+    $root = Resolve-CurrentVersion
+    if (-not $root) { return $null }
+    return (Join-Path $root "bin\loongsuite-pilot.exe")
 }
 
-# The pin file holds one absolute path to node.exe, and for a managed runtime that path
-# sits under the data dir -- i.e. under %USERPROFILE%, which can be non-ASCII. 5.1
-# defaults both Get-Content and Set-Content to the ANSI codepage, so an unqualified
-# write stored "C:\Users\??.HOST\..." and every reader then failed Test-NodeSuitable and
-# silently fell back to whatever node.exe the fallback search found first -- on a shared
-# machine that was another account's nvm install. -Encoding UTF8 always emits a BOM on
-# 5.1 (there is no utf8NoBOM), and U+FEFF is not whitespace, so .Trim() alone leaves it
-# in the path: strip it explicitly before trimming.
-function Resolve-Node {
-    # 1. Pinned file
-    if (Test-Path $NODE_PIN_FILE) {
-        $pinned = ([string](Get-Content -LiteralPath $NODE_PIN_FILE -Raw -Encoding UTF8 -ErrorAction SilentlyContinue)).Trim([char]0xFEFF).Trim()
-        if ($pinned -and (Test-NodeSuitable $pinned)) {
-            return $pinned
+function Invoke-Pilot {
+    param([string[]]$Arguments = @(), [string]$Binary = "")
+    $script:PilotExitCode = 9009
+    if (-not $Binary) { $Binary = Resolve-PilotBinary }
+    if (-not $Binary) { throw "找不到本安装的原生二进制；请修复 current 指针或重新安装" }
+    $env:LOONGSUITE_PILOT_DATA_DIR = $DATA_DIR
+    $env:LOONGSUITE_PILOT_CACHE_DIR = $CACHE_DIR
+    $env:AGENT_DATA_COLLECTION_CONFIG = $CONFIG_FILE
+    $nativeArgs = @($Arguments)
+    # 5.1/Legacy 不保留空参数和内嵌引号，显式生成 Windows CRT 参数。
+    if (-not (Get-Variable PSNativeCommandArgumentPassing -ErrorAction SilentlyContinue) -or $PSNativeCommandArgumentPassing -eq "Legacy") {
+        $nativeArgs = @()
+        foreach ($argument in $Arguments) {
+            $escaped = ([string]$argument) -replace '(\\*)"', '$1$1\"'
+            $escaped = $escaped -replace '(\\+)$', '$1$1'
+            $nativeArgs += '"' + $escaped + '"'
         }
     }
-
-    # 2. Fallback search
-    $candidates = @()
-
-    # nvm-windows. Both probes below must be non-fatal. NVM_HOME is often a *machine*
-    # level variable pointing into another account's profile
-    # (C:\Users\Administrator\AppData\Local\nvm was measured), and that directory's DACL
-    # grants nothing to the current user: a bare Test-Path raises a PermissionDenied
-    # UnauthorizedAccessException record, which this file's $ErrorActionPreference = "Stop"
-    # promotes to a terminating error. Resolve-Node runs on the way into start / stop /
-    # status / restart-collector, so one unreadable third-party node manager took down
-    # every service command -- including the restart-collector the updater issues after
-    # deploying a version. The Get-ChildItem calls were already guarded; these two were
-    # not. -LiteralPath as well, because a version manager path may contain [ or ].
-    if ($env:NVM_HOME -and (Test-Path -LiteralPath $env:NVM_HOME -ErrorAction SilentlyContinue)) {
-        Get-ChildItem $env:NVM_HOME -Directory -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending |
-            ForEach-Object { $candidates += Join-Path $_.FullName "node.exe" }
-    }
-
-    # fnm -- same unreadable-directory hazard as the nvm branch above.
-    $fnmDir = Join-Path $env:USERPROFILE ".fnm\node-versions"
-    if (Test-Path -LiteralPath $fnmDir -ErrorAction SilentlyContinue) {
-        Get-ChildItem $fnmDir -Directory -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending |
-            ForEach-Object { $candidates += Join-Path $_.FullName "installation\node.exe" }
-    }
-
-    # Volta, standard paths
-    $candidates += Join-Path $env:USERPROFILE ".volta\bin\node.exe"
-    $candidates += "C:\Program Files\nodejs\node.exe"
-    $candidates += "C:\Program Files (x86)\nodejs\node.exe"
-
-    # PATH lookup
-    $pathNode = Get-Command node -ErrorAction SilentlyContinue
-    if ($pathNode) { $candidates += $pathNode.Source }
-
-    foreach ($c in $candidates) {
-        if (Test-NodeSuitable $c) {
-            # Auto-heal: update pin file
-            $parentDir = Split-Path $NODE_PIN_FILE
-            if (-not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
-            Set-Content -LiteralPath $NODE_PIN_FILE -Value $c -Encoding UTF8
-            return $c
-        }
-    }
-    return $null
+    $prevEAP = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $LASTEXITCODE = 9009
+        & $Binary @nativeArgs
+        if ($null -ne $LASTEXITCODE) { $script:PilotExitCode = $LASTEXITCODE }
+    } finally { $ErrorActionPreference = $prevEAP }
 }
 
 function Sync-BootstrapScripts {
-    $versionDir = Resolve-CurrentVersion
-    if (-not $versionDir) { return }
-    $srcDir = Join-Path $versionDir "scripts"
-    $collectorSrc = Join-Path $srcDir "collector-daemon.js"
-    if (-not (Test-Path $collectorSrc)) { return }
-    if (-not (Test-Path $BOOTSTRAP_DIR)) { New-Item -ItemType Directory -Path $BOOTSTRAP_DIR -Force | Out-Null }
-    Copy-Item $collectorSrc $BOOTSTRAP_DIR -Force
-    $updaterSrc = Join-Path $srcDir "updater-daemon.js"
-    if (Test-Path $updaterSrc) { Copy-Item $updaterSrc $BOOTSTRAP_DIR -Force }
+    # 原生进程直接使用不可变版本目录，不复制运行中可能被锁定的 exe。
+    return
 }
 
 function Sync-InstalledScriptsFromVersion {
     param([string]$versionDir)
-    $srcDir = Join-Path $versionDir "scripts"
-    $required = @("collector-daemon.js", "updater-daemon.js")
-    $optional = @()
-    foreach ($f in $required) {
-        if (-not (Test-Path (Join-Path $srcDir $f))) { return $false }
+    if (-not (Test-NativeVersion $versionDir)) { return $false }
+    $binary = Join-Path $versionDir "bin\loongsuite-pilot.exe"
+    $previousInput = $env:LOONGSUITE_PILOT_INSTALL_INPUT
+    try {
+        $env:LOONGSUITE_PILOT_INSTALL_INPUT = @{
+            sourceDir = $versionDir
+            cacheDir = $CACHE_DIR
+            dataDir = $DATA_DIR
+            configPath = $CONFIG_FILE
+            binDir = (Split-Path $LOONGSUITE_PILOT_BIN)
+        } | ConvertTo-Json -Compress
+        Invoke-Pilot -Binary $binary -Arguments @("installer-helper", "sync-service", "--input-env") | Out-Null
+        return ($script:PilotExitCode -eq 0)
+    } finally {
+        if ($null -eq $previousInput) { Remove-Item Env:LOONGSUITE_PILOT_INSTALL_INPUT -ErrorAction SilentlyContinue }
+        else { $env:LOONGSUITE_PILOT_INSTALL_INPUT = $previousInput }
     }
-
-    if (-not (Test-Path $BOOTSTRAP_DIR)) { New-Item -ItemType Directory -Path $BOOTSTRAP_DIR -Force | Out-Null }
-    foreach ($f in $required) {
-        $tmp = Join-Path $BOOTSTRAP_DIR "$f.tmp"
-        Copy-Item (Join-Path $srcDir $f) $tmp -Force
-        Move-Item $tmp (Join-Path $BOOTSTRAP_DIR $f) -Force
-    }
-    foreach ($f in $optional) {
-        $src = Join-Path $srcDir $f
-        if (-not (Test-Path $src)) { continue }
-        $tmp = Join-Path $BOOTSTRAP_DIR "$f.tmp"
-        Copy-Item $src $tmp -Force
-        Move-Item $tmp (Join-Path $BOOTSTRAP_DIR $f) -Force
-    }
-    return $true
 }
 
 # ============================================================
 # Version resolution
 # ============================================================
-function Resolve-CurrentVersion {
-    if (Test-Path $CURRENT_FILE) {
-        $dir = (Get-Content $CURRENT_FILE -ErrorAction SilentlyContinue).Trim()
-        $path = Join-Path $VERSIONS_DIR $dir
-        if ($dir -and (Test-Path $path)) { return $path }
-    }
-    $indexJs = Join-Path $PACKAGE_DIR "dist\index.js"
-    if (Test-Path $indexJs) { return $PACKAGE_DIR }
+function Test-NativeVersion {
+    param([string]$Root)
+    return ((Test-NativePath $Root $true) -and
+        (Test-NativePath (Join-Path $Root "bin") $true) -and
+        (Test-NativePath (Join-Path $Root "bin\loongsuite-pilot.exe")) -and
+        (Test-NativePath (Join-Path $Root "runtime-manifest.json")))
+}
+
+function Resolve-VersionPointer {
+    param([string]$Pointer)
+    try {
+        if (-not (Test-NativePath $CACHE_DIR $true) -or -not (Test-NativePath $VERSIONS_DIR $true) -or -not (Test-NativePath $Pointer)) { return $null }
+        if ((Get-Item -LiteralPath $Pointer).Length -gt 1024) { return $null }
+        $name = ([string](Get-Content -LiteralPath $Pointer -Raw -Encoding UTF8 -ErrorAction Stop)).Trim([char]0xFEFF).Trim()
+        if ($name -notmatch '^[A-Za-z0-9._+-]{1,240}$' -or $name -in @(".", "..") -or $name.EndsWith(".")) { return $null }
+        $root = Join-Path $VERSIONS_DIR $name
+        if (Test-NativeVersion $root) { return $root }
+    } catch {}
     return $null
 }
+
+function Resolve-CurrentVersion { return (Resolve-VersionPointer $CURRENT_FILE) }
 
 function Get-BuildEdition {
     try {
         $versionDir = Resolve-CurrentVersion
         if (-not $versionDir) { return "" }
 
-        $probe = Join-Path $versionDir "dist\cli-probe.cjs"
-        if (-not (Test-Path -LiteralPath $probe)) { return "" }
-
-        $nodeBin = Resolve-Node
-        if (-not $nodeBin) { return "" }
-
-        return ([string](& $nodeBin $probe --build-edition 2>$null)).Trim()
+        $edition = Invoke-Pilot -Arguments @("probe", "--build-edition")
+        if ($script:PilotExitCode -ne 0) { return "" }
+        return ([string]$edition).Trim()
     } catch {
         return ""
     }
@@ -293,14 +248,7 @@ function Test-OpenSourceBuild {
     return (Get-BuildEdition) -eq "opensource"
 }
 
-function Resolve-PreviousVersion {
-    if (Test-Path $PREVIOUS_FILE) {
-        $dir = (Get-Content $PREVIOUS_FILE -ErrorAction SilentlyContinue).Trim()
-        $path = Join-Path $VERSIONS_DIR $dir
-        if ($dir -and (Test-Path $path)) { return $path }
-    }
-    return $null
-}
+function Resolve-PreviousVersion { return (Resolve-VersionPointer $PREVIOUS_FILE) }
 
 function Get-VersionInfo {
     param([string]$dir)
@@ -328,18 +276,18 @@ function Show-VersionString {
 # ============================================================
 # Process management
 # ============================================================
+function Test-InstalledProcess {
+    param([string]$ProcessId, [string]$Role)
+    if ($ProcessId -notmatch '^[1-9][0-9]*$') { return $false }
+    try {
+        Invoke-Pilot -Arguments @("service-helper", "process-alive", "--pid", $ProcessId, "--role", $Role, "--cache-dir", $CACHE_DIR, "--data-dir", $DATA_DIR) *> $null
+        return $script:PilotExitCode -eq 0
+    } catch { return $false }
+}
+
 function Test-PidRunning {
     param([string]$pidFile)
-    if (-not (Test-Path $pidFile)) { return $false }
-    $pidVal = (Get-Content $pidFile -ErrorAction SilentlyContinue).Trim()
-    if (-not $pidVal) {
-        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-        return $false
-    }
-    $proc = Get-Process -Id $pidVal -ErrorAction SilentlyContinue
-    if ($proc) { return $true }
-    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-    return $false
+    return (Test-PidAlive $pidFile)
 }
 
 # Read-only cousin of Test-PidRunning. Wait loops must not delete the pid file: a
@@ -354,8 +302,8 @@ function Test-PidAlive {
         if (-not $raw) { return $false }
         $pidVal = ([string]$raw).Trim()
         if (-not $pidVal) { return $false }
-        $proc = Get-Process -Id $pidVal -ErrorAction SilentlyContinue
-        return $null -ne $proc
+        $role = if ($pidFile -eq $UPDATER_PID_FILE) { "updater" } else { "collector" }
+        return (Test-InstalledProcess $pidVal $role)
     } catch {
         return $false
     }
@@ -379,7 +327,7 @@ function Get-CollectorRuntime {
             $pidValue -le 0 -or
             $updatedAt -lt $NotBefore -or
             $updatedAt -lt (Get-Date).AddMinutes(-2) -or
-            -not (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
+            -not (Test-InstalledProcess ([string]$pidValue) "collector")
         ) {
             return $null
         }
@@ -395,11 +343,11 @@ function Test-CollectorRunning {
 
 function Stop-PidFile {
     param([string]$pidFile)
-    if (-not (Test-PidRunning $pidFile)) {
-        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-        return
-    }
+    # 身份未知时不删除 PID 文件，避免抹掉并发启动者或其他安装的状态。
+    if (-not (Test-PidRunning $pidFile)) { return }
     $pidVal = (Get-Content $pidFile -ErrorAction SilentlyContinue).Trim()
+    $role = if ($pidFile -eq $UPDATER_PID_FILE) { "updater" } else { "collector" }
+    if (-not (Test-InstalledProcess $pidVal $role)) { return }
     try { Stop-Process -Id $pidVal -ErrorAction SilentlyContinue } catch {}
     $count = 0
     while ($count -lt 10) {
@@ -409,7 +357,9 @@ function Stop-PidFile {
         $count++
     }
     # Force kill if still running
-    try { Stop-Process -Id $pidVal -Force -ErrorAction SilentlyContinue } catch {}
+    if (Test-InstalledProcess $pidVal $role) {
+        try { Stop-Process -Id $pidVal -Force -ErrorAction SilentlyContinue } catch {}
+    }
 
     # Delete the file only while it still names the process we just killed. Up to ten
     # seconds elapse in the wait loop above, and the collector task carries a five-minute
@@ -433,36 +383,17 @@ function Stop-OrphanProcesses {
     # re-register a single task (Install-CollectorTask / Install-UpdaterTask) pass a
     # narrow pattern so they only reap the daemon they are about to re-launch.
     #
-    # Both conditions below are required, and the second one is the point. The daemon
-    # names are shared by every installation on the machine: on a multi-account box each
-    # user runs their own collector and updater out of their own %USERPROFILE%, and
-    # matching on the name alone made any install / restart / stop kill all of them.
-    # Get-Process only enumerates other users' processes when the caller is elevated, so
-    # the blast radius was exactly the elevated sessions -- their victims' pid files were
-    # left pointing at dead pids, which is where the "stale single-instance lock" reports
-    # came from. $BOOTSTRAP_DIR is the directory the entry script is loaded from
-    # (New-HiddenTaskAction writes "<node>" "<$BOOTSTRAP_DIR\<name>-daemon.js>", and
-    # Cmd-Start builds the same pair), so it appears verbatim in the command line and
-    # identifies this installation and no other. It is non-empty by construction:
-    # $CACHE_DIR falls back to $DEFAULT_PILOT_DIR.
-    #
-    # .ToLower().Contains() rather than -match: the scope is a literal Windows path full
-    # of \ and possibly regex metacharacters (a user profile can contain "["), and
-    # escaping it for a regex buys nothing here. It is also a method call on [string], a
-    # core type, so it stays CLM-safe.
-    param([string]$Match = "collector-daemon|updater-daemon")
-    $ownRoot = ([string]$BOOTSTRAP_DIR).ToLower()
-    # Query Win32_Process once. The old Get-Process pipeline issued one CIM query per
-    # node process, so a machine with many IDE/agent runtimes paid N WMI round trips on
-    # every upgrade. CommandLine and ProcessId already come from this single result set.
-    Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-        Where-Object {
-            try {
-                $cmdLine = [string]$_.CommandLine
-                ($cmdLine -match $Match) -and $cmdLine.ToLower().Contains($ownRoot)
-            } catch { $false }
-        } | ForEach-Object {
-            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    # 同名 exe 可能属于其他用户或安装。原生 helper 同时核对版本目录、
+    # 实际 executable、完整角色参数及进程环境中的 data 目录，未知身份不停止。
+    param([string]$Match = "collector|updater")
+    # 一次 CIM 枚举候选，再按 PID 校验完整身份。
+    Get-CimInstance Win32_Process -Filter "Name = 'loongsuite-pilot.exe'" -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            foreach ($role in @("collector", "updater")) {
+                if ($role -match $Match -and (Test-InstalledProcess ([string]$_.ProcessId) $role)) {
+                    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+                }
+            }
         }
 }
 
@@ -633,7 +564,7 @@ function Wait-ForCollectorHeartbeat {
 }
 
 # Task State=Running is not liveness. Start-ScheduledTask makes the task Running as
-# soon as wscript is up, before node has written a pid; Stop-ScheduledTask also leaves
+# soon as wscript is up, before the native process writes a pid; Stop-ScheduledTask also leaves
 # State=Running until the old instance actually exits. Collector wait uses a pid check
 # (Get-CollectorRuntime / Test-PidAlive); updater must do the same.
 function Wait-ForUpdaterAlive {
@@ -838,10 +769,10 @@ function Get-RestartDiagnostics {
     $diag["pid_state"] = $pidState
 
     try {
-        $node = Resolve-Node
-        $diag["node_bin"] = if ($node) { $node } else { "not found" }
+        $binary = Resolve-PilotBinary
+        $diag["runtime_bin"] = if ($binary) { $binary } else { "not found" }
     } catch {
-        $diag["node_bin"] = "resolve failed: $($_.Exception.Message)"
+        $diag["runtime_bin"] = "resolve failed: $($_.Exception.Message)"
     }
 
     try {
@@ -1053,17 +984,13 @@ function Register-PilotTask {
     throw $lastErr
 }
 
-# Build a VBScript launcher that runs node fully hidden, and return a task action
-# that invokes it via wscript.exe. Interactive-principal tasks run in the user's
-# desktop session, where powershell.exe still pops a console window despite
-# -WindowStyle Hidden (the window the user sees). wscript.exe is a GUI-subsystem
-# host (no console of its own) and WshShell.Run(cmd, 0, True) launches node with a
-# hidden window and waits for it, so the task stays "Running" and the repeating
-# watchdog trigger keeps working -- but nothing is visible and there is no window
-# to accidentally close. Paths are baked into the .vbs (no argument passing) to
-# avoid quoting issues across the Task Scheduler + wscript layers.
+# wscript 是无控制台宿主；以隐藏窗口运行原生服务并等待退出。
+# Task Scheduler 的 Running 仅表示包装器还在，健康判断仍须校验原生 PID。
+# 路径写入 UTF-16 VBS，避免 Task Scheduler / wscript 多层参数转义。
 function New-HiddenTaskAction {
-    param([string]$vbsPath, [string]$nodeBin, [string]$entry)
+    param([string]$vbsPath, [string]$pilotBin, [string]$role)
+    if ($role -notin @("run", "run-updater")) { throw "无效的服务角色" }
+    if (-not (Test-NativePath $pilotBin)) { throw "原生服务入口不存在" }
     # Double any embedded quote so a path with a " cannot terminate the VBScript
     # string literal early (defensive: Windows paths cannot contain ", but
     # $CONFIG_FILE/$CACHE_DIR derive from user-settable data/cache directories).
@@ -1071,15 +998,14 @@ function New-HiddenTaskAction {
     $dataEsc  = $DATA_DIR    -replace '"', '""'
     $cacheEsc = $CACHE_DIR   -replace '"', '""'
     $cwdEsc   = $CACHE_DIR   -replace '"', '""'
-    $nodeEsc  = $nodeBin     -replace '"', '""'
-    $entryEsc = $entry       -replace '"', '""'
+    $binaryEsc = $pilotBin -replace '"', '""'
     $vbs = @"
 Set sh = CreateObject("WScript.Shell")
 sh.Environment("PROCESS").Item("AGENT_DATA_COLLECTION_CONFIG") = "$cfgEsc"
 sh.Environment("PROCESS").Item("LOONGSUITE_PILOT_DATA_DIR") = "$dataEsc"
 sh.Environment("PROCESS").Item("LOONGSUITE_PILOT_CACHE_DIR") = "$cacheEsc"
 sh.CurrentDirectory = "$cwdEsc"
-sh.Run """$nodeEsc"" ""$entryEsc""", 0, True
+WScript.Quit sh.Run("""$binaryEsc"" $role", 0, True)
 "@
     # Unicode (UTF-16 LE + BOM): wscript reads a BOM-less .vbs as the system ANSI
     # code page, while -Encoding Default is ANSI on Windows PowerShell 5.1 but UTF-8
@@ -1091,14 +1017,9 @@ sh.Run """$nodeEsc"" ""$entryEsc""", 0, True
 }
 
 function Install-CollectorTask {
-    param([string]$nodeBin, [switch]$SkipCleanup)
-    $entry = Join-Path $BOOTSTRAP_DIR "collector-daemon.js"
-    if (-not (Test-Path $entry)) {
-        Write-Host "Bootstrap script missing: $entry"
-        return $false
-    }
-
-    $action = New-HiddenTaskAction (Join-Path $BOOTSTRAP_DIR "collector-launch.vbs") $nodeBin $entry
+    param([string]$pilotBin, [switch]$SkipCleanup)
+    if (-not (Test-NativePath $pilotBin)) { return $false }
+    $action = New-HiddenTaskAction (Join-Path $BOOTSTRAP_DIR "collector-launch.vbs") $pilotBin "run"
 
     # Two triggers: AtLogOn for initial start + repeating every 5 min as a watchdog.
     # If the process crashes or is killed, the repeating trigger re-launches it.
@@ -1125,7 +1046,7 @@ function Install-CollectorTask {
     # new registration -- so without this reap the orphan keeps running alongside the new
     # instance and both write the same output (duplicate-collection incident root cause).
     if (-not $SkipCleanup) {
-        Stop-OrphanProcesses -Match "collector-daemon"
+        Stop-OrphanProcesses -Match "^collector$"
 
         # Remove existing task first (schtasks is more reliable than Unregister-ScheduledTask)
         # Use try/catch because schtasks stderr + $ErrorActionPreference=Stop can throw
@@ -1142,11 +1063,9 @@ function Install-CollectorTask {
 }
 
 function Install-UpdaterTask {
-    param([string]$nodeBin)
-    $entry = Join-Path $BOOTSTRAP_DIR "updater-daemon.js"
-    if (-not (Test-Path $entry)) { return $false }
-
-    $action = New-HiddenTaskAction (Join-Path $BOOTSTRAP_DIR "updater-launch.vbs") $nodeBin $entry
+    param([string]$pilotBin)
+    if (-not (Test-NativePath $pilotBin)) { return $false }
+    $action = New-HiddenTaskAction (Join-Path $BOOTSTRAP_DIR "updater-launch.vbs") $pilotBin "run-updater"
 
     # -User scopes the trigger to the current user (all-users trigger needs admin).
     $triggerLogon = New-ScheduledTaskTrigger -AtLogOn -User (Get-PilotAccountName)
@@ -1164,7 +1083,7 @@ function Install-UpdaterTask {
 
     # Reap any orphaned updater daemon from the old registration before re-creating
     # the task (same rationale as Install-CollectorTask above).
-    Stop-OrphanProcesses -Match "updater-daemon"
+    Stop-OrphanProcesses -Match "^updater$"
 
     try { schtasks.exe /Delete /TN "$TASK_FOLDER\$TASK_NAME_UPDATER" /F 2>$null | Out-Null } catch {}
     try { schtasks.exe /Delete /TN "$TASK_NAME_UPDATER" /F 2>$null | Out-Null } catch {}
@@ -1205,51 +1124,13 @@ function Remove-AllTasks {
 # CMD: run (foreground, called by Task Scheduler)
 # ============================================================
 function Cmd-Run {
-    Ensure-Dirs
-    Sync-BootstrapScripts
-
-    $entry = Join-Path $BOOTSTRAP_DIR "collector-daemon.js"
-    if (-not (Test-Path $entry)) {
-        Write-Error "Bootstrap script missing"
-        exit 1
-    }
-
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-Error "node runtime not found"
-        exit 1
-    }
-
-    # Windows has no exec(2): node runs as our child, so it publishes its own pid file
-    # (see src/index.ts) instead of us recording the wrapper pid here. Export the data
-    # dir so node's env-first resolution writes $DATA_DIR\loongsuite-pilot.pid -- the exact
-    # path stop/status read.
-    $env:LOONGSUITE_PILOT_DATA_DIR = $DATA_DIR
-    $env:AGENT_DATA_COLLECTION_CONFIG = $CONFIG_FILE
-    & $nodeBin $entry
+    Invoke-Pilot -Arguments @("run")
+    exit $script:PilotExitCode
 }
 
 function Cmd-RunUpdater {
-    Ensure-Dirs
-    Sync-BootstrapScripts
-
-    $entry = Join-Path $BOOTSTRAP_DIR "updater-daemon.js"
-    if (-not (Test-Path $entry)) {
-        Write-Error "Bootstrap script missing"
-        exit 1
-    }
-
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-Error "node runtime not found"
-        exit 1
-    }
-
-    # See Cmd-Run: node publishes its own pid file on Windows. Export the data dir so
-    # node writes $DATA_DIR\loongsuite-pilot-updater.pid where stop/status read it.
-    $env:LOONGSUITE_PILOT_DATA_DIR = $DATA_DIR
-    $env:AGENT_DATA_COLLECTION_CONFIG = $CONFIG_FILE
-    & $nodeBin $entry
+    Invoke-Pilot -Arguments @("run-updater")
+    exit $script:PilotExitCode
 }
 
 function Cmd-Start {
@@ -1267,12 +1148,12 @@ function Cmd-Start {
     Ensure-Dirs
     Sync-BootstrapScripts
 
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-Error "node runtime not found"
+    $pilotBin = Resolve-PilotBinary
+    if (-not $pilotBin) {
+        Write-Error "原生服务入口不存在"
         exit 1
     }
-    Write-Host "   node: $nodeBin"
+    Write-Host "   runtime: $pilotBin"
     Write-Host "   bootstrap dir: $BOOTSTRAP_DIR"
     Write-Host "   config: $CONFIG_FILE"
 
@@ -1286,8 +1167,8 @@ function Cmd-Start {
     # Try Task Scheduler
     $taskInstalled = $false
     try {
-        $ok1 = Install-CollectorTask $nodeBin
-        $ok2 = Install-UpdaterTask $nodeBin
+        $ok1 = Install-CollectorTask $pilotBin
+        $ok2 = Install-UpdaterTask $pilotBin
         if ($ok1) {
             Start-ScheduledTask -TaskName $TASK_NAME_COLLECTOR -TaskPath "$TASK_FOLDER\" -ErrorAction Stop
             if ($ok2) {
@@ -1310,7 +1191,7 @@ function Cmd-Start {
         Write-Host "Task Scheduler registration failed$hr : $($_.Exception.Message)" -ForegroundColor Yellow
         # An older task may be inaccessible for replacement but still be owned by
         # this user and point at the stable launcher path. The launcher was just
-        # regenerated with the new Node/config/package paths, so it is safe to
+        # regenerated with the new binary/config/package paths, so it is safe to
         # start and reuse that task after validating its action.
         if (Start-CompatibleExistingCollectorTask) {
             Set-Content -Path $INIT_TYPE_FILE -Value "taskscheduler"
@@ -1371,24 +1252,26 @@ function Cmd-Restart {
 function Start-BackgroundDaemon {
     param(
         [string]$DaemonName,
-        [string]$NodeBin,
-        [string]$Entry,
+        [string]$PilotBin,
         [string]$OutputLog,
         [string]$ErrorLog
     )
+    if ($DaemonName -notin @("collector", "updater")) { throw "无效的服务角色" }
+    if (-not (Test-NativePath $PilotBin)) { throw "原生服务入口不存在" }
+    $role = if ($DaemonName -eq "updater") { "run-updater" } else { "run" }
     $launcherPath = Join-Path $BOOTSTRAP_DIR "$DaemonName-background.ps1"
     $escapedDataDir = ([string]$DATA_DIR).Replace("'", "''")
     $escapedCacheDir = ([string]$CACHE_DIR).Replace("'", "''")
     $escapedConfig = ([string]$CONFIG_FILE).Replace("'", "''")
-    $escapedNode = ([string]$NodeBin).Replace("'", "''")
-    $escapedEntry = ([string]$Entry).Replace("'", "''")
+    $escapedBinary = ([string]$PilotBin).Replace("'", "''")
     $escapedOutput = ([string]$OutputLog).Replace("'", "''")
     $escapedError = ([string]$ErrorLog).Replace("'", "''")
     @(
         "`$env:LOONGSUITE_PILOT_DATA_DIR = '$escapedDataDir'",
         "`$env:LOONGSUITE_PILOT_CACHE_DIR = '$escapedCacheDir'",
         "`$env:AGENT_DATA_COLLECTION_CONFIG = '$escapedConfig'",
-        "& '$escapedNode' '$escapedEntry' >> '$escapedOutput' 2>> '$escapedError'"
+        "& '$escapedBinary' '$role' >> '$escapedOutput' 2>> '$escapedError'",
+        "exit `$LASTEXITCODE"
     ) | Set-Content -LiteralPath $launcherPath -Encoding Unicode
 
     # Use -File so paths are parsed only inside the generated script, where every
@@ -1414,9 +1297,9 @@ function Cmd-StartCollector {
 
     Ensure-Dirs
     Sync-BootstrapScripts
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-Error "node runtime not found"
+    $pilotBin = Resolve-PilotBinary
+    if (-not $pilotBin) {
+        Write-Error "原生服务入口不存在"
         exit 1
     }
 
@@ -1428,12 +1311,13 @@ function Cmd-StartCollector {
     if ($shouldStart) {
         try {
             Start-ScheduledTask -TaskName $TASK_NAME_COLLECTOR -TaskPath "$TASK_FOLDER\" -ErrorAction Stop
-            Write-Host "collector start requested (Task Scheduler)"
+            if (-not (Wait-ForCollectorHeartbeat 20)) { throw "collector 启动后未确认存活" }
+            Write-Host "collector started (Task Scheduler)"
             return
         } catch {
             $run = Invoke-SchtasksRun $TASK_NAME_COLLECTOR
-            if ($run.ok) {
-                Write-Host "collector start requested (schtasks /Run)"
+            if ($run.ok -and (Wait-ForCollectorHeartbeat 20)) {
+                Write-Host "collector started (schtasks /Run)"
                 return
             }
             Write-Host "Task Scheduler start failed: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -1446,11 +1330,12 @@ function Cmd-StartCollector {
 
     if ($confirmedMissing) {
         try {
-            $ok = Install-CollectorTask $nodeBin -SkipCleanup
+            $ok = Install-CollectorTask $pilotBin -SkipCleanup
             if ($ok) {
-                Start-ScheduledTask -TaskName $TASK_NAME_COLLECTOR -TaskPath "$TASK_FOLDER\" -ErrorAction Stop
                 Set-Content -Path $INIT_TYPE_FILE -Value "taskscheduler"
-                Write-Host "collector task restored and start requested (Task Scheduler)"
+                Start-ScheduledTask -TaskName $TASK_NAME_COLLECTOR -TaskPath "$TASK_FOLDER\" -ErrorAction Stop
+                if (-not (Wait-ForCollectorHeartbeat 20)) { throw "恢复的 collector 任务未确认存活" }
+                Write-Host "collector task restored and running (Task Scheduler)"
                 return
             }
         } catch {
@@ -1458,17 +1343,18 @@ function Cmd-StartCollector {
         }
     }
 
-    # A missing task can be the result of an interrupted activation. Keep collection
-    # available even when task repair is denied; the updater's runtime/PID validation
-    # decides whether this detached fallback really became healthy.
-    $entry = Join-Path $BOOTSTRAP_DIR "collector-daemon.js"
-    if (-not (Test-Path $entry)) {
-        Write-Error "Bootstrap script missing"
+    # 托管安装不能降级成脱离服务管理器的第二个进程。
+    if ((Get-InitType) -notin @("background", "unknown", "")) {
+        Write-Error "托管 collector 无法启动，已拒绝后台兜底"
         exit 1
     }
     $errLog = Join-Path $LOG_DIR "loongsuite-pilot-service-err.log"
-    Start-BackgroundDaemon "collector" $nodeBin $entry $LOG_FILE $errLog
-    Write-Host "collector start requested (background fallback)" -ForegroundColor Yellow
+    Start-BackgroundDaemon "collector" $pilotBin $LOG_FILE $errLog
+    if (-not (Wait-ForCollectorHeartbeat 10)) {
+        Write-Error "后台 collector 未在 10 秒内确认存活"
+        exit 1
+    }
+    Write-Host "collector started (background fallback)" -ForegroundColor Yellow
 }
 
 function Schedule-UpdaterRestart {
@@ -1523,17 +1409,17 @@ function Cmd-RestartCollector {
     # predated the -Match parameter; it also missed the installation scope the shared
     # helper now applies, and restart-collector is the command the updater runs on every
     # deploy -- i.e. the one that reached other accounts most often.
-    Stop-OrphanProcesses -Match "collector-daemon"
+    Stop-OrphanProcesses -Match "^collector$"
 
     Start-Sleep -Seconds 1
     Ensure-Dirs
     Sync-BootstrapScripts
 
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-RestartFailure -Target "collector" -Stage "node-missing" `
-            -Detail "Resolve-Node found no node that can load node:sqlite (need 22.13+ or 23.4+, or the managed runtime; checked the pin file, nvm, PATH and the managed runtime)"
-        Write-Error "node runtime not found"
+    $pilotBin = Resolve-PilotBinary
+    if (-not $pilotBin) {
+        Write-RestartFailure -Target "collector" -Stage "bootstrap-missing" `
+            -Detail "原生二进制、运行清单或 current 指针无效；未探测外部运行时"
+        Write-Error "原生服务入口不存在"
         exit 1
     }
 
@@ -1585,7 +1471,7 @@ function Cmd-RestartCollector {
         # task's own 5-minute watchdog trigger happened to relaunch it.
         if ($query.exists) {
             try {
-                Install-CollectorTask $nodeBin | Out-Null
+                Install-CollectorTask $pilotBin | Out-Null
             } catch {
                 $extra["register_error"] = [string]$_.Exception.Message
                 Write-Host "Task re-registration skipped (start still attempted): $($_.Exception.Message)" -ForegroundColor Yellow
@@ -1633,10 +1519,10 @@ function Cmd-RestartCollector {
         # schtasks-yes means Start may still work, and delete+recreate would be denied.
         if ($confirmedMissing) {
             try {
-                $ok = Install-CollectorTask $nodeBin
+                $ok = Install-CollectorTask $pilotBin
                 if (-not $ok) {
                     $stage = "bootstrap-missing"
-                    $detail = "Install-CollectorTask declined: collector-daemon.js missing under $BOOTSTRAP_DIR"
+                    $detail = "Install-CollectorTask 拒绝无效的原生入口：$pilotBin"
                     Write-Host "Self-heal skipped: $detail" -ForegroundColor Yellow
                 } else {
                     # Registration succeeded: this install is now managed. Flip in-memory
@@ -1671,18 +1557,22 @@ function Cmd-RestartCollector {
             # Restricted to installs that never had a task, and reported when skipped --
             # see Cmd-RestartUpdater.
             if ($initType -in @("background", "unknown", "")) {
-                $entry = Join-Path $BOOTSTRAP_DIR "collector-daemon.js"
-                if (-not (Test-Path $entry)) {
+                if (-not (Test-NativePath $pilotBin)) {
                     Write-RestartFailure -Target "collector" -Stage "bootstrap-missing" `
-                        -Detail "collector-daemon.js not found at $entry" -Extra $extra
-                    Write-Error "Bootstrap script missing"
+                        -Detail "原生入口不存在：$pilotBin" -Extra $extra
+                    Write-Error "原生服务入口不存在"
                     exit 1
                 }
                 $errLog = Join-Path $LOG_DIR "loongsuite-pilot-service-err.log"
-                # node publishes its own pid file on Windows (see src/index.ts); export the
-                # data dir so it lands at $DATA_DIR\loongsuite-pilot.pid. No Set-Content here --
-                # $proc.Id would be the wrapper pid, not node's.
-                Start-BackgroundDaemon "collector" $nodeBin $entry $LOG_FILE $errLog
+                # PID 由原生 collector 自己发布，不记录 PowerShell 包装进程的 PID。
+                try {
+                    Start-BackgroundDaemon "collector" $pilotBin $LOG_FILE $errLog
+                } catch {
+                    Write-RestartFailure -Target "collector" -Stage "start-failed" `
+                        -Detail ([string]$_.Exception.Message) -Extra $extra
+                    Write-Error "无法启动后台 collector"
+                    exit 1
+                }
                 if (Wait-ForCollectorHeartbeat 10) {
                     Write-Host "collector restarted (background fallback after stage=$stage : $detail)" -ForegroundColor Yellow
                 } else {
@@ -1725,17 +1615,17 @@ function Cmd-RestartUpdater {
 
     # Second inline copy, same history and same missing scope as the one in
     # Cmd-RestartCollector.
-    Stop-OrphanProcesses -Match "updater-daemon"
+    Stop-OrphanProcesses -Match "^updater$"
 
     Start-Sleep -Seconds 1
     Ensure-Dirs
     Sync-BootstrapScripts
 
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-RestartFailure -Target "updater" -Stage "node-missing" `
-            -Detail "Resolve-Node found no node that can load node:sqlite (need 22.13+ or 23.4+, or the managed runtime; checked the pin file, nvm, PATH and the managed runtime)"
-        Write-Error "node runtime not found"
+    $pilotBin = Resolve-PilotBinary
+    if (-not $pilotBin) {
+        Write-RestartFailure -Target "updater" -Stage "bootstrap-missing" `
+            -Detail "原生二进制、运行清单或 current 指针无效；未探测外部运行时"
+        Write-Error "原生服务入口不存在"
         return
     }
 
@@ -1773,7 +1663,7 @@ function Cmd-RestartUpdater {
         # find the task: query-fail / schtasks-yes must not delete+recreate.
         if ($query.exists) {
             try {
-                Install-UpdaterTask $nodeBin | Out-Null
+                Install-UpdaterTask $pilotBin | Out-Null
             } catch {
                 $extra["register_error"] = [string]$_.Exception.Message
                 Write-Host "Task re-registration skipped (start still attempted): $($_.Exception.Message)" -ForegroundColor Yellow
@@ -1819,10 +1709,10 @@ function Cmd-RestartUpdater {
         # Only when confirmed missing: a query-fail or schtasks-yes is not a missing task.
         if ($confirmedMissing) {
             try {
-                $ok = Install-UpdaterTask $nodeBin
+                $ok = Install-UpdaterTask $pilotBin
                 if (-not $ok) {
                     $stage = "bootstrap-missing"
-                    $detail = "Install-UpdaterTask declined: updater-daemon.js missing under $BOOTSTRAP_DIR"
+                    $detail = "Install-UpdaterTask 拒绝无效的原生入口：$pilotBin"
                     Write-Host "Self-heal skipped: $detail" -ForegroundColor Yellow
                 } else {
                     $initType = "taskscheduler"
@@ -1858,20 +1748,22 @@ function Cmd-RestartUpdater {
             # changed is that skipping it is now reported instead of falling through to a
             # Write-Error carrying nothing but init_type.
             if ($initType -in @("background", "unknown", "")) {
-                $entry = Join-Path $BOOTSTRAP_DIR "updater-daemon.js"
-                if (-not (Test-Path $entry)) {
-                    # Used to be Write-Host + return, i.e. exit 0: the caller recorded a
-                    # successful restart of an updater that was never started.
+                if (-not (Test-NativePath $pilotBin)) {
                     Write-RestartFailure -Target "updater" -Stage "bootstrap-missing" `
-                        -Detail "updater-daemon.js not found at $entry" -Extra $extra
-                    Write-Error "Updater bootstrap script missing"
+                        -Detail "原生入口不存在：$pilotBin" -Extra $extra
+                    Write-Error "原生服务入口不存在"
                     return
                 }
                 $updaterErrLog = Join-Path $LOG_DIR "loongsuite-pilot-updater-err.log"
-                # node publishes its own pid file on Windows (see src/updater/index.ts); export
-                # the data dir so it lands at $DATA_DIR\loongsuite-pilot-updater.pid. No
-                # Set-Content -- $proc.Id would be the wrapper pid, not node's.
-                Start-BackgroundDaemon "updater" $nodeBin $entry $UPDATER_LOG_FILE $updaterErrLog
+                # PID 由原生 updater 自己发布，不记录 PowerShell 包装进程的 PID。
+                try {
+                    Start-BackgroundDaemon "updater" $pilotBin $UPDATER_LOG_FILE $updaterErrLog
+                } catch {
+                    Write-RestartFailure -Target "updater" -Stage "start-failed" `
+                        -Detail ([string]$_.Exception.Message) -Extra $extra
+                    Write-Error "无法启动后台 updater"
+                    return
+                }
                 if (Wait-ForUpdaterAlive 10) {
                     Write-Host "updater restarted (background fallback after stage=$stage : $detail)" -ForegroundColor Yellow
                 } else {
@@ -1896,68 +1788,16 @@ function Cmd-RestartUpdater {
 # CMD: status
 # ============================================================
 function Get-DashboardPort {
-    try {
-        if (Test-Path $CONFIG_FILE) {
-            $config = Get-Content -LiteralPath $CONFIG_FILE -Raw -Encoding UTF8 | ConvertFrom-Json
-            $port = $config.dashboard.port
-            if ($null -ne $port -and $port -isnot [string] -and $port -isnot [bool]) {
-                $numericPort = [double]$port
-                $integerPort = [long]$numericPort
-                if ($numericPort -eq $integerPort -and
-                    $integerPort -ge 1 -and $integerPort -le 65535) {
-                    return [int]$integerPort
-                }
-            }
-        }
-    } catch {}
-    return 8765
+    $port = Invoke-Pilot -Arguments @("dashboard", "probe", "--port")
+    if ($script:PilotExitCode -ne 0) { throw "无法读取 Dashboard 端口配置" }
+    return [int]$port
 }
 
 function Test-DashboardAvailable {
-    param([int]$Port)
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) { return $false }
-
-    $probe = @'
-const http = require("node:http");
-const crypto = require("node:crypto");
-const path = require("node:path");
-let finished = false;
-let timer;
-const finish = (code) => {
-  if (finished) return;
-  finished = true;
-  clearTimeout(timer);
-  process.exit(code);
-};
-const request = http.request({
-  host: "127.0.0.1",
-  port: Number(process.argv[1]),
-  path: "/metrics-summary.json",
-  method: "HEAD",
-}, (response) => {
-  response.resume();
-  const expectedInstance = crypto.createHash("sha256")
-    .update(path.resolve(process.argv[2]))
-    .digest("hex");
-  const isPilot = response.headers["x-loongsuite-pilot-dashboard"] === "metrics-summary-v1"
-    && response.headers["x-loongsuite-pilot-instance"] === expectedInstance;
-  finish(isPilot && (response.statusCode === 200 || response.statusCode === 503) ? 0 : 1);
-});
-request.on("error", () => finish(1));
-request.end();
-timer = setTimeout(() => {
-  request.destroy();
-  finish(1);
-}, 300);
-'@
-
     try {
-        & $nodeBin -e $probe $Port $DATA_DIR *> $null
-        return $LASTEXITCODE -eq 0
-    } catch {
-        return $false
-    }
+        Invoke-Pilot -Arguments @("dashboard", "probe", "--available") *> $null
+        return $script:PilotExitCode -eq 0
+    } catch { return $false }
 }
 
 function Test-InterceptorEmbedded {
@@ -2003,7 +1843,7 @@ function Cmd-Status {
     }
     if ($collectorRunning) {
         $dashboardPort = Get-DashboardPort
-        if (Test-DashboardAvailable -Port $dashboardPort) {
+        if (Test-DashboardAvailable) {
             Write-Host "   dashboard: http://127.0.0.1:$dashboardPort/"
         } else {
             Write-Host "   dashboard: unavailable (http://127.0.0.1:$dashboardPort/)" -ForegroundColor Yellow
@@ -2015,7 +1855,7 @@ function Cmd-Status {
         $pidVal = (Get-Content $UPDATER_PID_FILE).Trim()
         Write-Host "   updater: running (PID $pidVal)"
     } elseif (Get-TaskRunning $TASK_NAME_UPDATER) {
-        Write-Host "   updater: running (Task Scheduler)"
+        Write-Host "   updater: 未确认进程存活（Task Scheduler 为 Running）" -ForegroundColor Yellow
     } else {
         Write-Host "   updater: stopped"
     }
@@ -2064,28 +1904,15 @@ function Cmd-Info {
     Write-Host "log=$LOG_FILE"
     Write-Host "versions_dir=$VERSIONS_DIR"
 
-    if (Test-Path $NODE_PIN_FILE) {
-        $pinnedNode = ([string](Get-Content -LiteralPath $NODE_PIN_FILE -Raw -Encoding UTF8 -ErrorAction SilentlyContinue)).Trim([char]0xFEFF).Trim()
-        if ($pinnedNode -and (Test-Path $pinnedNode)) {
-            $nodeVer = & $pinnedNode --version 2>$null
-            Write-Host "node_bin=$pinnedNode"
-            Write-Host "node_version=$nodeVer"
-        } else {
-            Write-Host "node_bin=$pinnedNode (stale)"
-            $resolved = Resolve-Node
-            if ($resolved) {
-                $nodeVer = & $resolved --version 2>$null
-                Write-Host "node_version=$nodeVer"
-            }
-        }
+    $resolved = Resolve-PilotBinary
+    Write-Host "runtime=rust"
+    if ($resolved) {
+        Write-Host "runtime_bin=$resolved"
+        $runtimeVersion = Invoke-Pilot -Binary $resolved -Arguments @("--version")
+        if ($script:PilotExitCode -ne 0) { throw "原生版本查询失败" }
+        Write-Host "runtime_version=$runtimeVersion"
     } else {
-        Write-Host "node_bin=not pinned"
-        $resolved = Resolve-Node
-        if ($resolved) {
-            $nodeVer = & $resolved --version 2>$null
-            Write-Host "node_resolved=$resolved"
-            Write-Host "node_version=$nodeVer"
-        }
+        Write-Host "runtime_bin=invalid"
     }
 
     Write-Host ""
@@ -2308,118 +2135,34 @@ function Cmd-Log {
 # CMD: deploy (one-shot hook/plugin deployment, for image builds)
 # ============================================================
 function Cmd-Deploy {
-    $versionDir = Resolve-CurrentVersion
-    if (-not $versionDir) {
-        Write-Error "Current loongsuite-pilot version not found"
-        exit 1
-    }
-
-    $entry = Join-Path $versionDir "dist\index.js"
-    if (-not (Test-Path $entry -PathType Leaf)) {
-        Write-Error "Deploy CLI entrypoint missing"
-        exit 1
-    }
-
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-Error "node runtime not found"
-        exit 1
-    }
-
-    $env:LOONGSUITE_PILOT_DATA_DIR = $DATA_DIR
-    $env:LOONGSUITE_PILOT_CACHE_DIR = $CACHE_DIR
-    $env:AGENT_DATA_COLLECTION_CONFIG = $CONFIG_FILE
-    # No collector restart afterwards -- see the shell cmd_deploy for why.
-    & $nodeBin $entry "deploy" @SubArgs
-    exit $LASTEXITCODE
+    Invoke-Pilot -Arguments (@("deploy") + $SubArgs)
+    exit $script:PilotExitCode
 }
 
 # ============================================================
 # CMD: token-usage (foreground token usage CLI)
 # ============================================================
 function Cmd-TokenUsage {
-    $versionDir = Resolve-CurrentVersion
-    if (-not $versionDir) {
-        Write-Error "Current loongsuite-pilot version not found"
-        exit 1
-    }
-
-    $entry = Join-Path $versionDir "dist\index.js"
-    if (-not (Test-Path $entry -PathType Leaf)) {
-        Write-Error "Token usage CLI entrypoint missing"
-        exit 1
-    }
-
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-Error "node runtime not found"
-        exit 1
-    }
-
-    $env:LOONGSUITE_PILOT_DATA_DIR = $DATA_DIR
-    $env:LOONGSUITE_PILOT_CACHE_DIR = $CACHE_DIR
-    $env:AGENT_DATA_COLLECTION_CONFIG = $CONFIG_FILE
-    & $nodeBin $entry "token-usage" @SubArgs
-    exit $LASTEXITCODE
+    Invoke-Pilot -Arguments (@("tokens") + $SubArgs)
+    exit $script:PilotExitCode
 }
 
 # ============================================================
 # CMD: worker (foreground local Worker management CLI)
 # ============================================================
 function Cmd-Worker {
-    $versionDir = Resolve-CurrentVersion
-    if (-not $versionDir) {
-        Write-Error "Current loongsuite-pilot version not found"
-        exit 1
-    }
-
-    $entry = Join-Path $versionDir "dist\index.js"
-    if (-not (Test-Path $entry -PathType Leaf)) {
-        Write-Error "Worker CLI entrypoint missing"
-        exit 1
-    }
-
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-Error "node runtime not found"
-        exit 1
-    }
-
-    $env:LOONGSUITE_PILOT_DATA_DIR = $DATA_DIR
-    $env:LOONGSUITE_PILOT_CACHE_DIR = $CACHE_DIR
-    & $nodeBin $entry "worker" @SubArgs
-    exit $LASTEXITCODE
+    Invoke-Pilot -Arguments (@("worker") + $SubArgs)
+    exit $script:PilotExitCode
 }
 
 # ============================================================
 # CMD: agent (registered high-level PI SDK Agent management)
 # ============================================================
 function Cmd-Agent {
-    $versionDir = Resolve-CurrentVersion
-    if (-not $versionDir) {
-        Write-Error "Current loongsuite-pilot version not found"
-        exit 1
-    }
-
-    $entry = Join-Path $versionDir "dist\index.js"
-    if (-not (Test-Path $entry -PathType Leaf)) {
-        Write-Error "Agent CLI entrypoint missing"
-        exit 1
-    }
-
-    $nodeBin = Resolve-Node
-    if (-not $nodeBin) {
-        Write-Error "node runtime not found"
-        exit 1
-    }
-
     $subcommand = if ($SubArgs.Count -ge 1) { [string]$SubArgs[0] } else { "" }
     $wasRunning = (Test-CollectorRunning) -or (Test-PidRunning $PID_FILE)
-    $env:LOONGSUITE_PILOT_DATA_DIR = $DATA_DIR
-    $env:LOONGSUITE_PILOT_CACHE_DIR = $CACHE_DIR
-    $env:AGENT_DATA_COLLECTION_CONFIG = $CONFIG_FILE
-    & $nodeBin $entry "agent" @SubArgs
-    $result = $LASTEXITCODE
+    Invoke-Pilot -Arguments (@("agent") + $SubArgs)
+    $result = $script:PilotExitCode
     if ($result -ne 0) { exit $result }
 
     if ($wasRunning -and $subcommand.ToLower() -in @("register", "unregister")) {
@@ -2434,52 +2177,8 @@ function Cmd-Agent {
 # spans (not the event log). The collector re-reads the file per turn, so
 # changes take effect without a restart.
 function Cmd-SpanAttr {
-    $sub = if ($SubArgs.Count -ge 1) { $SubArgs[0] } else { "" }
-
-    if ($sub -ieq "clear") {
-        if (Test-Path $SPAN_ATTR_FILE) { Remove-Item $SPAN_ATTR_FILE -Force }
-        Write-Host "cleared custom span attributes ($SPAN_ATTR_FILE)"
-        return
-    }
-
-    if ($sub.ToLower() -in @("set", "unset", "list")) {
-        $nodeBin = Resolve-Node
-        if (-not $nodeBin) { Write-Error "[span-attr] node runtime not found"; exit 1 }
-        $js = @'
-const fs = require("fs");
-const file = process.argv[1], op = process.argv[2], key = process.argv[3], value = process.argv[4];
-const RESERVED = ["gen_ai.","git.","workspace.","event.","trace_","user.","cost_","agent.","time_unix_nano","observed_time_unix_nano"];
-const isReserved = k => RESERVED.some(p => k === p || k.indexOf(p) === 0);
-function read() { try { const o = JSON.parse(fs.readFileSync(file, "utf-8").replace(/^\uFEFF/, "")); return (o && typeof o === "object" && !Array.isArray(o)) ? o : {}; } catch { return {}; } }
-function write(o) { const tmp = file + ".tmp"; fs.writeFileSync(tmp, JSON.stringify(o, null, 2) + "\n"); fs.renameSync(tmp, file); }
-if (op === "set") {
-  if (!key || value === undefined) { console.error("usage: span-attr set <key> <value>"); process.exit(1); }
-  if (isReserved(key)) { console.error("refused: \"" + key + "\" uses a reserved prefix (gen_ai./git./workspace./event./trace_/user./cost_/agent./...)"); process.exit(1); }
-  const o = read(); o[key] = String(value); write(o); console.log("set " + key + "=" + o[key]);
-} else if (op === "unset") {
-  if (!key) { console.error("usage: span-attr unset <key>"); process.exit(1); }
-  const o = read(); if (Object.prototype.hasOwnProperty.call(o, key)) { delete o[key]; write(o); console.log("unset " + key); } else { console.log("(no such key: " + key + ")"); }
-} else if (op === "list") {
-  const o = read(); const ks = Object.keys(o);
-  if (ks.length === 0) { console.log("(no custom span attributes)"); } else { for (const k of ks) console.log(k + "=" + o[k]); }
-}
-'@
-        $rest = if ($SubArgs.Count -ge 2) { $SubArgs[1..($SubArgs.Count - 1)] } else { @() }
-        & $nodeBin -e $js $SPAN_ATTR_FILE $sub @rest
-        exit $LASTEXITCODE
-    }
-
-    Write-Host "Usage: loongsuite-pilot span-attr <set|unset|list|clear>"
-    Write-Host ""
-    Write-Host "  set <key> <value>   Set a custom trace span attribute"
-    Write-Host "  unset <key>         Remove a custom attribute"
-    Write-Host "  list                Show current custom attributes"
-    Write-Host "  clear               Remove all custom attributes"
-    Write-Host ""
-    Write-Host "Attributes are injected into trace spans only (not the event log)."
-    Write-Host "Reserved-prefix keys (gen_ai./git./workspace./event./trace_/user./cost_/agent./...) are rejected."
-    Write-Host "Changes take effect on the next turn - no restart needed."
-    if ($sub -ne "" -and $sub.ToLower() -notin @("help", "-h", "--help")) { exit 1 }
+    Invoke-Pilot -Arguments (@("span-attr") + $SubArgs)
+    exit $script:PilotExitCode
 }
 
 # ============================================================
@@ -2546,6 +2245,8 @@ function Cmd-Help {
 # ============================================================
 # Dispatch
 # ============================================================
+if ($MyInvocation.InvocationName -eq ".") { return }
+
 switch ($Command.ToLower()) {
     "start"              { Cmd-Start }
     "stop"               { Cmd-Stop }
@@ -2553,7 +2254,11 @@ switch ($Command.ToLower()) {
     "status"             { Cmd-Status }
     "info"               { Cmd-Info }
     "log"                { Cmd-Log }
-    "inject"             { Write-Error "Session hook injection currently supports Linux and macOS only"; exit 1 }
+    "inject"             { Invoke-Pilot -Arguments (@("inject") + $SubArgs); exit $script:PilotExitCode }
+        { $_ -in "hook", "hook-process", "probe", "check", "interceptor", "dashboard", "--version" } {
+            Invoke-Pilot -Arguments (@($Command) + $SubArgs)
+            exit $script:PilotExitCode
+        }
     "deploy"             { Cmd-Deploy }
     "token-usage"        { Cmd-TokenUsage }
     "tokens"             { Cmd-TokenUsage }
