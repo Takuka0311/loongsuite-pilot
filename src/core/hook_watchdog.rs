@@ -19,6 +19,7 @@ const MAX_INTERCEPT_REPAIRS_PER_DAY: u32 = 3;
 const MARKER_BEGIN_PREFIX: &str = "loongsuite-pilot BEGIN ";
 
 pub type BoxFut<T> = Pin<Box<dyn std::future::Future<Output = T> + Send>>;
+pub type InterceptAction = Arc<dyn Fn() -> BoxFut<Result<(), String>> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkerBlock {
@@ -70,8 +71,8 @@ pub struct InterceptCheckTarget {
     pub enabled: Arc<dyn Fn() -> bool + Send + Sync>,
     pub precondition: Arc<dyn Fn() -> BoxFut<bool> + Send + Sync>,
     pub check: Arc<dyn Fn() -> BoxFut<bool> + Send + Sync>,
-    pub repair: Arc<dyn Fn() -> BoxFut<Result<(), String>> + Send + Sync>,
-    pub cleanup: Option<Arc<dyn Fn() -> BoxFut<Result<(), String>> + Send + Sync>>,
+    pub repair: InterceptAction,
+    pub cleanup: Option<InterceptAction>,
 }
 
 pub struct HookWatchdog {
@@ -327,9 +328,7 @@ impl HookWatchdog {
 
     async fn repair_target(&self, target: &PluginCheckTarget) -> bool {
         if let Some(repair) = &target.repair_fn {
-            return match std::panic::AssertUnwindSafe(repair()).await {
-                value => value,
-            };
+            return repair().await;
         }
         let Some(bin) = &target.bin_path else {
             return false;

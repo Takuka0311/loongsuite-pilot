@@ -37,24 +37,7 @@ pub fn join_app_dir(name: &str) -> String {
 /// Qoder desktop root. Linux uses `XDG_CONFIG_HOME` when set, matching the
 /// international IDE input.
 pub fn qoder_root(folder: &str) -> String {
-    if cfg!(target_os = "macos") {
-        resolve_home(&format!("~/Library/Application Support/{folder}"))
-    } else if cfg!(windows) {
-        app_support_root()
-            .join(folder)
-            .to_string_lossy()
-            .into_owned()
-    } else if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        if !xdg.is_empty() {
-            return PathBuf::from(xdg)
-                .join(folder)
-                .to_string_lossy()
-                .into_owned();
-        }
-        resolve_home(&format!("~/.config/{folder}"))
-    } else {
-        resolve_home(&format!("~/.config/{folder}"))
-    }
+    join_app_dir(folder)
 }
 
 pub fn env_poll_or(explicit: Option<u64>, env_key: &str) -> Option<u64> {

@@ -119,7 +119,7 @@ impl DshYamlPatchStrategy {
                     None => !existed,
                 };
                 let new_block = compose_block(cfg, &plugin_hash, created);
-                let next = if let Some(block) = &parsed.existing_block {
+                let next = if parsed.existing_block.is_some() {
                     let mut bytes = parsed.before.clone();
                     bytes.extend(new_block.as_bytes());
                     bytes.extend(&parsed.after);

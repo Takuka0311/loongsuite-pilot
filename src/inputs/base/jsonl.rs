@@ -43,29 +43,6 @@ pub fn last_newline(bytes: &[u8]) -> Option<usize> {
     bytes.iter().rposition(|byte| *byte == b'\n')
 }
 
-pub struct JsonlBatch<'a> {
-    pub text: &'a str,
-    pub bytes: &'a [u8],
-    pub ascii: bool,
-}
-
-pub fn split_complete<'a>(bytes: &'a [u8]) -> Option<JsonlBatch<'a>> {
-    let newline = last_newline(bytes)?;
-    let complete = &bytes[..=newline];
-    let text = std::str::from_utf8(complete).unwrap_or("");
-    // Lossy fallback when the batch is not valid UTF-8. Callers that need the
-    // original bytes still have `bytes`.
-    Some(JsonlBatch {
-        text: if std::str::from_utf8(complete).is_ok() {
-            std::str::from_utf8(complete).unwrap_or("")
-        } else {
-            text
-        },
-        bytes: complete,
-        ascii: complete.is_ascii(),
-    })
-}
-
 /// Decode a complete newline-terminated slice. Invalid UTF-8 uses lossy
 /// replacement, which makes the batch non-ASCII the same way JavaScript's
 /// one-code-unit replacement does relative to the byte length.

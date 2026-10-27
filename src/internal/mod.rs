@@ -5,6 +5,7 @@
 //! web-tracking post from `statistic.ts`. Alarm delivery stays empty because the
 //! proprietary alarm module is not in this tree.
 
+#[cfg(all(feature = "proprietary", not(test)))]
 mod alarm_sender;
 pub mod sender;
 mod statistic;

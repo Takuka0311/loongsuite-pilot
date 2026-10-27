@@ -28,8 +28,8 @@ fn wall_ms() -> i64 {
 }
 
 pub struct SleepDetector {
-    last_tick_ms: Mutex<i64>,
-    listeners: Mutex<Vec<WakeHandler>>,
+    last_tick_ms: Arc<Mutex<i64>>,
+    listeners: Arc<Mutex<Vec<WakeHandler>>>,
     running: Mutex<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
@@ -44,8 +44,8 @@ impl Default for SleepDetector {
 impl SleepDetector {
     pub fn new() -> Self {
         Self {
-            last_tick_ms: Mutex::new(0),
-            listeners: Mutex::new(Vec::new()),
+            last_tick_ms: Arc::new(Mutex::new(0)),
+            listeners: Arc::new(Mutex::new(Vec::new())),
             running: Mutex::new(false),
             task: Mutex::new(None),
             now: Arc::new(wall_ms),
@@ -61,46 +61,22 @@ impl SleepDetector {
     }
 
     pub fn start(&self) {
-        if *self.running.lock().unwrap() {
+        let mut running = self.running.lock().unwrap();
+        if *running {
             return;
         }
-        *self.running.lock().unwrap() = true;
+        *running = true;
         *self.last_tick_ms.lock().unwrap() = (self.now)();
-        let detector = SharedDetector {
-            last_tick_ms: Arc::new(Mutex::new(*(self.last_tick_ms.lock().unwrap()))),
-            listeners: Arc::new(Mutex::new(self.listeners.lock().unwrap().clone())),
-            running: Arc::new(std::sync::atomic::AtomicBool::new(true)),
-            now: Arc::clone(&self.now),
-        };
-        // Keep the original mutexes in sync by spawning against clones of the same Arcs.
-        let _ = detector;
-        let last = Arc::new(std::sync::Mutex::new((self.now)()));
-        *self.last_tick_ms.lock().unwrap() = *last.lock().unwrap();
-        let listeners = {
-            // Share the listener vec by leaking the current list into an Arc used by the task.
-            // `stop` clears the vec the task also holds.
-            Arc::new(Mutex::new(Vec::<WakeHandler>::new()))
-        };
-        {
-            let mut guard = self.listeners.lock().unwrap();
-            let shared = listeners.lock().unwrap();
-            drop(shared);
-            let _ = &mut guard;
-        }
-        let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        // 后台采样与动态订阅共享同一状态，stop 通过 JoinHandle 取消任务。
         let now = Arc::clone(&self.now);
-        let listeners_for_task = listeners.clone();
-        let running_for_task = Arc::clone(&running);
-        let last_for_task = Arc::clone(&last);
+        let listeners_for_task = Arc::clone(&self.listeners);
+        let last_for_task = Arc::clone(&self.last_tick_ms);
         let task = tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(std::time::Duration::from_millis(CHECK_INTERVAL_MS));
             interval.tick().await;
             loop {
                 interval.tick().await;
-                if !running_for_task.load(std::sync::atomic::Ordering::SeqCst) {
-                    break;
-                }
                 tick(
                     last_for_task.as_ref(),
                     listeners_for_task.as_ref(),
@@ -109,14 +85,6 @@ impl SleepDetector {
             }
         });
         *self.task.lock().unwrap() = Some(task);
-        // Stash shared state by replacing fields. The public listener vec must be the one the task uses.
-        // Re-bind by swapping: callers registered listeners before start, so copy them in.
-        let existing = std::mem::take(&mut *self.listeners.lock().unwrap());
-        *listeners.lock().unwrap() = existing;
-        // Replace self.listeners with a proxy: we cannot replace the Mutex. Store listeners in the
-        // same Mutex by not using a separate Arc. The implementation below uses tick_at for tests
-        // and the background task reads self through a channel. See `start_background`.
-        let _ = (listeners, running, last);
     }
 
     pub fn stop(&self) {
@@ -158,13 +126,6 @@ impl SleepDetector {
         *self.running.lock().unwrap() = true;
         *self.last_tick_ms.lock().unwrap() = now_ms;
     }
-}
-
-struct SharedDetector {
-    last_tick_ms: Arc<Mutex<i64>>,
-    listeners: Arc<Mutex<Vec<WakeHandler>>>,
-    running: Arc<std::sync::atomic::AtomicBool>,
-    now: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
 
 fn tick(
@@ -234,6 +195,35 @@ mod tests {
         detector.tick_at(120_000);
         assert_eq!(*events.lock().unwrap(), 0);
         assert_eq!(detector.listener_count(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn background_sampling_shares_late_subscriptions_and_stops() {
+        use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+        let now = Arc::new(AtomicI64::new(1));
+        let clock = Arc::clone(&now);
+        let mut detector = SleepDetector::new();
+        detector.now = Arc::new(move || clock.load(Ordering::SeqCst));
+        detector.start();
+        detector.start();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&calls);
+        detector.on_wake(Arc::new(move |_| {
+            seen.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert_eq!(detector.listener_count(), 1);
+        tokio::task::yield_now().await;
+        now.store(70_000, Ordering::SeqCst);
+        tokio::time::advance(std::time::Duration::from_millis(CHECK_INTERVAL_MS)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(*detector.last_tick_ms.lock().unwrap(), 70_000);
+        detector.stop();
+        assert_eq!(detector.listener_count(), 0);
+        now.store(140_000, Ordering::SeqCst);
+        tokio::time::advance(std::time::Duration::from_millis(CHECK_INTERVAL_MS)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]

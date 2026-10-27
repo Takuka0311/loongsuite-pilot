@@ -16,18 +16,10 @@ pub fn as_record(value: &Value) -> Option<&Map<String, Value>> {
     value.as_object()
 }
 
-pub fn as_record_owned(value: &Value) -> Option<Map<String, Value>> {
-    value.as_object().cloned()
-}
-
 pub fn string_value(value: Option<&Value>) -> Option<&str> {
     value
         .and_then(Value::as_str)
         .filter(|text| !text.is_empty())
-}
-
-pub fn string_owned(value: Option<&Value>) -> Option<String> {
-    string_value(value).map(str::to_owned)
 }
 
 pub fn number_value(value: Option<&Value>) -> Option<f64> {

@@ -16,13 +16,15 @@ use crate::utils::{directory_exists, resolve_poll_interval_ms, DEFAULT_POLL_INTE
 const LOG_NAME: &str = "pi-coding-agent";
 const MISSING_STORE: &str = "PiCodingAgentLogInput requires a stateStore";
 
+pub type AgentEnabled = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
 pub struct PiCodingAgentLogInputOptions {
     pub state_store: Arc<StateStore>,
     pub log_dir: Option<String>,
     pub log_prefix: Option<String>,
     pub poll_interval_ms: Option<u64>,
     pub data_dir: Option<String>,
-    pub agent_enabled: Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>,
+    pub agent_enabled: Option<AgentEnabled>,
 }
 
 pub struct PiCodingAgentLogInput {
@@ -87,7 +89,7 @@ impl std::ops::Deref for PiCodingAgentLogInput {
     }
 }
 
-fn pi_transform(enabled: Arc<dyn Fn(&str) -> bool + Send + Sync>) -> TransformFn {
+fn pi_transform(enabled: AgentEnabled) -> TransformFn {
     Arc::new(move |record: Map<String, Value>| {
         let enabled = Arc::clone(&enabled);
         Box::pin(async move {
@@ -131,7 +133,7 @@ mod tests {
         store: Arc<crate::checkpoints::StateStore>,
         log_dir: Option<String>,
         data_dir: Option<String>,
-        agent_enabled: Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>,
+        agent_enabled: Option<AgentEnabled>,
     ) -> PiCodingAgentLogInputOptions {
         PiCodingAgentLogInputOptions {
             state_store: store,

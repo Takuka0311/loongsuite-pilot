@@ -6,7 +6,7 @@
 use crate::metrics::runtime_health::{check_runtime, read_init_type, RuntimeProbe};
 use crate::types::{AgentsConfig, SlsEndpoint};
 use crate::utils::{
-    check_process_liveness, format_time, resolve_local_ip, ProcessLiveness,
+    check_process_liveness, format_time, resolve_local_ip, ProcessLiveness, ProcessLivenessProbe,
     UPDATER_PROCESS_PATTERNS,
 };
 use base64::Engine;
@@ -307,7 +307,7 @@ pub struct MetricsCollector {
     sls_endpoints: Vec<SlsEndpoint>,
     cms_workspace: String,
     auto_update_enabled: bool,
-    updater_liveness: Arc<dyn Fn(&str) -> ProcessLiveness + Send + Sync>,
+    updater_liveness: ProcessLivenessProbe,
     now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
     cpu_usage: Arc<dyn Fn() -> (i64, i64) + Send + Sync>,
     runtime_probe: RuntimeProbe,
@@ -341,7 +341,7 @@ pub struct MetricsCollectorOptions {
     pub sls_endpoints: Vec<SlsEndpoint>,
     pub cms_workspace: String,
     pub auto_update_enabled: bool,
-    pub updater_liveness: Option<Arc<dyn Fn(&str) -> ProcessLiveness + Send + Sync>>,
+    pub updater_liveness: Option<ProcessLivenessProbe>,
     pub now_ms: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     pub cpu_usage: Option<Arc<dyn Fn() -> (i64, i64) + Send + Sync>>,
     pub runtime_probe: Option<RuntimeProbe>,

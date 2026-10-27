@@ -52,16 +52,6 @@ pub(crate) fn base_name(value: &str) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) fn join(left: &str, right: &str) -> String {
-    if is_absolute(right) {
-        return normalize_lexical(Path::new(right));
-    }
-    if left.is_empty() || left == "." {
-        return normalize_lexical(Path::new(right));
-    }
-    normalize_lexical(&Path::new(left).join(right))
-}
-
 pub(crate) fn relative(from: &str, to: &str) -> String {
     let from_path = Path::new(from);
     let to_path = Path::new(to);
@@ -76,7 +66,6 @@ pub(crate) fn relative(from: &str, to: &str) -> String {
     }
     let mut out = PathBuf::new();
     for _ in shared..from_comps.len() {
-        let _ = from_comps;
         out.push("..");
     }
     for comp in &to_comps[shared..] {
@@ -112,8 +101,4 @@ fn normalize_lexical(path: &Path) -> String {
 
 pub(crate) fn iso_now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-}
-
-pub(crate) fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
 }

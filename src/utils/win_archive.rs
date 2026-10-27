@@ -277,9 +277,9 @@ fn is_exdev(err: &io::Error) -> bool {
 mod tests {
     use super::*;
 
-    use std::sync::Mutex;
+    use tokio::sync::Mutex;
 
-    static REPLACE_LOCK: Mutex<()> = Mutex::new(());
+    static REPLACE_LOCK: Mutex<()> = Mutex::const_new(());
 
     #[test]
     fn accepts_printable_ascii_and_rejects_anything_else() {
@@ -312,7 +312,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn replaces_an_existing_destination_with_the_staged_tree() {
-        let _lock = REPLACE_LOCK.lock().unwrap();
+        let _lock = REPLACE_LOCK.lock().await;
         FORCE_ACL_FAILURE.store(false, Ordering::SeqCst);
         let base = tempfile::tempdir().unwrap();
         let staged = base.path().join("stage").join("node_modules");
@@ -339,7 +339,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn discards_the_tree_and_throws_when_the_inherited_acl_cannot_be_repaired() {
-        let _lock = REPLACE_LOCK.lock().unwrap();
+        let _lock = REPLACE_LOCK.lock().await;
         FORCE_ACL_FAILURE.store(true, Ordering::SeqCst);
         let base = tempfile::tempdir().unwrap();
         let staged = base.path().join("stage");

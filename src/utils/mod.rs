@@ -98,6 +98,8 @@ pub use pid_utils::{
     ProcessCommandPattern, ProcessLiveness, ProcessLivenessSource, COLLECTOR_PROCESS_PATTERNS,
     INTERCEPTOR_PROCESS_PATTERNS, UPDATER_PROCESS_PATTERNS,
 };
+pub type ProcessLivenessProbe = std::sync::Arc<dyn Fn(&str) -> ProcessLiveness + Send + Sync>;
+
 pub use poll_interval::{
     global_poll_interval_ms, resolve_poll_interval_ms, DEFAULT_POLL_INTERVAL_MS, POLL_INTERVAL_ENV,
 };

@@ -36,12 +36,14 @@ struct EntryRuntime {
     watch: Option<JoinHandle<()>>,
 }
 
+type DiscoveryListener = Arc<dyn Fn(AgentDiscoveryEvent) + Send + Sync>;
+
 pub struct AgentDiscoveryService {
     runtimes: Mutex<HashMap<String, EntryRuntime>>,
     gates: HashMap<String, AsyncMutex<()>>,
     stopping: AtomicBool,
     global_poll: Mutex<Option<JoinHandle<()>>>,
-    listeners: Mutex<Vec<Arc<dyn Fn(AgentDiscoveryEvent) + Send + Sync>>>,
+    listeners: Mutex<Vec<DiscoveryListener>>,
 }
 
 impl AgentDiscoveryService {

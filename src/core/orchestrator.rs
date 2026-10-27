@@ -1513,9 +1513,7 @@ impl Orchestrator {
         let mut entries = Vec::new();
         self.add_hosted(
             &mut entries,
-            "qoder-work-trace",
-            "qoder-work",
-            "hook-jsonl",
+            HostedInputSpec::new("qoder-work-trace", "qoder-work", "hook-jsonl", 1),
             QoderWorkTraceInput::new(QoderWorkTraceOptions {
                 state_store: Arc::clone(state_store),
                 log_dir: Some(self.data_dir_join("logs/qoder-work/history")),
@@ -1525,7 +1523,6 @@ impl Orchestrator {
             }),
             QoderWorkTraceInput::get_watch_paths(),
             QoderWorkTraceInput::check_availability,
-            1,
         )
         .await;
         let trace_bits = Arc::clone(&self.bits);
@@ -1542,9 +1539,7 @@ impl Orchestrator {
         });
         self.add_hosted_when(
             &mut entries,
-            "qoder-cn-sqlite",
-            "qoder-cn",
-            "sqlite-polling",
+            HostedInputSpec::new("qoder-cn-sqlite", "qoder-cn", "sqlite-polling", 1),
             QoderCnSqliteInput::new(QoderCnSqliteOptions {
                 state_store: Arc::clone(state_store),
                 db_path: None,
@@ -1569,14 +1564,11 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         self.add_hosted_when(
             &mut entries,
-            "qoder-cn",
-            "qoder-cn",
-            "ide-snapshot-polling",
+            HostedInputSpec::new("qoder-cn", "qoder-cn", "ide-snapshot-polling", 1),
             QoderCnInput::new(QoderCnOptions {
                 state_store: Arc::clone(state_store),
                 data_root: None,
@@ -1602,14 +1594,11 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         self.add_hosted(
             &mut entries,
-            "qoder-cn-trace",
-            "qoder-cn",
-            "hook-jsonl",
+            HostedInputSpec::new("qoder-cn-trace", "qoder-cn", "hook-jsonl", 1),
             QoderCnTraceInput::new(QoderCnTraceOptions {
                 state_store: Arc::clone(state_store),
                 log_dir: Some(self.data_dir_join("logs/qoder-cn/history")),
@@ -1617,7 +1606,6 @@ impl Orchestrator {
             }),
             QoderCnTraceInput::get_watch_paths(),
             QoderCnTraceInput::check_availability,
-            1,
         )
         .await;
         let wakeup = self.data_dir_join("state/codex/transcript-wakeups");
@@ -1626,9 +1614,7 @@ impl Orchestrator {
         let wakeup_for_watch = wakeup.clone();
         self.add_hosted(
             &mut entries,
-            "codex-transcript",
-            "codex",
-            CollectionMethod::SessionFilePolling.as_str(),
+            HostedInputSpec::new("codex-transcript", "codex", CollectionMethod::SessionFilePolling.as_str(), 1),
             CodexTranscriptInput::new(CodexTranscriptInputOptions {
                 state_store: Arc::clone(state_store),
                 session_dir: None,
@@ -1647,14 +1633,16 @@ impl Orchestrator {
                     }
                 }
             },
-            1,
         )
         .await;
         self.add_hosted(
             &mut entries,
-            "codex-aborted-turn",
-            "codex",
-            CollectionMethod::SessionFilePolling.as_str(),
+            HostedInputSpec::new(
+                "codex-aborted-turn",
+                "codex",
+                CollectionMethod::SessionFilePolling.as_str(),
+                1,
+            ),
             CodexAbortedTurnInput::new(CodexAbortedTurnInputOptions {
                 state_store: Arc::clone(state_store),
                 session_dir: None,
@@ -1665,14 +1653,16 @@ impl Orchestrator {
             }),
             CodexAbortedTurnInput::watch_paths(),
             CodexAbortedTurnInput::check_availability,
-            1,
         )
         .await;
         self.add_hosted(
             &mut entries,
-            "wukong",
-            "wukong",
-            CollectionMethod::CliApiPolling.as_str(),
+            HostedInputSpec::new(
+                "wukong",
+                "wukong",
+                CollectionMethod::CliApiPolling.as_str(),
+                3,
+            ),
             WukongInput::new(WukongInputOptions {
                 state_store: Arc::clone(state_store),
                 poll_interval_ms: self.poll("wukong"),
@@ -1680,15 +1670,17 @@ impl Orchestrator {
             }),
             WukongInput::get_watch_paths(),
             WukongInput::check_availability,
-            3,
         )
         .await;
         let hook_events = self.data_dir_join("state/workbuddy/hook-events");
         self.add_hosted(
             &mut entries,
-            "workbuddy",
-            "workbuddy",
-            CollectionMethod::SessionFilePolling.as_str(),
+            HostedInputSpec::new(
+                "workbuddy",
+                "workbuddy",
+                CollectionMethod::SessionFilePolling.as_str(),
+                1,
+            ),
             WorkBuddyInput::new(WorkBuddyInputOptions {
                 state_store: Arc::clone(state_store),
                 poll_interval_ms: self.poll("workbuddy"),
@@ -1697,7 +1689,6 @@ impl Orchestrator {
             }),
             WorkBuddyInput::watch_paths(None),
             || WorkBuddyInput::check_availability(None),
-            1,
         )
         .await;
         self.register_remaining(&mut entries, state_store).await;
@@ -1725,9 +1716,7 @@ impl Orchestrator {
         };
         self.add_hosted_when(
             entries,
-            "qoder-work",
-            "qoder-work",
-            "hook-jsonl",
+            HostedInputSpec::new("qoder-work", "qoder-work", "hook-jsonl", 1),
             QoderWorkInput::new(QoderWorkOptions {
                 state_store: Arc::clone(state_store),
                 log_dir: Some(self.data_dir_join("logs/qoder-work/history")),
@@ -1753,14 +1742,11 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         self.add_hosted_when(
             entries,
-            "qoder-work-log",
-            "qoder-work",
-            "session-file-polling",
+            HostedInputSpec::new("qoder-work-log", "qoder-work", "session-file-polling", 1),
             QoderWorkLogInput::new(QoderWorkLogOptions {
                 state_store: Arc::clone(state_store),
                 data_root: None,
@@ -1785,14 +1771,11 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         self.add_hosted_when(
             entries,
-            "qoder-work-sqlite",
-            "qoder-work",
-            "sqlite-polling",
+            HostedInputSpec::new("qoder-work-sqlite", "qoder-work", "sqlite-polling", 1),
             QoderWorkSqliteInput::new(QoderWorkSqliteOptions {
                 state_store: Arc::clone(state_store),
                 db_path: None,
@@ -1818,7 +1801,6 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         let cn_root = resolve_qoder_work_root("cn");
@@ -1842,9 +1824,12 @@ impl Orchestrator {
             .into_owned();
         self.add_hosted(
             entries,
-            "qoder-work-cn-trace",
-            "qoder-work-cn",
-            "session-file-polling",
+            HostedInputSpec::new(
+                "qoder-work-cn-trace",
+                "qoder-work-cn",
+                "session-file-polling",
+                1,
+            ),
             QoderWorkLogTraceInput::new(QoderWorkLogTraceOptions {
                 state_store: Arc::clone(state_store),
                 data_root: Some(cn_root.clone()),
@@ -1856,15 +1841,12 @@ impl Orchestrator {
                 let logs = logs.clone();
                 async move { directory_exists(&logs).await }
             },
-            1,
         )
         .await;
         let detection = resolve_home("~/.qoderworkcn");
         self.add_hosted_when(
             entries,
-            "qoder-work-cn-hook",
-            "qoder-work-cn",
-            "hook-jsonl",
+            HostedInputSpec::new("qoder-work-cn-hook", "qoder-work-cn", "hook-jsonl", 1),
             QoderWorkInput::new(QoderWorkOptions {
                 state_store: Arc::clone(state_store),
                 log_dir: Some(self.data_dir_join("logs/qoder-work-cn/history")),
@@ -1896,14 +1878,16 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         self.add_hosted_when(
             entries,
-            "qoder-work-cn-log",
-            "qoder-work-cn",
-            "session-file-polling",
+            HostedInputSpec::new(
+                "qoder-work-cn-log",
+                "qoder-work-cn",
+                "session-file-polling",
+                1,
+            ),
             QoderWorkLogInput::new(QoderWorkLogOptions {
                 state_store: Arc::clone(state_store),
                 data_root: Some(cn_root.clone()),
@@ -1937,7 +1921,6 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         let data = Path::new(&cn_root)
@@ -1946,9 +1929,7 @@ impl Orchestrator {
             .into_owned();
         self.add_hosted_when(
             entries,
-            "qoder-work-cn-sqlite",
-            "qoder-work-cn",
-            "sqlite-polling",
+            HostedInputSpec::new("qoder-work-cn-sqlite", "qoder-work-cn", "sqlite-polling", 1),
             QoderWorkSqliteInput::new(QoderWorkSqliteOptions {
                 state_store: Arc::clone(state_store),
                 db_path: None,
@@ -1983,7 +1964,6 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         let qwen_log = self.data_dir_join("logs/qwen-work-cn/history");
@@ -2004,9 +1984,7 @@ impl Orchestrator {
         };
         self.add_hosted(
             entries,
-            "qwen-work-cn-trace",
-            "qwen-work-cn",
-            "hook-jsonl",
+            HostedInputSpec::new("qwen-work-cn-trace", "qwen-work-cn", "hook-jsonl", 1),
             QwenWorkCnTraceInput::new(QwenWorkCnTraceOptions {
                 state_store: Arc::clone(state_store),
                 log_dir: Some(qwen_log.clone()),
@@ -2015,14 +1993,11 @@ impl Orchestrator {
             }),
             QwenWorkCnTraceInput::get_watch_paths(Some(&qwen_log), Some(&qwen_segments)),
             QwenWorkCnTraceInput::check_availability,
-            1,
         )
         .await;
         self.add_hosted_when(
             entries,
-            "qwen-work-cn-hook",
-            "qwen-work-cn",
-            "hook-jsonl",
+            HostedInputSpec::new("qwen-work-cn-hook", "qwen-work-cn", "hook-jsonl", 1),
             QwenWorkCnInput::new(QwenWorkCnOptions {
                 state_store: Arc::clone(state_store),
                 log_dir: Some(qwen_log.clone()),
@@ -2047,14 +2022,11 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         self.add_hosted_when(
             entries,
-            "qwen-work-cn-sqlite",
-            "qwen-work-cn",
-            "sqlite-polling",
+            HostedInputSpec::new("qwen-work-cn-sqlite", "qwen-work-cn", "sqlite-polling", 1),
             QwenWorkCnSqliteInput::new(QwenWorkCnSqliteOptions {
                 state_store: Arc::clone(state_store),
                 db_path: None,
@@ -2079,7 +2051,6 @@ impl Orchestrator {
                         )
                 }
             },
-            1,
         )
         .await;
         let qoder_agent = self.config.agents.get("qoder").cloned().unwrap_or_default();
@@ -2087,9 +2058,7 @@ impl Orchestrator {
             && is_agent_multimodal_enabled(Some("qoder"), &qoder_agent);
         self.add_hosted(
             entries,
-            "qoder-trace",
-            "qoder",
-            "hook-jsonl",
+            HostedInputSpec::new("qoder-trace", "qoder", "hook-jsonl", 1),
             QoderTraceInput::new(QoderTraceOptions {
                 state_store: Arc::clone(state_store),
                 log_dir: Some(self.data_dir_join("logs/qoder/history")),
@@ -2104,7 +2073,6 @@ impl Orchestrator {
             }),
             QoderTraceInput::get_watch_paths(),
             QoderTraceInput::check_availability,
-            1,
         )
         .await;
         let cursor_dir = self.data_dir_join("logs/cursor/history");
@@ -2215,7 +2183,6 @@ impl Orchestrator {
             live,
             KiroCliSessionInput::watch_paths(Some(&self.data_dir)),
             KiroCliSessionInput::check_availability,
-            "kiro-cli-session",
             1,
             None,
         );
@@ -2377,24 +2344,6 @@ impl Orchestrator {
         *self.multimodal_ready.lock().expect("multimodal")
     }
 
-    fn hook_opts(
-        &self,
-        state_store: &Arc<StateStore>,
-        relative: &str,
-        listener: &str,
-    ) -> HookInputOptions {
-        HookInputOptions {
-            state_store: Arc::clone(state_store),
-            log_dir: if relative.is_empty() {
-                None
-            } else {
-                Some(self.data_dir_join(relative))
-            },
-            log_prefix: None,
-            poll_interval_ms: self.poll(listener),
-        }
-    }
-
     fn hook_opts_dir(
         &self,
         state_store: &Arc<StateStore>,
@@ -2426,13 +2375,10 @@ impl Orchestrator {
     async fn add_hosted<T, A, Av>(
         &self,
         entries: &mut Vec<Arc<dyn AgentDetection>>,
-        listener: &str,
-        agent: &str,
-        method: &str,
+        spec: HostedInputSpec<'_>,
         input: T,
         watch: Vec<String>,
         available: A,
-        threshold: u32,
     ) where
         T: HostedSurface + 'static,
         A: Fn() -> Av + Send + Sync + 'static,
@@ -2441,41 +2387,28 @@ impl Orchestrator {
         let bits = Arc::clone(&self.bits);
         let agents = Arc::clone(&self.agents);
         let config = self.config.clone();
-        let listener_owned = listener.to_string();
-        let agent_owned = agent.to_string();
-        self.add_hosted_when(
-            entries,
-            listener,
-            agent,
-            method,
-            input,
-            watch,
-            available,
-            move || {
-                listener_on(
-                    &config,
-                    &agents,
-                    &bits.lock().expect("bits"),
-                    &agent_owned,
-                    &listener_owned,
-                )
-            },
-            threshold,
-        )
+        let listener_owned = spec.listener.to_string();
+        let agent_owned = spec.agent.to_string();
+        self.add_hosted_when(entries, spec, input, watch, available, move || {
+            listener_on(
+                &config,
+                &agents,
+                &bits.lock().expect("bits"),
+                &agent_owned,
+                &listener_owned,
+            )
+        })
         .await;
     }
 
     async fn add_hosted_when<T, A, Av, E>(
         &self,
         entries: &mut Vec<Arc<dyn AgentDetection>>,
-        listener: &str,
-        agent: &str,
-        method: &str,
+        spec: HostedInputSpec<'_>,
         input: T,
         watch: Vec<String>,
         available: A,
         enabled: E,
-        threshold: u32,
     ) where
         T: HostedSurface + 'static,
         A: Fn() -> Av + Send + Sync + 'static,
@@ -2484,9 +2417,9 @@ impl Orchestrator {
     {
         let input = Arc::new(input);
         let live = live_from_parts(
-            listener,
-            agent,
-            method,
+            spec.listener,
+            spec.agent,
+            spec.method,
             Arc::clone(&input),
             |input| input.collector_running(),
             |input| Box::pin(async move { input.start().await }),
@@ -2510,8 +2443,7 @@ impl Orchestrator {
             live,
             watch,
             available,
-            listener,
-            threshold,
+            spec.threshold,
             Some(Arc::new(enabled)),
         );
     }
@@ -2522,7 +2454,6 @@ impl Orchestrator {
         live: Arc<LiveInput>,
         watch: Vec<String>,
         available: A,
-        listener: &str,
         threshold: u32,
         enabled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     ) where
@@ -2532,6 +2463,7 @@ impl Orchestrator {
         let bits = Arc::clone(&self.bits);
         let agents = Arc::clone(&self.agents);
         let config = self.config.clone();
+        let listener = live.id.as_str();
         let listener_owned = listener.to_string();
         let agent = listener_agent(listener).to_string();
         let manager = Arc::clone(&self.inputs);
@@ -2612,7 +2544,7 @@ impl Orchestrator {
         self.inputs.register_input(Arc::clone(&live));
         let manager = Arc::clone(&self.inputs);
         input.surface_on_entries(move |batch| manager.bind_entries(&id, batch.to_vec()));
-        self.push_detection(entries, live, watch, available, listener, 1, None);
+        self.push_detection(entries, live, watch, available, 1, None);
     }
 
     fn poll(&self, listener: &str) -> Option<u64> {
@@ -3030,6 +2962,30 @@ fn live_from_parts<T: Send + Sync + 'static>(
     )
 }
 
+struct HostedInputSpec<'a> {
+    listener: &'a str,
+    agent: &'a str,
+    method: &'a str,
+    threshold: u32,
+}
+
+impl<'a> HostedInputSpec<'a> {
+    fn new(listener: &'a str, agent: &'a str, method: &'a str, threshold: u32) -> Self {
+        Self {
+            listener,
+            agent,
+            method,
+            threshold,
+        }
+    }
+}
+
+type DetectionAction = Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>
+        + Send
+        + Sync,
+>;
+
 struct ClosureDetection {
     id: String,
     type_name: String,
@@ -3040,16 +2996,8 @@ struct ClosureDetection {
     available: Arc<
         dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> + Send + Sync,
     >,
-    start: Arc<
-        dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>
-            + Send
-            + Sync,
-    >,
-    stop: Arc<
-        dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>
-            + Send
-            + Sync,
-    >,
+    start: DetectionAction,
+    stop: DetectionAction,
 }
 
 #[async_trait]

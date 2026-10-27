@@ -41,25 +41,6 @@ pub fn is_event(entry: &AgentActivityEntry, name: &str) -> bool {
     event_name(entry) == Some(name)
 }
 
-pub fn non_empty_string(value: Option<&Value>) -> Option<&str> {
-    match value {
-        Some(Value::String(text)) if !text.is_empty() => Some(text.as_str()),
-        _ => None,
-    }
-}
-
-pub fn finite_f64(value: &Value) -> Option<f64> {
-    match value {
-        Value::Number(number) => number.as_f64().filter(|n| n.is_finite()),
-        Value::String(text) => text.parse::<f64>().ok().filter(|n| n.is_finite()),
-        _ => None,
-    }
-}
-
-pub fn positive_number(value: Option<&Value>) -> bool {
-    value.and_then(finite_f64).is_some_and(|n| n > 0.0)
-}
-
 /// `buildTestEntry` stores the legacy `filePath` override on the object.
 pub fn legacy_file_path(entry: &AgentActivityEntry) -> Option<&str> {
     entry

@@ -1,7 +1,9 @@
 //! Running-status sample. The public sender calls this only when the
 //! `proprietary` feature is enabled. The default build does not post it.
 
-use crate::internal::webtracking_post::{build_web_tracking_url, post_web_tracking};
+use crate::internal::webtracking_post::build_web_tracking_url;
+#[cfg(all(feature = "proprietary", not(test)))]
+use crate::internal::webtracking_post::post_web_tracking;
 use indexmap::IndexMap;
 use serde_json::{json, Map, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,6 +51,7 @@ pub fn next_running_status_payload(data: &IndexMap<String, String>) -> Option<Va
     }))
 }
 
+#[cfg(all(feature = "proprietary", not(test)))]
 pub fn send_running_status(data: &IndexMap<String, String>) {
     let Some(body) = next_running_status_payload(data) else {
         return;

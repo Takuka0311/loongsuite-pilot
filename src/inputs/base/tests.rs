@@ -125,6 +125,9 @@ fn plain(
 
 #[tokio::test]
 async fn poll_env_overrides_constructor_value() {
+    if !crate::utils::isolated_env_test() {
+        return;
+    }
     let (_dir, store) = temp_store();
     let previous = std::env::var("LOONGSUITE_PILOT_POLL_INTERVAL_MS").ok();
     unsafe { std::env::set_var("LOONGSUITE_PILOT_POLL_INTERVAL_MS", "3000") };
@@ -518,7 +521,6 @@ async fn hook_reads_today_incrementally_and_skips_partial_lines() {
     input.start().await.unwrap();
     input.stop().await.unwrap();
     assert_eq!(fresh.get("test-hook").last_offset().unwrap_or(-1.0), 0.0);
-    use std::io::Write as _;
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .open(&partial)

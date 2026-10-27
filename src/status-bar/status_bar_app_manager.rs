@@ -40,13 +40,16 @@ pub struct StatusBarAppStopResult {
     pub pids: Vec<u32>,
 }
 
+pub type ProcessSignaler = Arc<dyn Fn(u32, &str) + Send + Sync>;
+pub type AppSpawner = Arc<dyn Fn(&str, &str) -> Result<u32, String> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ProcessOps {
     pub read_command: Arc<dyn Fn(u32) -> Option<String> + Send + Sync>,
     pub find_pids: Arc<dyn Fn() -> Vec<u32> + Send + Sync>,
-    pub signal: Arc<dyn Fn(u32, &str) + Send + Sync>,
+    pub signal: ProcessSignaler,
     pub alive: Arc<dyn Fn(u32) -> bool + Send + Sync>,
-    pub spawn: Arc<dyn Fn(&str, &str) -> Result<u32, String> + Send + Sync>,
+    pub spawn: AppSpawner,
     pub platform_darwin: bool,
     pub arch_x64: bool,
 }

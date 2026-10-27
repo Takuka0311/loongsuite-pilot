@@ -314,7 +314,6 @@ async fn walk(sampler: &DiskUsageSampler, generation: u64, started: Instant) -> 
     let mut data_bytes = 0u64;
     let mut logs_bytes = 0u64;
     let mut entries = 0u64;
-    let mut root_opened = false;
     let mut completed = false;
     let root = match fs::canonicalize(&sampler.options.data_dir) {
         Ok(path) => path,
@@ -367,7 +366,6 @@ async fn walk(sampler: &DiskUsageSampler, generation: u64, started: Instant) -> 
             logs_bytes: 0,
         };
     }
-    root_opened = true;
     loop {
         if frames.is_empty() {
             completed = true;
@@ -488,9 +486,6 @@ async fn walk(sampler: &DiskUsageSampler, generation: u64, started: Instant) -> 
         && started.elapsed().as_millis() >= sampler.options.budget_ms
     {
         status = DiskUsageStatus::Timeout;
-    }
-    if !root_opened && status == DiskUsageStatus::Ok {
-        status = DiskUsageStatus::Error;
     }
     WalkOutcome {
         status,

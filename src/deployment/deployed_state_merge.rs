@@ -3,7 +3,7 @@
 use crate::types::{DeployedAgentRecord, DeployedAgentsState};
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use super::paths::node_resolve;
 
@@ -291,18 +291,11 @@ where
     }
 }
 
-pub fn mtime_age_ms(path: &Path) -> Option<u128> {
-    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
-    SystemTime::now()
-        .duration_since(modified)
-        .ok()
-        .map(|age| age.as_millis())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{DeployMode, InstalledBy};
+    use std::time::SystemTime;
 
     fn record(path: &str) -> DeployedAgentRecord {
         DeployedAgentRecord {

@@ -4,7 +4,7 @@ use crate::updater::startup_crash_classifier::classify_startup_crash;
 use crate::utils::{
     append_line, check_process_liveness, create_logger, ensure_dir, flatten_to_strings,
     get_today_date_string, read_startup_crash, resolve_local_ip, ProcessCommandPattern,
-    ProcessLiveness, COLLECTOR_PROCESS_PATTERNS,
+    ProcessLiveness, ProcessLivenessProbe, COLLECTOR_PROCESS_PATTERNS,
 };
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
@@ -18,8 +18,6 @@ pub const COLLECTOR_HEALTH_FAILURE_THRESHOLD: u32 = 2;
 pub const COLLECTOR_HEALTH_ALARM_COOLDOWN_MS: u64 = 60 * 60_000;
 pub const FLUSH_INTERVAL_MS: u64 = 30_000;
 
-pub type UpdaterEventType = &'static str;
-
 pub const EVENT_UPDATER_STARTED: &str = "updater_started";
 pub const EVENT_UPDATER_STOPPED: &str = "updater_stopped";
 pub const EVENT_NEW_VERSION_AVAILABLE: &str = "new_version_available";
@@ -29,7 +27,6 @@ pub const EVENT_DEPLOYED: &str = "deployed";
 pub const EVENT_COLLECTOR_RESTARTED: &str = "collector_restarted";
 pub const EVENT_UPDATE_FAILURE: &str = "update_failure";
 pub const EVENT_UPDATER_STOPPED_MAX_FAILURES: &str = "updater_stopped_max_failures";
-pub const EVENT_MANAGED_NODE_PIN_FAILED: &str = "managed_node_pin_failed";
 
 #[derive(Clone, Debug, Default)]
 pub struct UpdaterEventExtra {
@@ -50,7 +47,7 @@ pub struct UpdaterMetrics {
     ip: String,
     user_id: String,
     collector_pid_file: String,
-    collector_liveness: Arc<dyn Fn(&str) -> ProcessLiveness + Send + Sync>,
+    collector_liveness: ProcessLivenessProbe,
     date_string: Arc<dyn Fn() -> String + Send + Sync>,
     now_ms: Arc<dyn Fn() -> u128 + Send + Sync>,
     alarm_sender: AlarmSender,
@@ -67,7 +64,7 @@ pub struct UpdaterMetricsOptions {
     pub version: String,
     pub collector_pid_file: String,
     pub user_id: String,
-    pub collector_liveness: Option<Arc<dyn Fn(&str) -> ProcessLiveness + Send + Sync>>,
+    pub collector_liveness: Option<ProcessLivenessProbe>,
     pub date_string: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub now_ms: Option<Arc<dyn Fn() -> u128 + Send + Sync>>,
     pub alarm_sender: Option<AlarmSender>,
@@ -308,9 +305,11 @@ mod tests {
         }
     }
 
+    type RecordedAlarms = Arc<Mutex<Vec<(String, IndexMap<String, String>)>>>;
+
     struct Harness {
         dir: tempfile::TempDir,
-        alarms: Arc<Mutex<Vec<(String, IndexMap<String, String>)>>>,
+        alarms: RecordedAlarms,
         now: Arc<Mutex<u128>>,
     }
 
@@ -326,11 +325,7 @@ mod tests {
             }
         }
 
-        fn metrics(
-            &self,
-            user_id: &str,
-            liveness: Option<Arc<dyn Fn(&str) -> ProcessLiveness + Send + Sync>>,
-        ) -> UpdaterMetrics {
+        fn metrics(&self, user_id: &str, liveness: Option<ProcessLivenessProbe>) -> UpdaterMetrics {
             let sent = self.alarms.clone();
             let now = self.now.clone();
             UpdaterMetrics::new(UpdaterMetricsOptions {

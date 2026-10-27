@@ -69,8 +69,12 @@ struct ProcessRunner {
     cli_path: String,
 }
 
+#[cfg(test)]
+type CliCallback = Arc<dyn Fn(&[String]) -> Result<CliOutput, String> + Send + Sync>;
+
+#[cfg(test)]
 struct CallbackRunner {
-    func: Arc<dyn Fn(&[String]) -> Result<CliOutput, String> + Send + Sync>,
+    func: CliCallback,
 }
 
 struct CancelToken {
@@ -582,6 +586,7 @@ impl CliRunner for ProcessRunner {
     }
 }
 
+#[cfg(test)]
 #[async_trait]
 impl CliRunner for CallbackRunner {
     async fn exec(&self, args: &[String], cancel: &CancelToken) -> Result<CliOutput, String> {

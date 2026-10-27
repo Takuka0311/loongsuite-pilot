@@ -83,9 +83,10 @@ impl LegacySlsFailedLogCleanupService {
                     "legacy SLS failure cleanup failed",
                     Some(&fields(serde_json::json!({ "error": err }))),
                 );
-                let mut result = LegacySlsFailedLogCleanupResult::default();
-                result.errors = 1;
-                result
+                LegacySlsFailedLogCleanupResult {
+                    errors: 1,
+                    ..Default::default()
+                }
             }
         }
     }

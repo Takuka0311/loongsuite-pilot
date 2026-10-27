@@ -9,8 +9,7 @@ use crate::types::{
 use crate::updater::ActivationTransaction;
 use crate::utils::{
     create_logger, edit_jsonc, parse_json_document, read_json_document, read_json_file,
-    resolve_home, write_text_file_atomic, AtomicTextWriteOptions, ExpectedFileState,
-    JsonDocumentRead, JsonEditOptions, JsonPathSeg, JsonSyntax,
+    resolve_home, ExpectedFileState, JsonDocumentRead, JsonEditOptions, JsonPathSeg, JsonSyntax,
 };
 use async_trait::async_trait;
 use serde_json::{Map, Value};
@@ -253,16 +252,17 @@ impl SettingsDocument {
         Ok(())
     }
 
+    #[cfg(test)]
     async fn save(self, path: &str) -> Result<(), String> {
         if matches!(&self.expected, ExpectedFileState::Present(raw) if raw == &self.raw) {
             return Ok(());
         }
-        write_text_file_atomic(
+        crate::utils::write_text_file_atomic(
             path,
             &self.raw,
-            &AtomicTextWriteOptions {
+            &crate::utils::AtomicTextWriteOptions {
                 expected: Some(self.expected),
-                ..AtomicTextWriteOptions::default()
+                ..crate::utils::AtomicTextWriteOptions::default()
             },
         )
         .await

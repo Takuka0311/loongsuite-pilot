@@ -17,14 +17,18 @@ use crate::interceptor::types::{HookRequest, InterceptorAgent, INTERCEPTOR_SERVI
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
+pub type HookLogger = Box<dyn FnMut(&str, Option<&Map<String, Value>>) + Send>;
+pub type HookClientFactory = Box<dyn Fn(u16) -> Arc<dyn HookClient> + Send>;
+pub type AccessLogWriter = Box<dyn FnMut(&InterceptorAccessLogEntry) + Send>;
+
 pub struct HookCliDeps {
     pub read_stdin: Box<dyn Fn() -> Result<String, ()> + Send>,
     pub write_stdout: Box<dyn FnMut(String) + Send>,
-    pub log: Box<dyn FnMut(&str, Option<&Map<String, Value>>) + Send>,
+    pub log: HookLogger,
     pub runtime_path: Option<String>,
     pub resolve_surface: Option<Box<dyn Fn() -> Option<QoderSurface> + Send>>,
-    pub create_client: Option<Box<dyn Fn(u16) -> Arc<dyn HookClient> + Send>>,
-    pub write_access_log: Option<Box<dyn FnMut(&InterceptorAccessLogEntry) + Send>>,
+    pub create_client: Option<HookClientFactory>,
+    pub write_access_log: Option<AccessLogWriter>,
 }
 
 struct RuntimeIdentity {

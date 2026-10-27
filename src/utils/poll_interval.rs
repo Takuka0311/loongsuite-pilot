@@ -46,9 +46,7 @@ mod tests {
         global_poll_interval_ms, resolve_poll_interval_ms, DEFAULT_POLL_INTERVAL_MS,
         POLL_INTERVAL_ENV,
     };
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    use crate::utils::isolated_env_test;
 
     struct EnvGuard {
         previous: Option<String>,
@@ -73,7 +71,9 @@ mod tests {
 
     #[test]
     fn accepts_decimal_integers_from_1000_through_the_set_interval_maximum() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        if !isolated_env_test() {
+            return;
+        }
         let _g = EnvGuard::set("1000");
         assert_eq!(global_poll_interval_ms(), Some(1_000));
         drop(_g);
@@ -86,7 +86,9 @@ mod tests {
 
     #[test]
     fn ignores_values_node_would_clamp_and_non_integers() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        if !isolated_env_test() {
+            return;
+        }
         for raw in [
             "0",
             "0.4",
@@ -110,7 +112,9 @@ mod tests {
 
     #[test]
     fn keeps_configured_zero_when_env_is_unset() {
-        let _lock = ENV_LOCK.lock().unwrap();
+        if !isolated_env_test() {
+            return;
+        }
         let previous = std::env::var(POLL_INTERVAL_ENV).ok();
         unsafe { std::env::remove_var(POLL_INTERVAL_ENV) };
         assert_eq!(

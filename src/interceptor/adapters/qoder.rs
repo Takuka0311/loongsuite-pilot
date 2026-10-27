@@ -1,6 +1,5 @@
 //! Qoder desktop and qodercli hook payloads.
 
-use super::reason::wrap_host_reason;
 use crate::interceptor::types::{HookEventName, HookRequest, InterceptorAgent};
 use serde_json::{json, Map, Value};
 
@@ -88,16 +87,6 @@ pub(crate) fn present(value: Option<&Value>) -> Option<Value> {
         Some(Value::Null) | None => None,
         Some(other) => Some(other.clone()),
     }
-}
-
-pub fn render_qoder_block_wrapped(
-    request: &HookRequest,
-    interceptor_reason: Option<&str>,
-) -> String {
-    render_qoder_block(
-        request,
-        &wrap_host_reason(request.event, interceptor_reason),
-    )
 }
 
 #[cfg(test)]

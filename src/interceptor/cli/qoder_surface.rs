@@ -148,7 +148,8 @@ pub fn windows_process_command(pid: u32) -> (String, Vec<String>, WindowsExecOpt
     )
 }
 
-pub fn read_windows_process(
+#[cfg(test)]
+fn read_windows_process(
     pid: u32,
     mut exec: impl FnMut(&str, &[String], &WindowsExecOptions) -> Result<String, String>,
 ) -> Option<ProcessInfo> {

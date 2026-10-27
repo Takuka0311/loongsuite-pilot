@@ -29,9 +29,6 @@ use tokio::task::JoinHandle;
 
 const MAX_HOOK_BODY_BYTES: usize = 5 * 1024 * 1024;
 
-#[derive(Debug)]
-struct HookBodyTooLarge;
-
 pub struct InterceptorServerOptions {
     pub version: String,
     pub engine: RuleEngine,

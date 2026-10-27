@@ -624,28 +624,35 @@ mod tests {
         .expect("write");
         let seen = listen(&input);
         input.start().await;
-        std::fs::write(
-            &path,
-            format!(
-                "{}\n{}\n",
-                std::fs::read_to_string(&path)
-                    .unwrap_or_default()
-                    .trim_end(),
-                json!({
-                    "event.id": "new-1",
-                    "event.name": "tool.call",
-                    "gen_ai.agent.type": "cursor",
-                    "time_unix_nano": "1777628163514000000",
-                    "observed_time_unix_nano": "1777628163514000000",
-                    "gen_ai.session.id": "new-sess",
-                    "gen_ai.tool.name": "Read",
-                    "gen_ai.tool.call.id": "new-tool"
-                })
-            ),
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(
+            file,
+            "{}",
+            json!({
+                "event.id": "new-1",
+                "event.name": "tool.call",
+                "gen_ai.agent.type": "cursor",
+                "time_unix_nano": "1777628163514000000",
+                "observed_time_unix_nano": "1777628163514000000",
+                "gen_ai.session.id": "new-sess",
+                "gen_ai.tool.name": "Read",
+                "gen_ai.tool.call.id": "new-tool"
+            })
         )
         .expect("append");
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        // 等待实际采集完成，避免把固定调度延迟当成首轮保护失败。
+        let received = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while seen.lock().expect("entries").is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await;
         input.stop().await;
+        received.expect("追加事件未在期限内被采集");
         let entries = seen.lock().expect("entries");
         assert_eq!(entries.len(), 1);
         assert_eq!(field(&entries[0], "event.id"), "new-1");

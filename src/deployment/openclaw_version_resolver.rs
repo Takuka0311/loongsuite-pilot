@@ -39,11 +39,6 @@ pub enum OpenClawResolveMode {
     Installer,
 }
 
-pub struct OpenClawResolveOptions<F> {
-    pub mode: OpenClawResolveMode,
-    pub on_problem: Option<F>,
-}
-
 pub fn is_openclaw_host_bound(host: Option<&OpenClawHost>) -> bool {
     host.is_some_and(|host| {
         host.binding.is_some() && host.executable.as_deref().is_some_and(is_absolute)
@@ -208,9 +203,7 @@ where
                     .join("openclaw.mjs")
                     .to_string_lossy()
                     .into_owned();
-                let Some(host) = from_entry(&entry, env).await else {
-                    return None;
-                };
+                let host = from_entry(&entry, env).await?;
                 candidates.push(host);
             }
         }
@@ -272,7 +265,6 @@ where
         }
     }
     let path_var = env.get("PATH").cloned().unwrap_or_default();
-    let mut found_path = false;
     for directory in path_var
         .split(':')
         .filter(|item| !item.is_empty())
@@ -294,25 +286,18 @@ where
                     .map(|meta| meta.permissions().mode() & 0o111 != 0)
                     .unwrap_or(false)
                 {
-                    let Some(selected) = from_entry(&candidate.to_string_lossy(), env).await else {
-                        return None;
-                    };
+                    let selected = from_entry(&candidate.to_string_lossy(), env).await?;
                     candidates.push(selected);
-                    found_path = true;
                     break;
                 }
             }
             #[cfg(not(unix))]
             {
-                let Some(selected) = from_entry(&candidate.to_string_lossy(), env).await else {
-                    return None;
-                };
+                let selected = from_entry(&candidate.to_string_lossy(), env).await?;
                 candidates.push(selected);
-                found_path = true;
                 break;
             }
         }
-        let _ = found_path;
     }
     if candidates.is_empty() {
         return None;

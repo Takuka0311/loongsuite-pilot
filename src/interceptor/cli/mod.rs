@@ -14,9 +14,7 @@ use std::io::{self, Read, Write};
 
 pub use daemon_client::{parse_single_json, DaemonClientError, HookClient};
 pub use hook::{emit_verdict, HookCliDeps};
-pub use qoder_surface::{
-    classify_executable, read_windows_process, resolve_qoder_surface, resolve_qoder_surface_with,
-};
+pub use qoder_surface::{classify_executable, resolve_qoder_surface, resolve_qoder_surface_with};
 
 pub async fn run_cli(args: &[String]) -> i32 {
     let logger = create_logger("InterceptorCli");

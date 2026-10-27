@@ -31,7 +31,8 @@ pub fn resolve_agent_system(agent_type: &str) -> &'static str {
         .unwrap_or("unknown")
 }
 
-pub fn agent_system_defined(agent_type: &str) -> bool {
+#[cfg(test)]
+fn agent_system_defined(agent_type: &str) -> bool {
     AGENT_SYSTEM_MAP.iter().any(|(key, _)| *key == agent_type)
 }
 

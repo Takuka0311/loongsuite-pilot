@@ -4,8 +4,6 @@ use crate::utils::create_logger;
 use indexmap::IndexMap;
 use std::sync::Mutex;
 
-pub type AlarmLevel = &'static str;
-
 pub struct AlarmContext {
     pub input_name: Option<String>,
     pub endpoint_name: Option<String>,

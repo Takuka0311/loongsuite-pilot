@@ -102,6 +102,8 @@ struct QueueGate {
     inflight: AtomicUsize,
 }
 
+type FlushListener = Arc<dyn Fn(usize, u64) + Send + Sync>;
+
 pub struct InputManager {
     inputs: Mutex<HashMap<String, Arc<LiveInput>>>,
     counters: Mutex<HashMap<String, InputCounter>>,
@@ -117,7 +119,7 @@ pub struct InputManager {
     multimodal: Mutex<Option<Arc<MultimodalProcessor>>>,
     turn_boundary: Mutex<TurnBoundaryProcessor>,
     workspace_policy: Mutex<WorkspacePolicy>,
-    flushed: Mutex<Vec<Arc<dyn Fn(usize, u64) + Send + Sync>>>,
+    flushed: Mutex<Vec<FlushListener>>,
 }
 
 impl InputManager {

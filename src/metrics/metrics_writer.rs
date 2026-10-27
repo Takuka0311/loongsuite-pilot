@@ -17,7 +17,7 @@ use crate::metrics::trace_runtime::TraceRuntimeSnapshot;
 use crate::types::{AgentsConfig, SlsEndpoint};
 use crate::utils::{
     append_line, create_logger, ensure_dir, flatten_to_strings, get_today_date_string,
-    ProcessLiveness,
+    ProcessLivenessProbe,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -47,6 +47,9 @@ struct MemoryTier {
     rank: u8,
 }
 
+pub type TraceSnapshotProvider =
+    Arc<dyn Fn() -> Result<Vec<TraceRuntimeSnapshot>, String> + Send + Sync>;
+
 struct WriterInner {
     collector: MetricsCollector,
     alarm_manager: Option<AlarmManager>,
@@ -69,7 +72,7 @@ pub struct MetricsWriter {
     inner: Arc<Mutex<WriterInner>>,
     sampler: Arc<DiskUsageSampler>,
     get_snapshot: Arc<dyn Fn() -> Result<DataflowSnapshot, String> + Send + Sync>,
-    get_trace: Option<Arc<dyn Fn() -> Result<Vec<TraceRuntimeSnapshot>, String> + Send + Sync>>,
+    get_trace: Option<TraceSnapshotProvider>,
     tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
@@ -79,14 +82,13 @@ pub struct MetricsWriterOptions {
     pub user_id: String,
     pub canary_policy: String,
     pub get_snapshot: Arc<dyn Fn() -> Result<DataflowSnapshot, String> + Send + Sync>,
-    pub get_trace_runtime_snapshot:
-        Option<Arc<dyn Fn() -> Result<Vec<TraceRuntimeSnapshot>, String> + Send + Sync>>,
+    pub get_trace_runtime_snapshot: Option<TraceSnapshotProvider>,
     pub alarm_manager: Option<AlarmManager>,
     pub agents_config: AgentsConfig,
     pub sls_endpoints: Vec<SlsEndpoint>,
     pub cms_workspace: String,
     pub auto_update_enabled: bool,
-    pub updater_liveness: Option<Arc<dyn Fn(&str) -> ProcessLiveness + Send + Sync>>,
+    pub updater_liveness: Option<ProcessLivenessProbe>,
     pub runtime_probe: Option<RuntimeProbe>,
     pub now_ms: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
 }
@@ -259,7 +261,7 @@ struct Shared {
     inner: Arc<Mutex<WriterInner>>,
     sampler: Arc<DiskUsageSampler>,
     get_snapshot: Arc<dyn Fn() -> Result<DataflowSnapshot, String> + Send + Sync>,
-    get_trace: Option<Arc<dyn Fn() -> Result<Vec<TraceRuntimeSnapshot>, String> + Send + Sync>>,
+    get_trace: Option<TraceSnapshotProvider>,
 }
 
 impl Shared {

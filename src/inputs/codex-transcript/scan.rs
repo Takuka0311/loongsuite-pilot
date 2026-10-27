@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use crate::inputs::base::{CommittedInputBatch, InputRuntime, InputRuntimeAccumulator};
 
 use super::extractor::extract_codex_transcript_meta;
-use super::utils::{as_record_owned, string_value};
+use super::utils::string_value;
 
 pub const READ_CHUNK_SIZE: usize = 1024 * 1024;
 
@@ -442,8 +442,4 @@ pub fn file_meta_snapshot(meta: &std::fs::Metadata) -> (u64, i64, i64) {
         .map(|duration| duration.as_millis() as i64)
         .unwrap_or(0);
     (ino, size, mtime)
-}
-
-pub fn record_object(value: &Value) -> Option<Map<String, Value>> {
-    as_record_owned(value)
 }

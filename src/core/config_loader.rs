@@ -861,7 +861,7 @@ fn scheme_endpoint(raw: &str) -> String {
 fn normalize_endpoint_url(raw: &str) -> String {
     let mut text = raw.trim().to_string();
     let lower = text.to_ascii_lowercase();
-    if !(lower.starts_with("http://") || lower.starts_with("https://")) && !text.is_empty() {
+    if !(lower.starts_with("http://") || lower.starts_with("https://") || text.is_empty()) {
         text = format!("https://{text}");
     }
     while text.ends_with('/') {

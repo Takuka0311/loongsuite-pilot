@@ -10,8 +10,6 @@ use crate::checkpoints::InputStatePatch;
 use crate::inputs::rest_support::{entry_json, memory_state_store};
 use crate::types::AgentActivityEntry;
 
-static TEST_LOCK: Mutex<()> = Mutex::new(());
-
 struct EnvVarGuard {
     key: &'static str,
     previous: Option<String>,
@@ -32,10 +30,6 @@ impl Drop for EnvVarGuard {
             None => unsafe { std::env::remove_var(self.key) },
         }
     }
-}
-
-fn lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_LOCK.lock().unwrap_or_else(|err| err.into_inner())
 }
 
 fn sample_task() -> Value {
@@ -270,7 +264,9 @@ fn standard_runner(messages: Value) -> Arc<dyn CliRunner> {
 
 #[test]
 fn uses_unified_poll_interval_over_the_60s_default() {
-    let _lock = lock();
+    if !crate::utils::isolated_env_test() {
+        return;
+    }
     let _env = EnvVarGuard::set("LOONGSUITE_PILOT_POLL_INTERVAL_MS", "3000");
     let harness = Harness::new();
     let input = WukongInput::new(WukongInputOptions {
@@ -283,7 +279,6 @@ fn uses_unified_poll_interval_over_the_60s_default() {
 
 #[test]
 fn cli_path_and_watch_paths_follow_the_platform() {
-    let _lock = lock();
     let home = crate::utils::resolve_home("~");
     let paths = WukongInput::get_watch_paths();
     assert_eq!(paths.len(), 1);
@@ -321,7 +316,6 @@ fn cli_path_and_watch_paths_follow_the_platform() {
 
 #[tokio::test]
 async fn user_content_is_merged_into_step_1_llm_request() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness.run(standard_runner(sample_messages())).await;
@@ -343,7 +337,6 @@ async fn user_content_is_merged_into_step_1_llm_request() {
 
 #[tokio::test]
 async fn maps_assistant_events_to_llm_response_with_token_usage() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness.run(standard_runner(sample_messages())).await;
@@ -369,7 +362,6 @@ async fn maps_assistant_events_to_llm_response_with_token_usage() {
 
 #[tokio::test]
 async fn only_collects_new_messages_appended_to_an_existing_session() {
-    let _lock = lock();
     let mut messages = sample_messages();
     let extra = json!([
         {
@@ -413,7 +405,6 @@ async fn only_collects_new_messages_appended_to_an_existing_session() {
 
 #[tokio::test]
 async fn picks_up_new_tasks_without_emitting_unpaired_users() {
-    let _lock = lock();
     let task2 = json!({
         "id": "task-2",
         "session_id": "sess-2",
@@ -449,7 +440,6 @@ async fn picks_up_new_tasks_without_emitting_unpaired_users() {
 
 #[tokio::test]
 async fn handles_daemon_not_running_gracefully() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness
@@ -462,7 +452,6 @@ async fn handles_daemon_not_running_gracefully() {
 
 #[tokio::test]
 async fn maps_tool_call_start_and_end_to_tool_events() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-2", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -492,7 +481,6 @@ async fn maps_tool_call_start_and_end_to_tool_events() {
 
 #[tokio::test]
 async fn skips_user_messages_with_empty_content() {
-    let _lock = lock();
     let messages = json!([
         {
             "id": "msg-1", "conversationId": "sess-1", "role": "user", "content": "",
@@ -510,7 +498,6 @@ async fn skips_user_messages_with_empty_content() {
 
 #[tokio::test]
 async fn baselines_on_first_start_to_avoid_replaying_history() {
-    let _lock = lock();
     let harness = Harness::new();
     let rows = harness.run(standard_runner(sample_messages())).await;
     assert!(rows.is_empty());
@@ -519,7 +506,6 @@ async fn baselines_on_first_start_to_avoid_replaying_history() {
 
 #[tokio::test]
 async fn paginates_through_all_tasks_when_has_more_is_true() {
-    let _lock = lock();
     let task2 = json!({
         "id": "task-2", "session_id": "sess-2", "name": "Test task",
         "status": "completed", "agent_type": "spark", "metadata": {}
@@ -567,7 +553,6 @@ async fn paginates_through_all_tasks_when_has_more_is_true() {
 
 #[tokio::test]
 async fn does_not_prune_seen_counts_on_first_miss() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": { "sess-1": 2, "stale-sess": 10 } }));
     let _rows = harness.run(standard_runner(sample_messages())).await;
@@ -579,7 +564,6 @@ async fn does_not_prune_seen_counts_on_first_miss() {
 
 #[tokio::test]
 async fn marks_error_type_when_tool_event_has_error() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-3", "threadId": "sess-1", "timestamp": 1779240570000i64 },
@@ -603,7 +587,6 @@ async fn marks_error_type_when_tool_event_has_error() {
 
 #[tokio::test]
 async fn uses_message_id_as_turn_id_when_turn_index_is_negative() {
-    let _lock = lock();
     let mut messages = sample_messages();
     messages[0]["turnIndex"] = json!(-1);
     messages[1]["turnIndex"] = json!(-1);
@@ -622,7 +605,6 @@ async fn uses_message_id_as_turn_id_when_turn_index_is_negative() {
 
 #[tokio::test]
 async fn computes_tool_call_duration_from_timestamps() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-5", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -646,7 +628,6 @@ async fn computes_tool_call_duration_from_timestamps() {
 
 #[tokio::test]
 async fn computes_duration_without_tool_call_id() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-6", "threadId": "sess-1", "timestamp": 1779240590000i64 },
@@ -670,7 +651,6 @@ async fn computes_duration_without_tool_call_id() {
 
 #[tokio::test]
 async fn generates_unique_event_ids_for_tool_calls_without_ids() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-4", "threadId": "sess-1", "timestamp": 1779240580000i64 },
@@ -701,7 +681,6 @@ async fn generates_unique_event_ids_for_tool_calls_without_ids() {
 
 #[tokio::test]
 async fn computes_duration_for_multiple_tool_calls_without_ids() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-7", "threadId": "sess-1", "timestamp": 1779240600000i64 },
@@ -733,7 +712,6 @@ async fn computes_duration_for_multiple_tool_calls_without_ids() {
 
 #[tokio::test]
 async fn sets_step_id_on_fallback_single_step() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness.run(standard_runner(sample_messages())).await;
@@ -745,7 +723,6 @@ async fn sets_step_id_on_fallback_single_step() {
 
 #[tokio::test]
 async fn generates_step_id_from_step_started_events() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-s1", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -789,7 +766,6 @@ async fn generates_step_id_from_step_started_events() {
 
 #[tokio::test]
 async fn sets_finish_reasons_to_tool_calls_when_step_has_tool_calls() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-fr", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -814,7 +790,6 @@ async fn sets_finish_reasons_to_tool_calls_when_step_has_tool_calls() {
 
 #[tokio::test]
 async fn sets_finish_reasons_to_end_turn_for_text_only_responses() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness.run(standard_runner(sample_messages())).await;
@@ -826,7 +801,6 @@ async fn sets_finish_reasons_to_end_turn_for_text_only_responses() {
 
 #[tokio::test]
 async fn sets_finish_reasons_to_stop_on_run_error() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-err", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -849,7 +823,6 @@ async fn sets_finish_reasons_to_stop_on_run_error() {
 
 #[tokio::test]
 async fn accumulates_tool_call_args_delta() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-a", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -876,7 +849,6 @@ async fn accumulates_tool_call_args_delta() {
 
 #[tokio::test]
 async fn transforms_activity_snapshot_into_tool_pair() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-act", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -912,7 +884,6 @@ async fn transforms_activity_snapshot_into_tool_pair() {
 
 #[tokio::test]
 async fn maps_activity_snapshots_to_canonical_fields() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-act-2", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -994,7 +965,6 @@ async fn maps_activity_snapshots_to_canonical_fields() {
 
 #[tokio::test]
 async fn omits_null_activity_arguments_and_marks_failed_snapshots() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-act-failure", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -1039,7 +1009,6 @@ async fn omits_null_activity_arguments_and_marks_failed_snapshots() {
 
 #[tokio::test]
 async fn generates_trace_id_and_span_id() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness.run(standard_runner(sample_messages())).await;
@@ -1054,7 +1023,6 @@ async fn generates_trace_id_and_span_id() {
 
 #[tokio::test]
 async fn does_not_process_incomplete_assistant_messages() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-inc", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -1075,7 +1043,6 @@ async fn does_not_process_incomplete_assistant_messages() {
 
 #[tokio::test]
 async fn processes_incomplete_message_once_it_becomes_complete() {
-    let _lock = lock();
     let incomplete = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-s", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -1134,7 +1101,6 @@ async fn processes_incomplete_message_once_it_becomes_complete() {
 
 #[tokio::test]
 async fn sets_tool_name_on_result_from_tool_call_start() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-tn", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -1158,7 +1124,6 @@ async fn sets_tool_name_on_result_from_tool_call_start() {
 
 #[tokio::test]
 async fn emits_llm_response_for_run_error_only_turn() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-eo", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -1180,7 +1145,6 @@ async fn emits_llm_response_for_run_error_only_turn() {
 
 #[tokio::test]
 async fn handles_null_metadata() {
-    let _lock = lock();
     let mut task = sample_task();
     task["metadata"] = Value::Null;
     let harness = Harness::new();
@@ -1199,7 +1163,6 @@ async fn handles_null_metadata() {
 
 #[tokio::test]
 async fn sanitizes_invalid_event_timestamps() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-bad", "threadId": "sess-1", "timestamp": "not-a-number" },
@@ -1224,7 +1187,6 @@ async fn sanitizes_invalid_event_timestamps() {
 
 #[tokio::test]
 async fn step_finished_captures_per_step_usage() {
-    let _lock = lock();
     let messages = pair(
         json!([
             { "type": "RUN_STARTED", "runId": "run-ms", "threadId": "sess-1", "timestamp": 1779240560000i64 },
@@ -1266,7 +1228,6 @@ async fn step_finished_captures_per_step_usage() {
 
 #[tokio::test]
 async fn filters_tasks_with_null_session_id() {
-    let _lock = lock();
     let null_task = json!({
         "id": "task-null", "session_id": null, "status": "failed",
         "name": "bad", "agent_type": "spark", "metadata": {}
@@ -1298,7 +1259,6 @@ async fn filters_tasks_with_null_session_id() {
 
 #[tokio::test]
 async fn handles_empty_stdout_from_get_messages() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness
@@ -1318,7 +1278,6 @@ async fn handles_empty_stdout_from_get_messages() {
 
 #[tokio::test]
 async fn handles_whitespace_stdout_from_get_messages() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness
@@ -1338,7 +1297,6 @@ async fn handles_whitespace_stdout_from_get_messages() {
 
 #[tokio::test]
 async fn handles_empty_stdout_from_list_tasks() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({ "seenCounts": {} }));
     let rows = harness.run(super::scripted(|_args| out(""))).await;
@@ -1347,7 +1305,6 @@ async fn handles_empty_stdout_from_list_tasks() {
 
 #[tokio::test]
 async fn prunes_seen_counts_after_stale_threshold() {
-    let _lock = lock();
     let harness = Harness::new();
     harness.seed(json!({
         "seenCounts": { "sess-1": 2, "stale-sess": 10 },
@@ -1361,7 +1318,6 @@ async fn prunes_seen_counts_after_stale_threshold() {
 
 #[tokio::test]
 async fn collects_through_a_real_cli_script() {
-    let _lock = lock();
     let dir = tempfile::tempdir().expect("temp");
     let list_path = dir.path().join("list.json");
     let msg_path = dir.path().join("messages.json");
@@ -1421,7 +1377,9 @@ fn write_cli(dir: &Path, body: &str) {
 
 #[tokio::test]
 async fn check_availability_is_false_when_socket_is_missing() {
-    let _lock = lock();
+    if !crate::utils::isolated_env_test() {
+        return;
+    }
     let home = tempfile::tempdir().expect("home");
     let _home = EnvVarGuard::set("HOME", &home.path().to_string_lossy());
     assert!(!WukongInput::check_availability().await);
@@ -1429,7 +1387,9 @@ async fn check_availability_is_false_when_socket_is_missing() {
 
 #[tokio::test]
 async fn check_availability_is_false_when_status_fails() {
-    let _lock = lock();
+    if !crate::utils::isolated_env_test() {
+        return;
+    }
     let home = tempfile::tempdir().expect("home");
     let bin = tempfile::tempdir().expect("bin");
     std::fs::create_dir_all(home.path().join(".real")).unwrap();
@@ -1450,7 +1410,9 @@ async fn check_availability_is_false_when_status_fails() {
 
 #[tokio::test]
 async fn check_availability_is_true_when_service_is_running() {
-    let _lock = lock();
+    if !crate::utils::isolated_env_test() {
+        return;
+    }
     let home = tempfile::tempdir().expect("home");
     let bin = tempfile::tempdir().expect("bin");
     std::fs::create_dir_all(home.path().join(".real")).unwrap();

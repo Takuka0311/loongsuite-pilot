@@ -123,14 +123,6 @@ impl CorrelationStore {
         states.retain(|_, state| state.last_access_ms >= cutoff_ms);
         before - states.len()
     }
-
-    fn load_locked<'a>(
-        &self,
-        states: &'a mut HashMap<String, SessionState>,
-        session_id: &str,
-    ) -> Option<&'a mut SessionState> {
-        load_state(states, &self.dir, session_id)
-    }
 }
 
 fn load_state<'a>(

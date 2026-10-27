@@ -294,7 +294,7 @@ fn current_uid() -> Option<u32> {
     #[cfg(unix)]
     {
         // SAFETY: getuid is always safe.
-        Some(unsafe { libc_getuid() })
+        Some(libc_getuid())
     }
     #[cfg(not(unix))]
     {
