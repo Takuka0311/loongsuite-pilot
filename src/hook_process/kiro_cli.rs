@@ -279,15 +279,17 @@ fn run_collect(env: &Env, ctx: &CollectCtx) -> &'static str {
         .as_deref()
         .filter(|text| !text.is_empty());
     let records = build_records(
-        env,
+        RecordContext {
+            env,
+            cwd: &ctx.cwd,
+            user_id: &ctx.user_id,
+            assistant_response: assistant,
+            original_has_final,
+        },
         &chosen,
         &mut new_steps,
         &mut tool_events,
         &mut pre_tool_events,
-        &ctx.cwd,
-        &ctx.user_id,
-        assistant,
-        original_has_final,
     );
     if records.is_empty() {
         return "ok";
@@ -446,17 +448,28 @@ struct ToolMatch {
     post: Option<Value>,
 }
 
+struct RecordContext<'a> {
+    env: &'a Env,
+    cwd: &'a str,
+    user_id: &'a str,
+    assistant_response: Option<&'a str>,
+    original_has_final: bool,
+}
+
 fn build_records(
-    env: &Env,
+    context: RecordContext<'_>,
     transcript: &Transcript,
     steps: &mut [Step],
     tool_events: &mut Vec<Value>,
     pre_tool_events: &mut Vec<Value>,
-    cwd: &str,
-    user_id: &str,
-    assistant_response: Option<&str>,
-    original_has_final: bool,
 ) -> Vec<Obj> {
+    let RecordContext {
+        env,
+        cwd,
+        user_id,
+        assistant_response,
+        original_has_final,
+    } = context;
     let session_id = session_key(transcript);
     let turn_number = load_turn_count(env, cwd) + 1;
     save_turn_count(env, cwd, turn_number);

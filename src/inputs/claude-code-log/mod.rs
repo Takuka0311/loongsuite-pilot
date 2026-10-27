@@ -17,13 +17,15 @@ impl ClaudeCodeLogInput {
     pub fn new(opts: HookInputOptions) -> Self {
         Self {
             inner: HookJsonlInput::shared(
-                "ClaudeCodeLogInput",
-                "claude-code-log",
-                ClientType::ClaudeCliHook,
-                DEFAULT_DIR,
-                "claude-code",
-                "claude-code",
-                false,
+                super::rest_support::HookInputProfile {
+                    logger_name: "ClaudeCodeLogInput",
+                    id: "claude-code-log",
+                    agent_type: ClientType::ClaudeCliHook,
+                    default_dir: DEFAULT_DIR,
+                    default_prefix: "claude-code",
+                    git_namespace: "claude-code",
+                    cold_start_keep_last_turn_only: false,
+                },
                 opts,
             ),
         }

@@ -290,30 +290,17 @@ fn export_session(env: &Env, state: &mut Obj, hook_stop_reason: &str) -> Result<
         } else {
             "end_turn"
         };
-        let built = build_turn_records(
-            turn,
-            base_count + index as u64,
-            &session_id,
-            &log_hash,
-            &runtime.user_id,
-            turn_stop,
-            cwd.as_deref(),
-            &resources,
-            &spans,
-            &parent_options,
-        );
+        let context = RecordContext {
+            turn_index: base_count + index as u64,
+            session_id: &session_id,
+            user_id: &runtime.user_id,
+            cwd: cwd.as_deref(),
+            resources: &resources,
+            spans: &spans,
+        };
+        let built = build_turn_records(turn, &context, &log_hash, turn_stop, &parent_options);
         let mut records = built.records;
-        let mut children = collect_subagents(
-            turn,
-            &mut records,
-            &inventory,
-            &session_id,
-            &runtime.user_id,
-            base_count + index as u64,
-            cwd.as_deref(),
-            &resources,
-            &spans,
-        );
+        let mut children = collect_subagents(turn, &mut records, &inventory, &context);
         for record in records.iter_mut().chain(children.iter_mut()) {
             record.insert(
                 FOREGROUND_COLLECTION.into(),
@@ -1404,8 +1391,9 @@ fn parse_subagent_records(source: &[Value], meta: &Obj) -> Result<Turn, String> 
                 .as_object()
                 .map(|obj| !obj.contains_key("agentRound"))
                 .unwrap_or(true);
-            if tool_only && round_index.is_some() && tools_open && agent_round_missing {
-                let index = round_index.unwrap();
+            if let Some(index) =
+                round_index.filter(|_| tool_only && tools_open && agent_round_missing)
+            {
                 if let Some(dest) = records[index]
                     .pointer_mut("/message/parts")
                     .and_then(Value::as_array_mut)
@@ -1626,17 +1614,29 @@ struct CollectCtx<'a> {
     spans: &'a Obj,
 }
 
+struct RecordContext<'a> {
+    turn_index: u64,
+    session_id: &'a str,
+    user_id: &'a str,
+    cwd: Option<&'a str>,
+    resources: &'a Obj,
+    spans: &'a Obj,
+}
+
 fn collect_subagents(
     turn: &Turn,
-    records: &mut Vec<Obj>,
+    records: &mut [Obj],
     inventory: &Inventory,
-    session_id: &str,
-    user_id: &str,
-    turn_index: u64,
-    cwd: Option<&str>,
-    resources: &Obj,
-    spans: &Obj,
+    context: &RecordContext<'_>,
 ) -> Vec<Obj> {
+    let RecordContext {
+        session_id,
+        user_id,
+        turn_index,
+        cwd,
+        resources,
+        spans,
+    } = *context;
     let trace_id = records
         .first()
         .and_then(|record| nonempty_string(record.get("trace_id")));
@@ -1693,7 +1693,7 @@ fn tool_lookup_id(tool: &DeclaredTool) -> Value {
 
 fn visit_agents(
     turn: &Turn,
-    records: &mut Vec<Obj>,
+    records: &mut [Obj],
     parent_id: Option<&str>,
     depth: u32,
     ctx: &mut CollectCtx<'_>,
@@ -1819,14 +1819,16 @@ fn visit_agents(
                     };
                     let mut child_records = build_turn_records(
                         &child_turn,
-                        ctx.turn_index,
-                        ctx.session_id,
+                        &RecordContext {
+                            turn_index: ctx.turn_index,
+                            session_id: ctx.session_id,
+                            user_id: ctx.user_id,
+                            cwd: ctx.cwd,
+                            resources: ctx.resources,
+                            spans: ctx.spans,
+                        },
                         INITIAL_HASH,
-                        ctx.user_id,
                         "end_turn",
-                        ctx.cwd,
-                        ctx.resources,
-                        ctx.spans,
                         &options,
                     )
                     .records;
@@ -2010,16 +2012,19 @@ fn put_metric(record: &mut Obj, key: &str, value: Option<Value>) {
 
 fn build_turn_records(
     turn: &Turn,
-    turn_index: u64,
-    session_id: &str,
+    context: &RecordContext<'_>,
     prev_hash: &str,
-    user_id: &str,
     stop_reason: &str,
-    cwd: Option<&str>,
-    resources: &Obj,
-    spans: &Obj,
     options: &TurnOptions,
 ) -> BuiltTurn {
+    let RecordContext {
+        turn_index,
+        session_id,
+        user_id,
+        cwd,
+        resources,
+        spans,
+    } = *context;
     let mut base = Obj::new();
     for (key, value) in spans {
         base.insert(key.clone(), value.clone());
@@ -2432,14 +2437,16 @@ mod tests {
         };
         let built = build_turn_records(
             &turn,
-            0,
-            "sess-1",
+            &RecordContext {
+                turn_index: 0,
+                session_id: "sess-1",
+                user_id: "u-1",
+                cwd: Some("/work"),
+                resources: &Obj::new(),
+                spans: &Obj::new(),
+            },
             INITIAL_HASH,
-            "u-1",
             "end_turn",
-            Some("/work"),
-            &Obj::new(),
-            &Obj::new(),
             &TurnOptions::parent(),
         );
         let requests: Vec<&Obj> = built
@@ -2492,14 +2499,16 @@ mod tests {
         };
         let built = build_turn_records(
             &turn,
-            2,
-            "sess-1",
+            &RecordContext {
+                turn_index: 2,
+                session_id: "sess-1",
+                user_id: "u-1",
+                cwd: None,
+                resources: &Obj::new(),
+                spans: &Obj::new(),
+            },
             INITIAL_HASH,
-            "u-1",
             "content_filter",
-            None,
-            &Obj::new(),
-            &Obj::new(),
             &TurnOptions::parent(),
         );
         let request = built

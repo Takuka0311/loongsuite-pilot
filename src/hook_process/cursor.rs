@@ -676,18 +676,6 @@ fn assemble_parent(
     )
 }
 
-/// Parent-turn records for the events that share `conversation_id`.
-/// Child sessions named by the stop event's transcript `subagents/` directory
-/// are nested into the same trace.
-pub fn assemble_turn(
-    events: &[Value],
-    conversation_id: &str,
-    variant: &str,
-    user_id: &str,
-) -> (Vec<Obj>, HashSet<String>) {
-    assemble_parent(events, conversation_id, variant, user_id, None, false)
-}
-
 pub struct Journal {
     dir: PathBuf,
 }

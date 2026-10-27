@@ -106,7 +106,6 @@ struct ToolCallMeta {
 
 #[derive(Clone)]
 struct ToolResultMeta {
-    tool_name: String,
     tool_use_id: Option<String>,
     result: Option<Value>,
     error: Option<String>,
@@ -351,10 +350,12 @@ pub(super) fn assemble_parent_turn(
         &turn_id,
         &model,
         &base,
-        user_prompt.clone(),
-        event_str(prompt, "_journal_ts").map(str::to_owned),
-        None,
-        subagent_results,
+        ParentStepOptions {
+            user_prompt: user_prompt.clone(),
+            prompt_event_ts: event_str(prompt, "_journal_ts").map(str::to_owned),
+            step_prefix: None,
+            subagent_results,
+        },
     ));
 
     for (child_conv_id, child_events, parent_call) in &child_links {
@@ -413,10 +414,12 @@ pub(super) fn assemble_parent_turn(
             &turn_id,
             &child_model,
             &child_base,
-            None,
-            prompt_ts,
-            Some(format!("{turn_id}:sub:{child_short}")),
-            HashMap::new(),
+            ParentStepOptions {
+                user_prompt: None,
+                prompt_event_ts: prompt_ts,
+                step_prefix: Some(format!("{turn_id}:sub:{child_short}")),
+                subagent_results: HashMap::new(),
+            },
         ));
     }
 
@@ -616,13 +619,15 @@ pub(super) fn build_cursor_records_from_transcript(
             &req_nanos,
             req_source,
             &base,
-            step_model,
-            &step_id,
             &delta,
             &cumulative,
-            time_source,
-            Some(response_id.as_str()),
-            false,
+            RequestOptions {
+                model_fallback: step_model,
+                step_id: &step_id,
+                time_source,
+                response_id: Some(response_id.as_str()),
+                resolve_request_model: false,
+            },
         ));
 
         for call in &step.tool_calls {
@@ -781,16 +786,26 @@ pub(super) fn maybe_inject_skills(
     inject_skill_records(records, &skills);
 }
 
+struct ParentStepOptions {
+    user_prompt: Option<String>,
+    prompt_event_ts: Option<String>,
+    step_prefix: Option<String>,
+    subagent_results: HashMap<String, SubagentResult>,
+}
+
 fn build_parent_steps(
     events: &[Value],
     turn_id: &str,
     model: &str,
     base: &Obj,
-    user_prompt: Option<String>,
-    prompt_event_ts: Option<String>,
-    step_prefix: Option<String>,
-    subagent_results: HashMap<String, SubagentResult>,
+    options: ParentStepOptions,
 ) -> Vec<Obj> {
+    let ParentStepOptions {
+        user_prompt,
+        prompt_event_ts,
+        step_prefix,
+        subagent_results,
+    } = options;
     let step_events = dedupe_after_agent_thought(events)
         .into_iter()
         .filter(|event| {
@@ -987,7 +1002,6 @@ impl StepBuilder {
                             "__pending__",
                         ));
                         self.pending_results.push(ToolResultMeta {
-                            tool_name,
                             tool_use_id,
                             result: Some(Value::String(result.result_text)),
                             error: None,
@@ -1019,7 +1033,6 @@ impl StepBuilder {
                     self.records
                         .push(build_subagent_result(event, &result, &self.base, &step_id));
                     self.previous_tool_results.push(ToolResultMeta {
-                        tool_name: tool_name.clone(),
                         tool_use_id: tool_use_id.clone(),
                         result: Some(Value::String(result.result_text)),
                         error: None,
@@ -1063,7 +1076,6 @@ impl StepBuilder {
         }
         mark_sync_finished(&mut self.active_sync, event);
         let meta = ToolResultMeta {
-            tool_name: tool_name.to_string(),
             tool_use_id: event_str(event, "tool_use_id").map(str::to_owned),
             result: event
                 .get("tool_output")
@@ -1135,13 +1147,15 @@ impl StepBuilder {
             &nanos,
             event,
             &self.base,
-            &self.model,
-            &step_id,
             &delta,
             &full,
-            timed.source.as_deref(),
-            None,
-            true,
+            RequestOptions {
+                model_fallback: &self.model,
+                step_id: &step_id,
+                time_source: timed.source.as_deref(),
+                response_id: None,
+                resolve_request_model: true,
+            },
         );
         self.records.push(record);
         self.previous_assistant = None;
@@ -1177,13 +1191,15 @@ impl StepBuilder {
             &nanos,
             &implicit,
             &self.base,
-            &self.model,
-            &step_id,
             &delta,
             &full,
-            source.as_deref(),
-            None,
-            true,
+            RequestOptions {
+                model_fallback: &self.model,
+                step_id: &step_id,
+                time_source: source.as_deref(),
+                response_id: None,
+                resolve_request_model: true,
+            },
         ));
         self.current_response = Some(build_empty_llm_response(
             &nanos,
@@ -1404,18 +1420,29 @@ fn tool_result_part(result: &ToolResultMeta) -> Value {
     })
 }
 
+struct RequestOptions<'a> {
+    model_fallback: &'a str,
+    step_id: &'a str,
+    time_source: Option<&'a str>,
+    response_id: Option<&'a str>,
+    resolve_request_model: bool,
+}
+
 fn build_llm_request(
     nanos: &str,
     event: &Value,
     base: &Obj,
-    model_fallback: &str,
-    step_id: &str,
     delta: &[Value],
     full: &[Value],
-    time_source: Option<&str>,
-    response_id: Option<&str>,
-    resolve_request_model: bool,
+    options: RequestOptions<'_>,
 ) -> Obj {
+    let RequestOptions {
+        model_fallback,
+        step_id,
+        time_source,
+        response_id,
+        resolve_request_model,
+    } = options;
     let raw_model = if resolve_request_model {
         event_str(event, "model").unwrap_or(model_fallback)
     } else {
@@ -2880,19 +2907,22 @@ fn inject_skill_records(records: &mut Vec<Obj>, skills: &[SkillHit]) {
         }
     };
     let user_id = field_str(llm, "user.id").to_string();
+    let identity = SkillIdentity {
+        trace_id: &trace_id,
+        session_id: &session_id,
+        turn_id: &turn_id,
+        step_id: &step_id,
+        agent_type: &agent_type,
+        user_id: &user_id,
+        cwd: cwd.as_ref(),
+        cwd_key: &cwd_key,
+    };
     let mut inserted = Vec::new();
     for (index, (skill, tool_call_id)) in skill_entries.iter().enumerate() {
         let call_offset = (index as i128) * 2 + 1;
         let result_offset = call_offset + 1;
         inserted.push(skill_tool_record(
-            &trace_id,
-            &session_id,
-            &turn_id,
-            &step_id,
-            &agent_type,
-            &user_id,
-            cwd.as_ref(),
-            &cwd_key,
+            &identity,
             base_time + call_offset,
             base_observed + call_offset,
             "tool.call",
@@ -2901,14 +2931,7 @@ fn inject_skill_records(records: &mut Vec<Obj>, skills: &[SkillHit]) {
             true,
         ));
         inserted.push(skill_tool_record(
-            &trace_id,
-            &session_id,
-            &turn_id,
-            &step_id,
-            &agent_type,
-            &user_id,
-            cwd.as_ref(),
-            &cwd_key,
+            &identity,
             base_time + result_offset,
             base_observed + result_offset,
             "tool.result",
@@ -2922,15 +2945,19 @@ fn inject_skill_records(records: &mut Vec<Obj>, skills: &[SkillHit]) {
     records.extend(tail);
 }
 
+struct SkillIdentity<'a> {
+    trace_id: &'a str,
+    session_id: &'a str,
+    turn_id: &'a str,
+    step_id: &'a str,
+    agent_type: &'a str,
+    user_id: &'a str,
+    cwd: Option<&'a Value>,
+    cwd_key: &'a str,
+}
+
 fn skill_tool_record(
-    trace_id: &str,
-    session_id: &str,
-    turn_id: &str,
-    step_id: &str,
-    agent_type: &str,
-    user_id: &str,
-    cwd: Option<&Value>,
-    cwd_key: &str,
+    identity: &SkillIdentity<'_>,
     time_nano: i128,
     observed_nano: i128,
     event_name: &str,
@@ -2938,6 +2965,16 @@ fn skill_tool_record(
     skill: &SkillHit,
     include_arguments: bool,
 ) -> Obj {
+    let SkillIdentity {
+        trace_id,
+        session_id,
+        turn_id,
+        step_id,
+        agent_type,
+        user_id,
+        cwd,
+        cwd_key,
+    } = *identity;
     let mut record = Obj::new();
     record.insert("trace_id".into(), Value::String(trace_id.to_string()));
     record.insert(

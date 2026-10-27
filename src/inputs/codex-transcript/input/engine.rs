@@ -93,8 +93,13 @@ struct Recovery {
     kind: RecoveryKind,
     entries: Vec<AgentActivityEntry>,
     consumed_end_offset: i64,
-    terminal_status: CodexTerminalStatus,
     diagnostics: Diagnostics,
+}
+
+struct RecoveryBoundary {
+    end_offset: i64,
+    terminal: bool,
+    inferred: Option<CodexTerminalStatus>,
 }
 
 struct PendingRecovery {
@@ -657,9 +662,11 @@ impl<'a> CodexTranscriptEngine<'a> {
                         rt,
                         file_path,
                         &mut cloned,
-                        next_scan_offset,
-                        terminal_turn_id.is_some(),
-                        None,
+                        RecoveryBoundary {
+                            end_offset: next_scan_offset,
+                            terminal: terminal_turn_id.is_some(),
+                            inferred: None,
+                        },
                         reliable.as_ref().map(|item| item.parent_thread_id.as_str()),
                     )
                     .await?
@@ -668,19 +675,21 @@ impl<'a> CodexTranscriptEngine<'a> {
                         rt,
                         file_path,
                         &mut checkpoint,
-                        next_scan_offset,
-                        terminal_turn_id.is_some(),
-                        None,
+                        RecoveryBoundary {
+                            end_offset: next_scan_offset,
+                            terminal: terminal_turn_id.is_some(),
+                            inferred: None,
+                        },
                         None,
                     )
                     .await?
                 };
-                if terminal_turn_id.is_some()
-                    && active_before.is_some()
-                    && !matches!(recovered.kind, RecoveryKind::Unparseable)
-                    && reliable.is_some()
-                {
-                    let link = reliable.expect("link");
+                if let (true, Some(link), Some(active)) = (
+                    terminal_turn_id.is_some()
+                        && !matches!(recovered.kind, RecoveryKind::Unparseable),
+                    reliable.as_ref(),
+                    active_before.as_ref(),
+                ) {
                     checkpoint.pending_subagent = Some(CodexPendingSubagentTurn {
                         turn_id: terminal_turn_id.clone().unwrap_or_default(),
                         parent_thread_id: link.parent_thread_id.clone(),
@@ -692,7 +701,7 @@ impl<'a> CodexTranscriptEngine<'a> {
                             _ => FusionConfidence::ExplicitId,
                         },
                         terminal_end_offset: next_scan_offset,
-                        active_turn: active_before.expect("active"),
+                        active_turn: active.clone(),
                     });
                     checkpoint.active_turn = None;
                     checkpoint.scan_offset = next_scan_offset;
@@ -950,9 +959,11 @@ impl<'a> CodexTranscriptEngine<'a> {
                 rt,
                 file_path,
                 checkpoint,
-                pending.terminal_end_offset,
-                true,
-                None,
+                RecoveryBoundary {
+                    end_offset: pending.terminal_end_offset,
+                    terminal: true,
+                    inferred: None,
+                },
                 None,
             )
             .await?;
@@ -997,11 +1008,14 @@ impl<'a> CodexTranscriptEngine<'a> {
         rt: &InputRuntime,
         file_path: &str,
         checkpoint: &mut CodexTranscriptCheckpoint,
-        end_offset: i64,
-        terminal: bool,
-        inferred: Option<CodexTerminalStatus>,
+        boundary: RecoveryBoundary,
         attachment_parent_thread_id: Option<&str>,
     ) -> anyhow::Result<Recovery> {
+        let RecoveryBoundary {
+            end_offset,
+            terminal,
+            inferred,
+        } = boundary;
         let Some(active) = checkpoint.active_turn.clone() else {
             return Ok(empty_unparseable(end_offset));
         };
@@ -1082,7 +1096,6 @@ impl<'a> CodexTranscriptEngine<'a> {
                 kind: RecoveryKind::Unparseable,
                 entries: Vec::new(),
                 consumed_end_offset: active.start_offset,
-                terminal_status: CodexTerminalStatus::Completed,
                 diagnostics: Diagnostics {
                     source_record_count: records.items.len(),
                 },
@@ -1126,13 +1139,7 @@ impl<'a> CodexTranscriptEngine<'a> {
             committed.steps.truncate(closed);
         }
         let input_context = self
-            .resolve_input_context(
-                rt,
-                file_path,
-                checkpoint,
-                meta.as_ref(),
-                attachment_parent_thread_id,
-            )
+            .resolve_input_context(rt, file_path, checkpoint, meta.as_ref())
             .await?;
         let built = build_codex_transcript_segment(
             &committed,
@@ -1212,7 +1219,6 @@ impl<'a> CodexTranscriptEngine<'a> {
             kind,
             entries: output,
             consumed_end_offset: consumed,
-            terminal_status: extraction.turn.status,
             diagnostics: Diagnostics {
                 source_record_count: records.items.len(),
             },
@@ -1249,7 +1255,6 @@ fn empty_unparseable(end_offset: i64) -> Recovery {
         kind: RecoveryKind::Unparseable,
         entries: Vec::new(),
         consumed_end_offset: end_offset,
-        terminal_status: CodexTerminalStatus::Completed,
         diagnostics: Diagnostics {
             source_record_count: 0,
         },
@@ -1831,7 +1836,6 @@ impl<'a> CodexTranscriptEngine<'a> {
         file_path: &str,
         checkpoint: &CodexTranscriptCheckpoint,
         meta: Option<&CodexTranscriptMeta>,
-        attachment_parent: Option<&str>,
     ) -> anyhow::Result<Option<CodexTranscriptInputContext>> {
         let Some(active) = checkpoint.active_turn.as_ref() else {
             return Ok(None);
@@ -2311,11 +2315,7 @@ impl<'a> CodexTranscriptEngine<'a> {
                 if let Some(mut cached) = shared.meta_cache.shift_remove(file_path) {
                     cached.file_size = file_size;
                     cached.last_seen_at_ms = now_ms() as i64;
-                    if active {
-                        shared.meta_cache.insert(file_path.to_owned(), cached);
-                    } else {
-                        shared.meta_cache.insert(file_path.to_owned(), cached);
-                    }
+                    shared.meta_cache.insert(file_path.to_owned(), cached);
                 }
             });
             return Ok(Some(meta));
@@ -2637,9 +2637,11 @@ impl<'a> CodexTranscriptEngine<'a> {
                 rt,
                 file_path,
                 checkpoint,
-                pending.terminal_end_offset,
-                true,
-                None,
+                RecoveryBoundary {
+                    end_offset: pending.terminal_end_offset,
+                    terminal: true,
+                    inferred: None,
+                },
                 None,
             )
             .await?;
@@ -2674,9 +2676,11 @@ impl<'a> CodexTranscriptEngine<'a> {
                 rt,
                 file_path,
                 &mut recovery,
-                captured.terminal_end_offset,
-                true,
-                None,
+                RecoveryBoundary {
+                    end_offset: captured.terminal_end_offset,
+                    terminal: true,
+                    inferred: None,
+                },
                 None,
             )
             .await?;
@@ -2779,12 +2783,14 @@ impl<'a> CodexTranscriptEngine<'a> {
                         rt,
                         &child_path,
                         &mut recovery,
-                        terminal_end,
-                        true,
-                        if captured_matches {
-                            None
-                        } else {
-                            Some(CodexTerminalStatus::Interrupted)
+                        RecoveryBoundary {
+                            end_offset: terminal_end,
+                            terminal: true,
+                            inferred: if captured_matches {
+                                None
+                            } else {
+                                Some(CodexTerminalStatus::Interrupted)
+                            },
                         },
                         Some(pending.parent_thread_id.as_str()),
                     )
@@ -2824,9 +2830,11 @@ impl<'a> CodexTranscriptEngine<'a> {
                     rt,
                     &parent_path,
                     &mut parent_checkpoint,
-                    pending.terminal_end_offset,
-                    true,
-                    None,
+                    RecoveryBoundary {
+                        end_offset: pending.terminal_end_offset,
+                        terminal: true,
+                        inferred: None,
+                    },
                     None,
                 )
                 .await?;

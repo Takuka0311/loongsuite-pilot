@@ -20,13 +20,15 @@ impl KiroCliLogInput {
     pub fn new(opts: HookInputOptions) -> Self {
         Self {
             inner: HookJsonlInput::shared(
-                "KiroCliLogInput",
-                "kiro-cli-log",
-                ClientType::KiroCli,
-                DEFAULT_DIR,
-                "kiro-cli",
-                "kiro-cli",
-                true,
+                super::rest_support::HookInputProfile {
+                    logger_name: "KiroCliLogInput",
+                    id: "kiro-cli-log",
+                    agent_type: ClientType::KiroCli,
+                    default_dir: DEFAULT_DIR,
+                    default_prefix: "kiro-cli",
+                    git_namespace: "kiro-cli",
+                    cold_start_keep_last_turn_only: true,
+                },
                 opts,
             ),
         }

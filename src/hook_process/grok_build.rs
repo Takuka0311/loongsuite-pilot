@@ -66,6 +66,7 @@ impl Default for LockOptions {
     }
 }
 
+#[cfg(test)]
 impl LockOptions {
     fn from_parts(timeout_ms: u64, stale_ms: u64, retry_ms: u64) -> Self {
         Self {
@@ -98,7 +99,6 @@ struct Checkpoint {
 
 #[derive(Clone, Debug)]
 struct SessionState {
-    session_id: String,
     initialized: bool,
     transcript_path: Option<String>,
     cwd: Option<String>,
@@ -117,7 +117,6 @@ struct ToolDetail {
 
 #[derive(Clone, Debug)]
 struct LlmCall {
-    protocol: String,
     model: String,
     message_id: String,
     input_messages: Vec<Value>,
@@ -185,6 +184,7 @@ struct UpdatesParse {
     turns: Vec<UpdateTurn>,
     checkpoint: Checkpoint,
     last_completed_offset: u64,
+    #[cfg(test)]
     parse_errors: u32,
     reset: bool,
 }
@@ -213,6 +213,7 @@ struct UnifiedGroup {
 
 struct UnifiedParse {
     groups: Vec<UnifiedGroup>,
+    #[cfg(test)]
     parse_errors: u32,
 }
 
@@ -233,7 +234,6 @@ struct FusedTool {
 
 #[derive(Clone, Debug)]
 struct FusedCall {
-    protocol: String,
     model: String,
     message_id: String,
     input_messages: Vec<Value>,
@@ -490,14 +490,16 @@ fn process_hook_locked(
         );
         all_records.extend(build_turn_records(
             &fused,
-            session_id,
-            &runtime.user_id,
-            state.cwd.as_deref().filter(|cwd| !cwd.is_empty()),
+            TurnRecordContext {
+                session_id,
+                user_id: &runtime.user_id,
+                cwd: state.cwd.as_deref().filter(|cwd| !cwd.is_empty()),
+                agent_name: agent_name.as_deref(),
+                resources: &resources,
+            },
             system_prompt.as_deref(),
             target.error_type.as_deref(),
             fallback_ms,
-            agent_name.as_deref(),
-            &resources,
         ));
         mark_prompt_exported(&mut state, &target.prompt_id);
         state.turn_count = state.turn_count.saturating_add(1);
@@ -1192,9 +1194,8 @@ fn with_session_state_lock<T>(
     Ok(value)
 }
 
-fn fresh_state(session_id: &str) -> SessionState {
+fn fresh_state() -> SessionState {
     SessionState {
-        session_id: session_id.to_string(),
         initialized: false,
         transcript_path: None,
         cwd: None,
@@ -1236,12 +1237,12 @@ fn tail_ids(ids: Vec<String>) -> Vec<String> {
     ids
 }
 
-fn normalize_state(session_id: &str, raw: &Value) -> SessionState {
+fn normalize_state(raw: &Value) -> SessionState {
     let Some(obj) = raw.as_object() else {
-        return fresh_state(session_id);
+        return fresh_state();
     };
     if json_f64(obj.get("version")).is_none_or(|version| version != STATE_VERSION as f64) {
-        return fresh_state(session_id);
+        return fresh_state();
     }
     let ids = obj
         .get("recent_prompt_ids")
@@ -1255,7 +1256,6 @@ fn normalize_state(session_id: &str, raw: &Value) -> SessionState {
         })
         .unwrap_or_default();
     SessionState {
-        session_id: session_id.to_string(),
         initialized: obj.get("initialized").and_then(Value::as_bool) == Some(true),
         transcript_path: obj
             .get("transcript_path")
@@ -1275,7 +1275,7 @@ fn normalize_state(session_id: &str, raw: &Value) -> SessionState {
 fn load_state(env: &Env, session_id: &str) -> Result<SessionState, HookFail> {
     let path = state_file_path(env, session_id)?;
     if !path.exists() {
-        return Ok(fresh_state(session_id));
+        return Ok(fresh_state());
     }
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
@@ -1283,16 +1283,16 @@ fn load_state(env: &Env, session_id: &str) -> Result<SessionState, HookFail> {
             eprintln!(
                 "[grok-build-hook] state file for session {session_id} corrupted; starting fresh ({err})"
             );
-            return Ok(fresh_state(session_id));
+            return Ok(fresh_state());
         }
     };
     match serde_json::from_str::<Value>(&text) {
-        Ok(value) => Ok(normalize_state(session_id, &value)),
+        Ok(value) => Ok(normalize_state(&value)),
         Err(err) => {
             eprintln!(
                 "[grok-build-hook] state file for session {session_id} corrupted; starting fresh ({err})"
             );
-            Ok(fresh_state(session_id))
+            Ok(fresh_state())
         }
     }
 }
@@ -1693,9 +1693,7 @@ fn build_assistant_blocks(record: &Obj, assistant_seq: u32) -> Vec<Value> {
 }
 
 fn usage_number_of(usage: &Value, keys: &[&str]) -> Option<f64> {
-    let Some(obj) = usage.as_object() else {
-        return None;
-    };
+    let obj = usage.as_object()?;
     keys.iter().find_map(|key| json_f64(obj.get(*key)))
 }
 
@@ -2011,7 +2009,6 @@ fn build_llm_calls(
                     }
                 }
                 calls.push(LlmCall {
-                    protocol: "anthropic".into(),
                     model: model.clone(),
                     message_id: msg_id.clone(),
                     input_messages: delta,
@@ -2394,10 +2391,14 @@ fn parse_grok_updates(
 ) -> Result<UpdatesParse, HookFail> {
     let read = read_complete_lines(path, checkpoint, max_bytes).map_err(HookFail::Other)?;
     let mut events = Vec::new();
+    #[cfg(test)]
     let mut parse_errors = 0u32;
     for line in read.lines {
         let Ok(raw) = serde_json::from_str::<Value>(&line.text) else {
-            parse_errors += 1;
+            #[cfg(test)]
+            {
+                parse_errors += 1;
+            }
             continue;
         };
         let record = raw.as_object();
@@ -2496,6 +2497,7 @@ fn parse_grok_updates(
         turns,
         checkpoint: read.checkpoint,
         last_completed_offset,
+        #[cfg(test)]
         parse_errors,
         reset: read.reset,
     })
@@ -2630,18 +2632,23 @@ fn parse_grok_unified(
     if session_id.is_empty() {
         return Ok(UnifiedParse {
             groups: Vec::new(),
+            #[cfg(test)]
             parse_errors: 0,
         });
     }
     let lines = read_unified_lines(path, max_bytes)?;
     let mut records = Vec::new();
+    #[cfg(test)]
     let mut parse_errors = 0u32;
     for line in lines {
         if line.trim().is_empty() {
             continue;
         }
         let Ok(raw) = serde_json::from_str::<Value>(&line) else {
-            parse_errors += 1;
+            #[cfg(test)]
+            {
+                parse_errors += 1;
+            }
             continue;
         };
         if raw.get("sid").and_then(Value::as_str) != Some(session_id) {
@@ -2765,6 +2772,7 @@ fn parse_grok_unified(
     }
     Ok(UnifiedParse {
         groups,
+        #[cfg(test)]
         parse_errors,
     })
 }
@@ -2777,14 +2785,13 @@ fn read_unified_lines(path: &Path, max_bytes: u64) -> Result<Vec<String>, HookFa
     if meta.len() == 0 {
         return Ok(Vec::new());
     }
-    let mut start = meta.len().saturating_sub(max_bytes);
+    let start = meta.len().saturating_sub(max_bytes);
     let mut buffer = read_from(path, start, (meta.len() - start) as usize)
         .map_err(|err| HookFail::Other(err.to_string()))?;
     if start > 0 {
         let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') else {
             return Ok(Vec::new());
         };
-        start += newline as u64 + 1;
         buffer = buffer[newline + 1..].to_vec();
     }
     let Some(last) = buffer.iter().rposition(|byte| *byte == b'\n') else {
@@ -2832,6 +2839,7 @@ fn select_indices(
     selected
 }
 
+#[cfg(test)]
 fn select_unified_groups(
     groups: &[UnifiedGroup],
     start_ms: Option<f64>,
@@ -3175,7 +3183,6 @@ fn fuse_grok_turn(
             };
             call_groups.push((
                 LlmCall {
-                    protocol: "anthropic".into(),
                     model: "grok".into(),
                     message_id: format!("{prompt_id}:incomplete:{loop_label}"),
                     input_messages: Vec::new(),
@@ -3507,7 +3514,6 @@ fn fuse_grok_turn(
             .and_then(|group| group.cache_creation_input_tokens)
             .or(call.cache_creation_input_tokens);
         fused_calls.push(FusedCall {
-            protocol: call.protocol,
             model: call.model,
             message_id: call.message_id,
             input_messages: call.input_messages,
@@ -3762,17 +3768,28 @@ fn insert_number(record: &mut Obj, key: &str, value: Option<f64>) {
     }
 }
 
+struct TurnRecordContext<'a> {
+    session_id: &'a str,
+    user_id: &'a str,
+    cwd: Option<&'a str>,
+    agent_name: Option<&'a str>,
+    resources: &'a Obj,
+}
+
 fn build_turn_records(
     fused: &FusedTurn,
-    session_id: &str,
-    user_id: &str,
-    cwd: Option<&str>,
+    context: TurnRecordContext<'_>,
     system_prompt: Option<&str>,
     error_type: Option<&str>,
     fallback_ms: f64,
-    agent_name: Option<&str>,
-    resources: &Obj,
 ) -> Vec<Obj> {
+    let TurnRecordContext {
+        session_id,
+        user_id,
+        cwd,
+        agent_name,
+        resources,
+    } = context;
     let turn_id = fused
         .prompt_id
         .clone()
@@ -4147,7 +4164,6 @@ mod tests {
 
     fn llm_call(message_id: &str, blocks: Vec<Value>, ids: &[&str]) -> LlmCall {
         LlmCall {
-            protocol: "anthropic".into(),
             model: "grok".into(),
             message_id: message_id.into(),
             input_messages: Vec::new(),
@@ -4395,6 +4411,7 @@ mod tests {
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&lock)
             .unwrap();
         file.write_all(br#"{"token":"stale"}"#).unwrap();

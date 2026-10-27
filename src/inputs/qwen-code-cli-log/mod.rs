@@ -21,13 +21,15 @@ impl QwenCodeCliLogInput {
     pub fn new(opts: HookInputOptions) -> Self {
         Self {
             inner: HookJsonlInput::shared(
-                "QwenCodeCliLogInput",
-                "qwen-code-cli-log",
-                ClientType::QwenCodeCli,
-                DEFAULT_DIR,
-                "qwen-code-cli",
-                "qwen-code-cli",
-                false,
+                super::rest_support::HookInputProfile {
+                    logger_name: "QwenCodeCliLogInput",
+                    id: "qwen-code-cli-log",
+                    agent_type: ClientType::QwenCodeCli,
+                    default_dir: DEFAULT_DIR,
+                    default_prefix: "qwen-code-cli",
+                    git_namespace: "qwen-code-cli",
+                    cold_start_keep_last_turn_only: false,
+                },
                 opts,
             ),
         }

@@ -17,13 +17,15 @@ impl MimoCodeLogInput {
     pub fn new(opts: HookInputOptions) -> Self {
         Self {
             inner: HookJsonlInput::shared(
-                "MimoCodeLogInput",
-                "mimo-code-log",
-                ClientType::MimoCode,
-                DEFAULT_DIR,
-                "mimo-code",
-                "mimo-code",
-                false,
+                super::rest_support::HookInputProfile {
+                    logger_name: "MimoCodeLogInput",
+                    id: "mimo-code-log",
+                    agent_type: ClientType::MimoCode,
+                    default_dir: DEFAULT_DIR,
+                    default_prefix: "mimo-code",
+                    git_namespace: "mimo-code",
+                    cold_start_keep_last_turn_only: false,
+                },
                 opts,
             ),
         }

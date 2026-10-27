@@ -397,11 +397,13 @@ fn build_turn_events(turn_rows: &[&Value], ctx: &TurnCtx<'_>) -> Vec<Obj> {
             &output,
             &tool_results,
             turn_rows,
-            &step_id,
             ctx,
-            &prompt_id,
-            input_delta,
-            &request_ts,
+            StepRequest {
+                step_id: &step_id,
+                prompt_id: &prompt_id,
+                input_delta,
+                request_ts: &request_ts,
+            },
         ));
         if let Some(ts) = last_tool_result_ts(&output.tool_calls, &tool_results, turn_rows) {
             prev_tool_result_ts = Some(ts);
@@ -473,17 +475,27 @@ fn step_input_delta(
     Some(Value::Array(messages))
 }
 
+struct StepRequest<'a> {
+    step_id: &'a str,
+    prompt_id: &'a str,
+    input_delta: Option<Value>,
+    request_ts: &'a str,
+}
+
 fn build_step_events(
     group: &[&Value],
     output: &AssistantOutput,
     tool_results: &HashMap<String, ToolResultHit>,
     turn_rows: &[&Value],
-    step_id: &str,
     ctx: &TurnCtx<'_>,
-    prompt_id: &str,
-    input_delta: Option<Value>,
-    request_ts: &str,
+    request: StepRequest<'_>,
 ) -> Vec<Obj> {
+    let StepRequest {
+        step_id,
+        prompt_id,
+        input_delta,
+        request_ts,
+    } = request;
     let mut records = Vec::new();
     let first = group[0];
     let last = group[group.len() - 1];

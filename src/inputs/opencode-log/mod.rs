@@ -17,13 +17,15 @@ impl OpenCodeLogInput {
     pub fn new(opts: HookInputOptions) -> Self {
         Self {
             inner: HookJsonlInput::shared(
-                "OpenCodeLogInput",
-                "opencode-log",
-                ClientType::OpenCode,
-                DEFAULT_DIR,
-                "opencode",
-                "opencode",
-                false,
+                super::rest_support::HookInputProfile {
+                    logger_name: "OpenCodeLogInput",
+                    id: "opencode-log",
+                    agent_type: ClientType::OpenCode,
+                    default_dir: DEFAULT_DIR,
+                    default_prefix: "opencode",
+                    git_namespace: "opencode",
+                    cold_start_keep_last_turn_only: false,
+                },
                 opts,
             ),
         }

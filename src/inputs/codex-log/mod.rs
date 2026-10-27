@@ -17,13 +17,15 @@ impl CodexLogInput {
     pub fn new(opts: HookInputOptions) -> Self {
         Self {
             inner: HookJsonlInput::shared(
-                "CodexLogInput",
-                "codex-log",
-                ClientType::CodexCliHook,
-                DEFAULT_DIR,
-                "codex",
-                "codex",
-                false,
+                super::rest_support::HookInputProfile {
+                    logger_name: "CodexLogInput",
+                    id: "codex-log",
+                    agent_type: ClientType::CodexCliHook,
+                    default_dir: DEFAULT_DIR,
+                    default_prefix: "codex",
+                    git_namespace: "codex",
+                    cold_start_keep_last_turn_only: false,
+                },
                 opts,
             ),
         }

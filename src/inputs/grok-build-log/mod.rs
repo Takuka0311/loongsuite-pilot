@@ -17,13 +17,15 @@ impl GrokBuildLogInput {
     pub fn new(opts: HookInputOptions) -> Self {
         Self {
             inner: HookJsonlInput::shared(
-                "GrokBuildLogInput",
-                "grok-build-log",
-                ClientType::GrokBuildHook,
-                DEFAULT_DIR,
-                "grok-build",
-                "grok-build",
-                false,
+                super::rest_support::HookInputProfile {
+                    logger_name: "GrokBuildLogInput",
+                    id: "grok-build-log",
+                    agent_type: ClientType::GrokBuildHook,
+                    default_dir: DEFAULT_DIR,
+                    default_prefix: "grok-build",
+                    git_namespace: "grok-build",
+                    cold_start_keep_last_turn_only: false,
+                },
                 opts,
             ),
         }

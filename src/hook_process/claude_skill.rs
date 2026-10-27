@@ -15,8 +15,8 @@ use super::{
     build_subagent_records, extend_background_agent_result, js_object_truthy, now_ms,
     pending_link_from_value, pending_link_value, push_finalized_ids, record_list,
     resolve_subagent_transcript_path, sort_records, wait_for_transcript_stable, AttemptContext,
-    AttemptRecord, InterceptRecord, LlmCall, PendingLink, SubagentLink, AGENT_ID,
-    INTERCEPT_STALE_MS, MAX_ATTEMPT_BYTES, MAX_ATTEMPT_FILES,
+    AttemptRecord, InterceptRecord, LlmCall, PendingLink, RecordBuildContext, SubagentLink,
+    AGENT_ID, INTERCEPT_STALE_MS, MAX_ATTEMPT_BYTES, MAX_ATTEMPT_FILES,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -354,11 +354,26 @@ pub fn skill_load_times(llm_end: Option<&str>) -> (String, String) {
     (call.to_string(), call.saturating_add(1_000_000).to_string())
 }
 
+pub struct SkillStep<'a> {
+    pub id: &'a str,
+    pub span_id: &'a str,
+}
+
+struct SyntheticSkillSpan<'a> {
+    time: &'a str,
+    event_name: &'a str,
+    span_id: &'a str,
+    call_id: &'a str,
+    payload: Value,
+    payload_key: Option<&'a str>,
+    status: Option<&'a str>,
+    fields: &'a [(String, String)],
+}
+
 pub fn append_synthetic_skill_spans(
     records: &mut Vec<Obj>,
     base: &Obj,
-    step_id: &str,
-    step_span: &str,
+    step: &SkillStep<'_>,
     loads: &[SkillLoad],
     skills: &[SyntheticSkill],
     consumed: &HashSet<usize>,
@@ -374,46 +389,50 @@ pub fn append_synthetic_skill_spans(
         let span_id = random_hex(8);
         records.push(skill_span_record(
             base,
-            &call_time,
-            "tool.call",
-            &span_id,
-            step_span,
-            step_id,
-            &skill.call_id,
-            json!({ "skill": skill.name }),
-            None,
-            None,
-            &fields,
+            step,
+            SyntheticSkillSpan {
+                time: &call_time,
+                event_name: "tool.call",
+                span_id: &span_id,
+                call_id: &skill.call_id,
+                payload: json!({ "skill": skill.name }),
+                payload_key: None,
+                status: None,
+                fields: &fields,
+            },
         ));
         records.push(skill_span_record(
             base,
-            &result_time,
-            "tool.result",
-            &span_id,
-            step_span,
-            step_id,
-            &skill.call_id,
-            json!({ "success": true }),
-            Some("gen_ai.tool.call.result"),
-            Some("success"),
-            &fields,
+            step,
+            SyntheticSkillSpan {
+                time: &result_time,
+                event_name: "tool.result",
+                span_id: &span_id,
+                call_id: &skill.call_id,
+                payload: json!({ "success": true }),
+                payload_key: Some("gen_ai.tool.call.result"),
+                status: Some("success"),
+                fields: &fields,
+            },
         ));
     }
 }
 
-fn skill_span_record(
-    base: &Obj,
-    time: &str,
-    event_name: &str,
-    span_id: &str,
-    step_span: &str,
-    step_id: &str,
-    call_id: &str,
-    payload: Value,
-    payload_key: Option<&str>,
-    status: Option<&str>,
-    fields: &[(String, String)],
-) -> Obj {
+fn skill_span_record(base: &Obj, step: &SkillStep<'_>, span: SyntheticSkillSpan<'_>) -> Obj {
+    let SyntheticSkillSpan {
+        time,
+        event_name,
+        span_id,
+        call_id,
+        payload,
+        payload_key,
+        status,
+        fields,
+    } = span;
+    let SkillStep {
+        id: step_id,
+        span_id: step_span,
+    } = *step;
     let mut record = base.clone();
     record.insert("time_unix_nano".into(), Value::String(time.to_string()));
     record.insert(
@@ -526,7 +545,15 @@ pub(super) fn finalize_pending_subagent_turns(env: &Env, state: &mut Obj) {
                 is_background: true,
             };
             let child = build_subagent_records(
-                env,
+                RecordBuildContext {
+                    env,
+                    user_id: &user_id,
+                    cwd: cwd.as_deref(),
+                    resources: &resources,
+                    span_attributes: &span_attributes,
+                    intercept: &intercept,
+                    attempts: &mut attempts,
+                },
                 &transcript_path,
                 &session_id,
                 pending_obj
@@ -538,12 +565,6 @@ pub(super) fn finalize_pending_subagent_turns(env: &Env, state: &mut Obj) {
                     .and_then(Value::as_str)
                     .unwrap_or(""),
                 &child_link,
-                &user_id,
-                cwd.as_deref(),
-                &resources,
-                &span_attributes,
-                &intercept,
-                &mut attempts,
             );
             extend_background_agent_result(&mut records, &link.parent_tool_call_id, &child.records);
             records.extend(child.records.into_iter().map(sanitize_record));

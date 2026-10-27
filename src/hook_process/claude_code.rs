@@ -430,18 +430,20 @@ fn export_session(
     let mut log_hash = INITIAL_HASH.to_string();
     for (offset, turn) in parsed.turns.iter().skip(start).enumerate() {
         let built = build_turn_records(
-            env,
+            RecordBuildContext {
+                env,
+                user_id: &runtime.user_id,
+                cwd: cwd.as_deref(),
+                resources: &resources,
+                span_attributes: &span_attributes,
+                intercept: &intercept,
+                attempts: &mut attempts,
+            },
             turn,
             base_count + offset as u64,
             &session_id,
             &log_hash,
-            &runtime.user_id,
-            cwd.as_deref(),
             prompt_fallback,
-            &resources,
-            &span_attributes,
-            &intercept,
-            &mut attempts,
         );
         log_hash = built.hash;
         merged_response_ids.extend(built.merged_response_ids);
@@ -468,18 +470,20 @@ fn export_session(
                     continue;
                 }
                 let child = build_subagent_records(
-                    env,
+                    RecordBuildContext {
+                        env,
+                        user_id: &runtime.user_id,
+                        cwd: cwd.as_deref(),
+                        resources: &resources,
+                        span_attributes: &span_attributes,
+                        intercept: &intercept,
+                        attempts: &mut attempts,
+                    },
                     &transcript_path,
                     &session_id,
                     &parent_trace,
                     &parent_turn,
                     &link,
-                    &runtime.user_id,
-                    cwd.as_deref(),
-                    &resources,
-                    &span_attributes,
-                    &intercept,
-                    &mut attempts,
                 );
                 if link.is_background {
                     extend_background_agent_result(
@@ -1281,20 +1285,33 @@ struct PendingLink {
     completed: bool,
 }
 
+struct RecordBuildContext<'a> {
+    env: &'a Env,
+    user_id: &'a str,
+    cwd: Option<&'a str>,
+    resources: &'a Obj,
+    span_attributes: &'a Obj,
+    intercept: &'a HashMap<String, InterceptRecord>,
+    attempts: &'a mut AttemptContext,
+}
+
 fn build_turn_records(
-    env: &Env,
+    context: RecordBuildContext<'_>,
     turn: &Turn,
     turn_index: u64,
     session_id: &str,
     prev_hash: &str,
-    user_id: &str,
-    cwd: Option<&str>,
     prompt_fallback: &str,
-    resources: &Obj,
-    span_attributes: &Obj,
-    intercept: &HashMap<String, InterceptRecord>,
-    attempts: &mut AttemptContext,
 ) -> TurnBuild {
+    let RecordBuildContext {
+        env,
+        user_id,
+        cwd,
+        resources,
+        span_attributes,
+        intercept,
+        attempts,
+    } = context;
     let turn_id = format!("{session_id}:t{}", turn_index + 1);
     let prompt_for_trace = turn
         .prompt_id
@@ -1750,8 +1767,10 @@ fn build_turn_records(
         claude_skill::append_synthetic_skill_spans(
             &mut records,
             &base,
-            step_id,
-            step_span,
+            &claude_skill::SkillStep {
+                id: step_id,
+                span_id: step_span,
+            },
             &turn.skill_loads,
             &synthetic,
             &consumed_skills,
@@ -2067,19 +2086,22 @@ fn resolve_subagent_transcript_path(
 }
 
 fn build_subagent_records(
-    env: &Env,
+    context: RecordBuildContext<'_>,
     parent_transcript: &str,
     parent_session: &str,
     parent_trace: &str,
     parent_turn: &str,
     link: &SubagentLink,
-    user_id: &str,
-    cwd: Option<&str>,
-    resources: &Obj,
-    span_attributes: &Obj,
-    intercept: &HashMap<String, InterceptRecord>,
-    attempts: &mut AttemptContext,
 ) -> TurnBuild {
+    let RecordBuildContext {
+        env,
+        user_id,
+        cwd,
+        resources,
+        span_attributes,
+        intercept,
+        attempts,
+    } = context;
     let Some(path) = resolve_subagent_transcript_path(parent_transcript, &link.agent_id) else {
         return empty_turn();
     };
@@ -2105,18 +2127,20 @@ fn build_subagent_records(
     let mut child_hash = INITIAL_HASH.to_string();
     for (index, turn) in parsed.turns.iter().enumerate() {
         let built = build_turn_records(
-            env,
+            RecordBuildContext {
+                env,
+                user_id,
+                cwd,
+                resources,
+                span_attributes,
+                intercept,
+                attempts: &mut *attempts,
+            },
             turn,
             index as u64,
             &link.agent_id,
             &child_hash,
-            user_id,
-            cwd,
             "",
-            resources,
-            span_attributes,
-            intercept,
-            attempts,
         );
         child_hash = built.hash;
         merged_response_ids.extend(built.merged_response_ids);

@@ -92,6 +92,16 @@ pub struct HookInputOptions {
     pub poll_interval_ms: Option<u64>,
 }
 
+pub struct HookInputProfile<'a> {
+    pub logger_name: &'static str,
+    pub id: &'static str,
+    pub agent_type: ClientType,
+    pub default_dir: &'a str,
+    pub default_prefix: &'a str,
+    pub git_namespace: &'static str,
+    pub cold_start_keep_last_turn_only: bool,
+}
+
 pub struct HookJsonlConfig {
     pub logger_name: &'static str,
     pub id: &'static str,
@@ -147,16 +157,16 @@ impl HookJsonlInput {
         Self { inner, poll }
     }
 
-    pub fn shared(
-        logger_name: &'static str,
-        id: &'static str,
-        agent_type: ClientType,
-        default_dir: &str,
-        default_prefix: &str,
-        git_namespace: &'static str,
-        cold_start_keep_last_turn_only: bool,
-        opts: HookInputOptions,
-    ) -> Self {
+    pub fn shared(profile: HookInputProfile<'_>, opts: HookInputOptions) -> Self {
+        let HookInputProfile {
+            logger_name,
+            id,
+            agent_type,
+            default_dir,
+            default_prefix,
+            git_namespace,
+            cold_start_keep_last_turn_only,
+        } = profile;
         Self::new(HookJsonlConfig {
             logger_name,
             id,

@@ -293,8 +293,7 @@ fn run_normal(ctx: &HookCtx<'_>, stdin: &[u8]) {
         ctx,
         Path::new(&payload.transcript),
         &payload.session,
-        locked_range.start,
-        locked_range.end,
+        locked_range.start..locked_range.end,
         identity.as_ref(),
         payload.cwd.as_deref(),
         ProcessOpts {
@@ -501,8 +500,7 @@ fn run_retry(ctx: &HookCtx<'_>, args: &[String], stdin: &[u8]) {
             ctx,
             &transcript_path,
             &session,
-            start_line,
-            end_line,
+            start_line..end_line,
             identity.as_ref(),
             cwd.as_deref(),
             ProcessOpts {
@@ -544,8 +542,7 @@ fn run_retry(ctx: &HookCtx<'_>, args: &[String], stdin: &[u8]) {
         ctx,
         &transcript_path,
         &session,
-        range.start,
-        range.end,
+        range.start..range.end,
         identity.as_ref(),
         cwd.as_deref(),
         ProcessOpts {
@@ -576,8 +573,7 @@ fn process_transcript(
     ctx: &HookCtx<'_>,
     transcript: &Path,
     session: &str,
-    start: usize,
-    initial_end: usize,
+    range: std::ops::Range<usize>,
     identity: Option<&UserIdentity>,
     cwd: Option<&str>,
     opts: ProcessOpts,
@@ -588,8 +584,8 @@ fn process_transcript(
         }
     }
     let snapshot = opts.snapshot;
-    let mut end = initial_end;
-    let mut start = start;
+    let mut end = range.end;
+    let mut start = range.start;
     if !opts.fixed_turn_window {
         if snapshot.line_count > end {
             end = snapshot.line_count;
@@ -608,7 +604,7 @@ fn process_transcript(
         update_line_record(ctx.env, &ctx.agent_id, transcript, session, end);
         return true;
     }
-    let (mut progress, mut content) = split_progress_content(&parsed);
+    let (progress, mut content) = split_progress_content(&parsed);
     if ctx.agent_id == "qoder-cn" {
         if !has_qoder_cn_terminal(&progress, &parsed) {
             log_debug(
@@ -635,9 +631,7 @@ fn process_transcript(
                     parsed.len()
                 ),
             );
-            let rescanned = split_progress_content(&parsed);
-            progress = rescanned.0;
-            content = rescanned.1;
+            content = split_progress_content(&parsed).1;
         }
     }
     let all_turns = split_turns(&content);
@@ -661,12 +655,14 @@ fn process_transcript(
             turn,
             &parsed,
             &turn_id,
-            session,
-            &ctx.agent_id,
-            &ctx.user_id,
-            identity,
-            cwd,
-            &ctx.stamp,
+            BoundaryContext {
+                session_id: session,
+                agent_id: &ctx.agent_id,
+                runtime_user: &ctx.user_id,
+                identity,
+                cwd,
+                stamp: &ctx.stamp,
+            },
         ));
     }
     let cursor_mode = if opts.range_reason == "incremental" {
@@ -1476,8 +1472,8 @@ fn find_triggered_turn_window(snapshot: &Snapshot, trigger_end_line: i64) -> Tur
     };
     let mut stop_line = None;
     let mut assistant_stop = None;
-    for index in (trigger_prompt + 1)..limit {
-        let row = rows[index].as_ref();
+    for (index, row) in rows.iter().enumerate().take(limit).skip(trigger_prompt + 1) {
+        let row = row.as_ref();
         let event = hook_event(row);
         if event == "Stop" {
             stop_line = Some(index);
@@ -1524,8 +1520,8 @@ fn find_triggered_turn_window(snapshot: &Snapshot, trigger_end_line: i64) -> Tur
     let Some(start_line) = start_line else {
         return waiting("turn-start-not-found");
     };
-    for index in (stop_line + 1)..limit {
-        let row = rows[index].as_ref();
+    for (index, row) in rows.iter().enumerate().take(limit).skip(stop_line + 1) {
+        let row = row.as_ref();
         let event = hook_event(row);
         if event == "SessionEnd" {
             return TurnWindow {
@@ -1788,18 +1784,30 @@ fn build_llm_boundaries(content: &[Value]) -> Vec<Boundary> {
         .collect()
 }
 
+struct BoundaryContext<'a> {
+    session_id: &'a str,
+    agent_id: &'a str,
+    runtime_user: &'a str,
+    identity: Option<&'a UserIdentity>,
+    cwd: Option<&'a str>,
+    stamp: &'a Stamp,
+}
+
 fn build_events_from_boundaries(
     boundaries: &[Boundary],
     content_events: &[Value],
     all_parsed: &[Value],
     turn_id: &str,
-    session_id: &str,
-    agent_id: &str,
-    runtime_user: &str,
-    identity: Option<&UserIdentity>,
-    cwd: Option<&str>,
-    stamp: &Stamp,
+    context: BoundaryContext<'_>,
 ) -> Vec<Obj> {
+    let BoundaryContext {
+        session_id,
+        agent_id,
+        runtime_user,
+        identity,
+        cwd,
+        stamp,
+    } = context;
     let mut records = Vec::new();
     let observed = now_unix_nanos();
     let user_row = content_events
@@ -1933,6 +1941,15 @@ fn build_events_from_boundaries(
             }
         }
         let step_model = content.iter().find_map(row_model).unwrap_or("auto");
+        let event_context = EventContext {
+            step_id: &step_id,
+            turn_id,
+            session_id,
+            agent_type: &agent_type,
+            provider: &provider,
+            model: step_model,
+            user_id: &user_id,
+        };
         let mut input_delta = None;
         let mut emit_request = index > 0;
         if index == 0 && user_row.is_some() {
@@ -1956,18 +1973,7 @@ fn build_events_from_boundaries(
             input_delta = Some(delta);
         }
         if emit_request {
-            let mut record = base_event(
-                "llm.request",
-                &step_id,
-                turn_id,
-                session_id,
-                &agent_type,
-                &provider,
-                step_model,
-                &user_id,
-                &start_nanos,
-                &observed,
-            );
+            let mut record = base_event("llm.request", &event_context, &start_nanos, &observed);
             if let Some(delta) = input_delta {
                 record.insert("gen_ai.input.messages_delta".into(), Value::Array(delta));
             }
@@ -2087,13 +2093,7 @@ fn build_events_from_boundaries(
         if !output_parts.is_empty() {
             let mut record = base_event(
                 "llm.response",
-                &step_id,
-                turn_id,
-                session_id,
-                &agent_type,
-                &provider,
-                step_model,
-                &user_id,
+                &event_context,
                 &response_end_nanos,
                 &observed,
             );
@@ -2272,18 +2272,26 @@ fn tool_response_part(result: &ToolResult) -> Value {
     Value::Object(part)
 }
 
-fn base_event(
-    name: &str,
-    step_id: &str,
-    turn_id: &str,
-    session_id: &str,
-    agent_type: &str,
-    provider: &str,
-    model: &str,
-    user_id: &str,
-    time_nanos: &str,
-    observed: &str,
-) -> Obj {
+struct EventContext<'a> {
+    step_id: &'a str,
+    turn_id: &'a str,
+    session_id: &'a str,
+    agent_type: &'a str,
+    provider: &'a str,
+    model: &'a str,
+    user_id: &'a str,
+}
+
+fn base_event(name: &str, context: &EventContext<'_>, time_nanos: &str, observed: &str) -> Obj {
+    let EventContext {
+        step_id,
+        turn_id,
+        session_id,
+        agent_type,
+        provider,
+        model,
+        user_id,
+    } = *context;
     let mut record = Obj::new();
     record.insert("event.id".into(), Value::String(uuid_v4()));
     record.insert("event.name".into(), Value::String(name.into()));
@@ -3777,7 +3785,7 @@ mod tests {
     use super::{
         build_events_from_boundaries, build_llm_boundaries, date_parse_millis, json_f64,
         normalize_finish_reason, now_ms, release_retry_lock, retry_lock_path, run, sha1_hex,
-        timestamp_order_nanos, try_acquire_retry_lock, Stamp,
+        timestamp_order_nanos, try_acquire_retry_lock, BoundaryContext, Stamp,
     };
     use serde_json::{json, Value};
     use std::collections::HashSet;
@@ -3894,15 +3902,17 @@ mod tests {
             &rows,
             &rows,
             "turn-microseconds",
-            "session-1",
-            "qoder",
-            "user-1",
-            None,
-            None,
-            &Stamp {
-                span: Obj::new(),
-                agent_name: None,
-                resources: Obj::new(),
+            BoundaryContext {
+                session_id: "session-1",
+                agent_id: "qoder",
+                runtime_user: "user-1",
+                identity: None,
+                cwd: None,
+                stamp: &Stamp {
+                    span: Obj::new(),
+                    agent_name: None,
+                    resources: Obj::new(),
+                },
             },
         );
         let requests: Vec<_> = records
