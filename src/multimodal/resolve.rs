@@ -486,9 +486,9 @@ fn nofollow_flag() -> i32 {
 }
 
 #[cfg(unix)]
-unsafe fn libc_open(path: *const i8, flags: i32) -> i32 {
+unsafe fn libc_open(path: *const std::ffi::c_char, flags: i32) -> i32 {
     unsafe extern "C" {
-        fn open(path: *const i8, flags: i32, ...) -> i32;
+        fn open(path: *const std::ffi::c_char, flags: i32, ...) -> i32;
     }
     unsafe { open(path, flags) }
 }

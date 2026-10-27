@@ -224,7 +224,10 @@ async fn inject_locked(
     data_dir: &str,
     hook: &AgentHookConfig,
 ) -> Result<Value, String> {
+    #[cfg(unix)]
     let mut mode = 0o600u32;
+    #[cfg(not(unix))]
+    let mode = 0o600u32;
     let raw = match tokio::fs::symlink_metadata(settings_path).await {
         Ok(meta) => {
             if !meta.is_file() {

@@ -207,7 +207,10 @@ fn status_bar_env_override(env: &HashMap<String, String>) -> Option<bool> {
 
 async fn persist_status_bar_enabled(config_path: &str, enabled: bool) -> Result<String, String> {
     let mut existing_text = None;
+    #[cfg(unix)]
     let mut mode = 0o600_u32;
+    #[cfg(not(unix))]
+    let mode = 0o600_u32;
     match tokio::fs::read_to_string(config_path).await {
         Ok(text) => {
             if let Ok(meta) = tokio::fs::metadata(config_path).await {

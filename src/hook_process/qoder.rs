@@ -884,6 +884,8 @@ fn spawn_delayed_retry(
 }
 
 fn detach_command(command: &mut Command) {
+    #[cfg(not(unix))]
+    let _ = command;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -3217,11 +3219,8 @@ fn cli_executable(qoder_home: &Path) -> Option<PathBuf> {
     if !valid_cli_version(version) {
         return None;
     }
-    let name = format!("qodercli-{version}");
-    #[cfg(windows)]
-    {
-        name.push_str(".exe");
-    }
+    let suffix = if cfg!(windows) { ".exe" } else { "" };
+    let name = format!("qodercli-{version}{suffix}");
     let path = cli_dir.join(name);
     let meta = fs::metadata(&path).ok()?;
     if !meta.is_file() {

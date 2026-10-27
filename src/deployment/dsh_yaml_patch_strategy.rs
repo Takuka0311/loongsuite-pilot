@@ -380,6 +380,8 @@ async fn read_bytes(path: &str) -> Result<Vec<u8>, String> {
 }
 
 async fn resolve_mode(path: &str, existed: bool) -> u32 {
+    #[cfg(not(unix))]
+    let _ = path;
     if !existed {
         return 0o644;
     }
@@ -410,6 +412,8 @@ async fn atomic_write_if_unchanged(
     h0: &str,
     mode: u32,
 ) -> Result<bool, String> {
+    #[cfg(not(unix))]
+    let _ = mode;
     if let Some(parent) = Path::new(target).parent() {
         tokio::fs::create_dir_all(parent)
             .await

@@ -3,7 +3,7 @@
 //! TypeScript fallback to polling.
 
 use std::collections::{HashMap, HashSet};
-use std::os::fd::RawFd;
+use std::ffi::{c_char, c_int as RawFd};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -256,7 +256,7 @@ fn meta(pairs: &[(&str, Value)]) -> Map<String, Value> {
         .collect()
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 unsafe fn sys_inotify_init1(flags: i32) -> i32 {
     unsafe extern "C" {
         fn inotify_init1(flags: i32) -> i32;
@@ -264,10 +264,10 @@ unsafe fn sys_inotify_init1(flags: i32) -> i32 {
     unsafe { inotify_init1(flags) }
 }
 
-#[cfg(unix)]
-unsafe fn sys_inotify_add_watch(fd: i32, path: *const i8, mask: u32) -> i32 {
+#[cfg(target_os = "linux")]
+unsafe fn sys_inotify_add_watch(fd: i32, path: *const c_char, mask: u32) -> i32 {
     unsafe extern "C" {
-        fn inotify_add_watch(fd: i32, pathname: *const i8, mask: u32) -> i32;
+        fn inotify_add_watch(fd: i32, pathname: *const c_char, mask: u32) -> i32;
     }
     unsafe { inotify_add_watch(fd, path, mask) }
 }
@@ -279,7 +279,7 @@ struct PollFd {
     revents: i16,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 unsafe fn sys_poll(fds: *mut PollFd, nfds: u64, timeout_ms: i32) -> i32 {
     unsafe extern "C" {
         fn poll(fds: *mut PollFd, nfds: u64, timeout: i32) -> i32;
@@ -287,12 +287,12 @@ unsafe fn sys_poll(fds: *mut PollFd, nfds: u64, timeout_ms: i32) -> i32 {
     unsafe { poll(fds, nfds, timeout_ms) }
 }
 
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 unsafe fn sys_poll(_fds: *mut PollFd, _nfds: u64, _timeout_ms: i32) -> i32 {
     -1
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn errno() -> i32 {
     unsafe extern "C" {
         fn __errno_location() -> *mut i32;
@@ -300,12 +300,12 @@ fn errno() -> i32 {
     unsafe { *__errno_location() }
 }
 
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 fn errno() -> i32 {
     0
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 unsafe fn sys_read(fd: i32, buf: *mut u8, len: usize) -> isize {
     unsafe extern "C" {
         fn read(fd: i32, buf: *mut u8, count: usize) -> isize;
@@ -313,7 +313,7 @@ unsafe fn sys_read(fd: i32, buf: *mut u8, len: usize) -> isize {
     unsafe { read(fd, buf, len) }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 unsafe fn sys_close(fd: i32) -> i32 {
     unsafe extern "C" {
         fn close(fd: i32) -> i32;
@@ -321,19 +321,19 @@ unsafe fn sys_close(fd: i32) -> i32 {
     unsafe { close(fd) }
 }
 
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 unsafe fn sys_inotify_init1(_flags: i32) -> i32 {
     -1
 }
-#[cfg(not(unix))]
-unsafe fn sys_inotify_add_watch(_fd: i32, _path: *const i8, _mask: u32) -> i32 {
+#[cfg(not(target_os = "linux"))]
+unsafe fn sys_inotify_add_watch(_fd: i32, _path: *const c_char, _mask: u32) -> i32 {
     -1
 }
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 unsafe fn sys_read(_fd: i32, _buf: *mut u8, _len: usize) -> isize {
     -1
 }
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 unsafe fn sys_close(_fd: i32) -> i32 {
     0
 }
@@ -369,6 +369,21 @@ mod tests {
         assert!(extract_parent_dirs(&[]).is_empty());
     }
 
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn unsupported_watch_preserves_polling_fallback_and_dirty_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let watcher = FileWatcher::new();
+        watcher.watch(&[dir.path().to_string_lossy().into_owned()]);
+        assert!(watcher.fd.lock().unwrap().is_none());
+        assert!(watcher.thread.lock().unwrap().is_none());
+        watcher.add_dirty("pending.log");
+        watcher.rewatch();
+        assert_eq!(watcher.dirty_files(), vec!["pending.log"]);
+        watcher.close();
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn marks_files_when_the_directory_changes() {
         let dir = std::env::temp_dir().join(format!("file-watcher-{}", std::process::id()));
