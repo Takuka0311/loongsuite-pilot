@@ -1,0 +1,286 @@
+{
+  "schema": 1,
+  "baselineCommit": "ef8953de1b5d2aa6d719cb0409cb5f48f2b99b42",
+  "mappings": [
+    {
+      "legacy": "tests/unit/validate-trace.test.mjs",
+      "coverage": "complete",
+      "rust": [
+        {"file": "xtask/src/trace_validate/messages.rs", "test": "pinned_input_schema_accepts_standard_parts_and_nullable_fields"},
+        {"file": "xtask/src/trace_validate/messages.rs", "test": "input_message_required_fields_and_generic_extensions_are_distinct"},
+        {"file": "xtask/src/trace_validate/semantics.rs", "test": "runtime_skill_is_exempt_but_cannot_satisfy_model_tool_call"},
+        {"file": "xtask/src/trace_validate/semantics.rs", "test": "ordinary_and_model_skills_require_id_or_name_match"},
+        {"file": "xtask/tests/trace_validate.rs", "test": "native_trace_runtime_skills_and_observed_content_keep_compatibility"},
+        {"file": "xtask/tests/trace_validate.rs", "test": "native_trace_message_schemas_finish_reasons_and_warning_filter_are_preserved"},
+        {"file": "xtask/tests/trace_validate.rs", "test": "native_trace_validates_real_converter_and_production_json_serializer"}
+      ],
+      "note": "承接全部历史输入消息断言、固定 Schema SHA-256、标准 part/nullable、必填字段、WorkBuddy response 与 GenericPart 警告，以及 runtime Skill、普通/model Skill 和无 Skill extension 的双向匹配合同。改为 Rust 正式 CLI，诊断只保留字段位置，不回显消息 payload。额外验证结构/时间/属性/token/语义、cancelled、三种报告、过滤、原子报告与隔离 PATH；真实转换器及生产 JSON serializer 的七 Span 场景通过，并修复容器 operation/name 缺失。旧多 AGENT Trace 结构限制仍保留；此历史文件完整映射不代表全部 Trace 场景或跨平台已验收。"
+    },
+    {
+      "legacy": "tests/e2e-remote/jsonl-validate.test.mjs",
+      "coverage": "partial",
+      "rust": [
+        {"file": "xtask/tests/jsonl_validate.rs", "test": "native_jsonl_graph_coverage_and_inputs_are_preserved"},
+        {"file": "xtask/tests/jsonl_validate.rs", "test": "native_jsonl_rejects_each_historical_graph_error_without_payload_leaks"},
+        {"file": "xtask/tests/jsonl_validate.rs", "test": "native_jsonl_accepts_incomplete_compatibility_and_agent_specific_turns"},
+        {"file": "xtask/tests/jsonl_validate.rs", "test": "native_jsonl_accepts_projected_workbuddy_without_unreliable_tool_names"},
+        {"file": "xtask/tests/jsonl_validate.rs", "test": "native_jsonl_filters_environment_and_diagnostic_exit_codes_match"},
+        {"file": "xtask/tests/jsonl_validate.rs", "test": "native_jsonl_strict_never_accepts_empty_malformed_or_out_of_window_inputs"},
+        {"file": "xtask/tests/jsonl_validate.rs", "test": "native_jsonl_checks_types_cross_file_graphs_limits_and_explicit_paths"}
+      ],
+      "note": "原生 CLI 承接字段覆盖率、必填/类型/重复 ID、模型及工具配对、轮次边界、前缀过滤与严格/非严格退出码；复用实际 WorkBuddy builder/projection 验证不可靠工具名的处理。强化空输入/空窗口拒绝、跨文件图与脱敏诊断，受控 PATH 不依赖 Node/Python。远程 shell/Docker 编排及原 base64|node 包装尚未替代，因此保留 partial 和旧工具清理门禁。"
+    },
+    {
+      "legacy": "tests/integration/codex-subagent-converter.test.ts",
+      "coverage": "complete",
+      "rust": [{"file": "tests/trace_history.rs", "test": "codex_three_children_attach_to_spawn_tools_and_keep_input"}],
+      "note": "同一 trace 三个子 Agent 关联各自 TOOL、保留输入；另断言异步子 Agent 不拉长父 TOOL。"
+    },
+    {
+      "legacy": "tests/integration/codex-aborted-turn-converter.test.ts",
+      "coverage": "complete",
+      "rust": [{"file": "src/flushers/event_log_converter.rs", "test": "cancelled_response_preserves_step_finish_reason"}],
+      "note": "保留 LLM finish_reasons 与 STEP cancelled，正常取消无转换警告。"
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/cp5-no-double-emit.test.ts",
+      "coverage": "partial",
+      "rust": [{"file": "tests/otlp_native.rs", "test": "cp5_incremental_turn_preserves_ten_unique_spans_and_last_output"}],
+      "note": "复用原始 23 条 fixture，经默认 HTTP/protobuf 验证增量批次、10 个唯一 Span、最后输出和迟到重复；独立单批场景待承接。"
+    },
+    {
+      "legacy": "tests/integration/qwen-subagent-event-log-flow.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "tests/trace_history.rs", "test": "qwen_recursive_children_keep_separate_usage_and_failed_diagnostics"},
+        {"file": "tests/trace_history.rs", "test": "ambiguous_and_cyclic_children_are_not_attached_to_unrelated_tools"}
+      ],
+      "note": "仅承接转换层递归、时间、用量、错误诊断；原 Hook processor 到 normalization 全链路、seal、同原生工具 ID 并行与旧内容开关尚待承接。"
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/conversion.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/flushers/otlp_trace_flusher.rs", "test": "orphan_starts_are_removed_at_the_conversion_boundary"},
+        {"file": "tests/trace_history.rs", "test": "incremental_input_reconstruction_does_not_leak_future_messages"},
+        {"file": "tests/otlp_native.rs", "test": "default_path_sends_nonempty_protobuf_with_resources_and_exact_nanos"}
+      ],
+      "note": "孤立起始事件过滤、资源投影与消息内容已有真实路径断言；其余身份协调、错误与技能属性合同仍待逐项核对。"
+    },
+    {
+      "legacy": "tests/unit/metrics/metrics-collector.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/metrics/metrics_collector.rs", "test": "reads_init_type_projects_and_infra_grace"},
+        {"file": "src/metrics/metrics_collector.rs", "test": "native_health_never_heals_or_executes_legacy_node"},
+        {"file": "src/metrics/runtime_health.rs", "test": "split_cache_and_binary_integrity_are_read_only"},
+        {"file": "src/metrics/runtime_health.rs", "test": "rejects_legacy_empty_and_unsafe_versions"}
+      ],
+      "note": "承接 updater 前两次采样宽限、版本计数和 current/previous 健康语义。按批准计划，Node pin 探测/自愈退休，旧指标固定 not-applicable；改为只读校验原生清单、摘要与二进制。目录存在不再等于版本有效；其余历史断言未全部映射。"
+    },
+    {
+      "legacy": "tests/unit/metrics/metrics-writer.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/metrics/metrics_writer.rs", "test": "records_degraded_startup_and_broken_pointer"},
+        {"file": "src/metrics/metrics_writer.rs", "test": "native_runtime_alarm_preserves_cooldown_without_node_alarm"}
+      ],
+      "note": "承接降级启动及无效版本指针告警；按批准计划将 Node 告警替换为 INVALID_RUNTIME_BIN_ALARM，保持等级与冷却且不执行宿主 Node。其余历史阈值、身份和输出断言待逐项映射。"
+    },
+    {
+      "legacy": "tests/unit/flushers/span-enricher.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/flushers/span_enricher.rs", "test": "script_paths_require_explicit_migration"},
+        {"file": "src/core/config_loader.rs", "test": "legacy_enrichers_are_rejected_without_modifying_config"}
+      ],
+      "note": "用户批准脚本扩展改为编译期 Rust 扩展；迁移错误已承接，其余 trait 插件行为需逐项映射。"
+    },
+    {
+      "legacy": "tests/unit/deployment/hook-install-service.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "tests/cli_native.rs", "test": "packaged_codex_explicit_home_keeps_trust_and_hooks_together"},
+        {"file": "tests/cli_native.rs", "test": "packaged_kiro_installs_in_custom_home_and_preserves_user_default"},
+        {"file": "tests/cli_native.rs", "test": "packaged_hook_rejects_corrupt_deployment_state_without_touching_agent"},
+        {"file": "tests/cli_native.rs", "test": "packaged_hook_install_rejects_bad_companion_configs_before_resource_writes"},
+        {"file": "tests/cli_native.rs", "test": "packaged_hook_companion_write_failure_rolls_back_and_retries"},
+        {"file": "tests/cli_native.rs", "test": "packaged_hook_report_or_signal_failure_is_visible_and_retryable"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "reports_and_signals_commit_together_and_preserve_previous_on_failure"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "report_recovery_blocks_consumers_and_alarm_marks_until_install_retries"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "concurrent_reports_merge_and_corrupt_reports_are_preserved"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "report_and_signal_links_never_modify_external_files"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "cancelled_report_lock_wait_never_publishes_and_can_retry"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "report_external_edit_preserves_conflict_and_recovery_evidence"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "report_retry_recovers_after_real_process_exit"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "concurrent_alarm_marks_never_replace_new_install_report"},
+        {"file": "src/deployment/hook_install_service.rs", "test": "report_validation_rejects_invalid_scope_identity_time_and_status"},
+        {"file": "tests/cli_native.rs", "test": "packaged_openclaw_reconciles_versioned_config_and_stale_paths_without_runtime"},
+        {"file": "tests/cli_native.rs", "test": "packaged_openclaw_rejects_unsupported_host_and_corrupt_config_without_resource_writes"}
+      ],
+      "note": "候选包正式 CLI 承接显式 home、Kiro agents/ 与 CLI 设置同目录、幂等及只读状态；扩展验证 Codex trust 同目录与损坏部署状态阻断。新增 OpenClaw 显式 home、带注释 .json 的预检与策略一致性、宿主版本门禁和配置损坏保护。Codex/Kiro 关联配置语法错误及只读写入失败均验证原配置、资源和状态保护、重试与只读 status；CLI 测试子进程改用有界进程树与输出限制。补充报告/signal 共同提交、只读失败、损坏文件保留、并发合并、告警标记互斥、取消等待、进程退出恢复、外部修改冲突和正式 CLI 重试；告警标记发布不跨 await。报告事务独立于已提交的 Agent 配置，失败明确非零并说明配置保留。权限身份及全部选择组合尚未完整映射。"
+    },
+    {
+      "legacy": "tests/unit/deployment/hook-strategy.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/deployment/hook_strategy.rs", "test": "jsonc_env_merge_preserves_comments_and_rejects_invalid_shapes"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "corrupt_companion_configs_fail_before_writing_hooks"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "sets_kiro_default_agent_only_when_missing"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "writes_codex_trust_before_removing_retired_hooks"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "hook_transaction_rolls_back_resources_config_and_backup_on_companion_failure"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "hook_transaction_planning_failure_never_publishes_resources"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "hook_transaction_official_retry_recovers_after_process_exit"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "hook_transactions_serialize_shared_config_across_installations"},
+        {"file": "src/deployment/hook_assets.rs", "test": "cancelled_hook_lock_wait_does_not_publish_and_releases_resource_lock"},
+        {"file": "src/deployment/hook_assets.rs", "test": "hook_transaction_external_edit_conflict_preserves_recovery_evidence"}
+      ],
+      "note": "承接 JSONC 用户字段、env 合并、Kiro 用户默认 Agent、Codex retired 事件与损坏配置保护。根据批准计划，旧 env 失败仍成功的断言改为显式失败；新增主配置、首次 JSONC 备份、资源、trust、Kiro CLI 与部署状态共同事务，覆盖普通失败、真实退出后正式 manager 重试、跨安装配置锁、取消和外部修改冲突。健康读取按声明语法解析 JSONC。Windows 实机命令、全部 matcher/interceptor/并发场景尚待完整验收。"
+    },
+    {
+      "legacy": "tests/unit/deployment/persisted-deploy-paths.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/deployment/persisted_deploy_paths.rs", "test": "hooks_parent_is_the_agent_home"},
+        {"file": "src/deployment/persisted_deploy_paths.rs", "test": "records_grok_and_pi_absolute_paths"},
+        {"file": "src/deployment/persisted_deploy_paths.rs", "test": "overlays_persisted_grok_path_and_does_not_replace_backfill"},
+        {"file": "src/deployment/persisted_deploy_paths.rs", "test": "restores_codex_companion_and_kiro_home_without_default_path_drift"},
+        {"file": "src/deployment/persisted_deploy_paths.rs", "test": "rejects_unrecoverable_companion_layout"},
+        {"file": "src/deployment/persisted_deploy_paths.rs", "test": "persisted_plugin_targets_are_exclusive_and_reject_invalid_paths"},
+        {"file": "tests/cli_native.rs", "test": "packaged_plugin_reports_selected_config_and_never_drifts_from_recorded_home"}
+      ],
+      "note": "保留 Grok/Pi 路径与已有记录不被 backfill 覆盖的合同；按显式 home 生命周期需求将既有 hookSettingsPath 扩展到全部 Hook Agent，并同步恢复 Codex trust。新增插件路径严格恢复与实际候选选择，已记录配置缺失不再回退到另一 home。全平台路径边界尚未验收。"
+    },
+    {
+      "legacy": "tests/unit/deployment/deployment-manager.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/deployment/deployment_manager.rs", "test": "invalid_state_blocks_deploy_and_undeploy_without_overwriting_it"},
+        {"file": "src/deployment/deployment_manager.rs", "test": "persistence_failure_cannot_be_reported_as_success_or_up_to_date"},
+        {"file": "src/deployment/deployment_manager.rs", "test": "hook_state_write_failure_rolls_back_install_and_cleanup"},
+        {"file": "src/deployment/deployment_manager.rs", "test": "concurrent_managers_keep_all_hook_paths_and_cleanup_retries"},
+        {"file": "src/deployment/deployment_manager.rs", "test": "hook_state_lock_cancellation_never_publishes_resources"},
+        {"file": "src/deployment/deployment_manager.rs", "test": "pending_hook_transaction_blocks_unrelated_state_saves"},
+        {"file": "src/deployment/deployment_manager.rs", "test": "recreated_manager_uninstalls_recorded_codex_home_and_retains_failed_cleanup"},
+        {"file": "tests/cli_native.rs", "test": "packaged_cursor_alias_injects_real_resources_idempotently_and_status_is_read_only"}
+      ],
+      "note": "承接重复部署 up-to-date、卸载失败保留记录以便重试，并用真实资源验证重建 manager 后从持久化路径清理 Codex；扩展损坏状态及保存失败不能假成功。Hook 状态与配置共同提交，新增状态只读导致安装/清理回滚和多个 manager 路径合并、部分清理失败保留剩余记录后重试。状态锁等待取消不发布资源，pending Hook 事务阻止外层状态覆盖；共享 Cursor/CLI 配置补全两份状态后仍报告幂等。DSH、全部禁用切换、远程插件与安装健康确认外层事务尚待映射。"
+    },
+    {
+      "legacy": "tests/unit/deployment/codex-trust-writer.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/deployment/codex_trust_writer.rs", "test": "write_then_verify_and_escape_windows_keys"},
+        {"file": "src/deployment/codex_trust_writer.rs", "test": "removes_only_owned_keys"},
+        {"file": "src/deployment/codex_trust_writer.rs", "test": "atomic_trust_write_preserves_private_mode_and_rejects_conflicts"},
+        {"file": "src/deployment/codex_trust_writer.rs", "test": "linked_trust_config_is_neither_written_nor_removed"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "hook_transaction_rolls_back_resources_config_and_backup_on_companion_failure"},
+        {"file": "tests/cli_native.rs", "test": "packaged_hook_companion_write_failure_rolls_back_and_retries"}
+      ],
+      "note": "承接摘要自检、Windows key 转义、幂等和精确 key 清理；新增原子写入冲突、Unix 私有权限与链接拒绝。旧损坏 trust 修复、所有可编辑布局及 enabled 继承组合尚未全部迁移；Windows 转义单测不代表 Windows 实机验收。"
+    },
+    {
+      "legacy": "tests/unit/deployment/plugin-inject-strategy.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "injects_and_removes_a_flat_plugin_spec"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "selects_existing_candidate_and_creates_only_after_validation"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "corrupt_plugin_configs_fail_without_changes_or_backup"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "plugin_write_rejects_conflicts_and_preserves_existing_backups"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "plugin_config_and_backup_links_are_never_followed"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "nested_plugin_edits_preserve_unrelated_comments_and_allowlist"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "flat_plugin_ownership_preserves_other_installs_and_exact_legacy_migration"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "failed_config_commit_restores_plugin_assets"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "flat_reconciliation_keeps_owned_position_and_other_installs"},
+        {"file": "src/deployment/plugin_inject_strategy.rs", "test": "nested_cleanup_preserves_shared_entry_and_user_options"},
+        {"file": "src/deployment/plugin_assets.rs", "test": "production_retry_recovers_complete_but_uncommitted_installation"},
+        {"file": "src/deployment/plugin_assets.rs", "test": "pending_installation_rejects_other_target_sets_before_any_write"},
+        {"file": "src/deployment/plugin_assets.rs", "test": "concurrent_installs_and_cleanup_preserve_each_others_config_entries"},
+        {"file": "tests/cli_native.rs", "test": "packaged_flat_plugins_deploy_real_assets_and_status_never_repairs"},
+        {"file": "tests/cli_native.rs", "test": "packaged_plugin_status_rejects_duplicates_and_legacy_references"},
+        {"file": "tests/cli_native.rs", "test": "packaged_openclaw_reconciles_versioned_config_and_stale_paths_without_runtime"},
+        {"file": "tests/cli_native.rs", "test": "packaged_openclaw_rejects_unsupported_host_and_corrupt_config_without_resource_writes"}
+      ],
+      "note": "承接 flat/extensions 注入和卸载、已有候选选择、只读检查不创建配置、缺失配置开关、幂等及嵌套 allowlist/deep merge；强化 JSONC 注释/BOM/CRLF、原子写入、损坏配置、私有权限与备份保护。新增正式 CLI 下 flat/OpenClaw 重复及旧引用拒绝假健康、OpenClaw 宿主版本能力切换及候选资源摘要一致性；flat 保留首次引用位置，两个安装不反复重排。新增共享配置锁、安装/卸载并发及正式恢复入口。按用户配置与多安装保护要求修正旧无条件删 entry 的行为：其他托管形态路径仍在或 entry 含用户选项时保留共享 entry；纯生成且无其他引用时回收。OpenClaw 版本发现/迁移全集、entry/allowlist 独占所有权证明及 Windows 实机验证仍未全部承接；仅注入验证，不声称真实 Agent 加载。"
+    },
+    {
+      "legacy": "tests/unit/scripts/postinstall-asset-trees.test.mjs",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/deployment/plugin_assets.rs", "test": "all_declared_plugin_bundles_deploy_with_shared_dependencies_and_restore"},
+        {"file": "src/deployment/hook_assets.rs", "test": "shared_assets_are_required_and_status_never_repairs"},
+        {"file": "src/deployment/hook_assets.rs", "test": "hook_assets_require_manifest_or_explicit_development_layout"},
+        {"file": "src/deployment/hook_assets.rs", "test": "linked_hook_sources_and_manifest_are_rejected_before_publication"},
+        {"file": "tests/cli_native.rs", "test": "packaged_hook_resource_integrity_blocks_install_and_status_without_agent_writes"},
+        {"file": "src/deployment/hook_strategy.rs", "test": "hook_transaction_official_retry_recovers_after_process_exit"},
+        {"file": "src/deployment/deployment_manager.rs", "test": "hook_state_write_failure_rolls_back_install_and_cleanup"},
+        {"file": "src/deployment/plugin_assets.rs", "test": "plugin_allowlist_contains_every_relative_import"},
+        {"file": "src/deployment/plugin_assets.rs", "test": "failed_install_cannot_remove_another_successful_installs_shared_assets"},
+        {"file": "src/deployment/plugin_assets.rs", "test": "crash_and_cancel_restore_config_backup_and_resources_as_one_unit"},
+        {"file": "src/deployment/plugin_assets.rs", "test": "process_exit_preserves_journal_and_official_install_recovers_it"},
+        {"file": "src/deployment/plugin_assets.rs", "test": "external_config_change_preserves_all_recovery_material_and_shared_files"},
+        {"file": "tests/cli_native.rs", "test": "packaged_plugin_missing_or_tampered_shared_asset_leaves_config_untouched"},
+        {"file": "tests/cli_native.rs", "test": "packaged_openclaw_reconciles_versioned_config_and_stale_paths_without_runtime"}
+      ],
+      "note": "承接四种 Plugin-Inject 资源复制与 shared 依赖，按批准计划通过 Rust 正式部署路径完成，新增摘要、链接边界与普通失败恢复。Hook/shared 的 manifest 登记唯一性、schema/runtime/target/version/edition 及同字节 SHA-256 经正式 CLI 的安装前后 × install/status 故障验证；只有完整开发根允许缺清单。缺资源不再通过仅配置写入假报成功。四种托管插件已共同事务化配置、首次备份与共享资源，并验证取消、真实进程退出、下次正式恢复及外部修改冲突；DSH/Hermes、skills、AppleDouble 历史清理、薄安装器完整消息合同及全部部署状态共同恢复仍待承接，旧 postinstall 不可删除。"
+    }
+    ,
+    {
+      "legacy": "tests/unit/deployment/deploy-notification.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {"file": "src/deployment/deploy_notification.rs", "test": "writes_each_mount_message_and_appends"},
+        {"file": "src/deployment/deploy_notification.rs", "test": "rc_snippet_is_stable_and_marked"},
+        {"file": "src/deployment/deploy_notification.rs", "test": "reads_pending_text_and_treats_blank_as_absent"}
+      ],
+      "note": "逐项承接三个 mount 消息、连续追加、RC 标记/路径/清理命令和幂等、通知存在/缺失/空串/空白的全部历史断言；增加 32 次返回后即时可读断言，修复 Tokio 未 flush 导致最后一次追加不可见。此映射不代替跨平台实跑。"
+    },
+    {
+      "legacy": "tests/unit/deployment/deployment-scope.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {"file": "src/deployment/deployment_scope.rs", "test": "enters_recorded_only_for_a_named_result_in_the_same_container"},
+        {"file": "src/core/orchestrator.rs", "test": "invalid_or_pending_report_blocks_start_before_background_components"},
+        {"file": "src/core/orchestrator.rs", "test": "signal_refresh_compares_content_and_retries_failed_report_without_new_signal"},
+        {"file": "tests/cli_native.rs", "test": "packaged_deploy_reports_gate_results_and_never_publishes_hook_scope"},
+        {"file": "tests/cli_native.rs", "test": "packaged_session_injection_keeps_deployment_scope_untouched"}
+      ],
+      "note": "全部历史断言已承接：容器/宿主身份与 named/detected 范围合同，以及 build deploy/eager injection 不写报告。正式候选 CLI 验证 deploy 的首次/重复/失败和 Claude 会话注入均不创建或覆盖部署报告与 signal，并保留用户配置；Windows 会话注入沿用现有明确不支持合同，仍待该平台执行。扩展损坏/pending 启动拒绝、同 mtime 刷新及失败重试。不代表整个部署链路或跨平台已验收。"
+    },
+    {
+      "legacy": "tests/unit/deployment/worker-manifest-supervisor.test.ts",
+      "coverage": "partial",
+      "rust": [
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "reports_running_from_a_live_pid_file"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "windows_bundle_shell_preflight_preserves_failure_metadata_without_spawn"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "windows_managed_home_is_child_only_and_respects_explicit_overrides"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "pilot_binary_and_external_node_are_distinct_runtimes"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "runtime_values_preserve_native_arguments_instead_of_json_escapes"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "missing_live_identity_and_query_failure_preserve_pid_and_block_all_restarts"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "stale_and_reused_pids_are_cleaned_without_sending_signals"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "native_worker_tree_stop_preserves_unrelated_process_and_needs_no_path_runtime"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "natural_exit_records_status_and_on_failure_restarts_are_bounded"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "stop_during_backoff_cancels_restart_even_from_another_supervisor"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "late_exit_cannot_remove_replacement_pid_or_status_under_worker_lock"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "cancelling_uncommitted_start_reaps_its_owned_process_tree"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "stop_retry_keeps_recorded_descendants_after_root_exits"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "stop_recovers_journal_without_pid_or_sidecar_and_preserves_corruption"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "malformed_pid_preserves_stop_journal_for_repaired_retry"},
+        {"file": "src/deployment/worker_manifest_supervisor.rs", "test": "orphan_identity_without_pid_or_status_blocks_start"}
+      ],
+      "note": "承接健康只读、Windows shell/shebang 预检、子环境 HOME、参数保真、身份缺失/查询失败/复用、停止失败阻止所有重启，以及退出状态、有界重启和跨 supervisor 取消。按批准计划，Pilot 自有 worker 使用 binary，外部 Node 必须显式配置。Linux 隔离真实进程树验证无 PATH 运行时、无关进程保护及未提交启动取消；持久化停止记录支持根进程退出、PID/sidecar 缺失和损坏 PID 修复后重试。Windows/macOS 实跑、极快派生/脱离父子关系的动态树、完整启动磁盘事务及全部历史断言仍待验收，不能解除清理门禁。"
+    },
+    {
+      "legacy": "tests/unit/deployment/deploy-command-contract.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {"file": "src/deployment/deploy_command.rs", "test": "deployment_gate_covers_each_historical_result_and_worker_failure"},
+        {"file": "src/deployment/deploy_command.rs", "test": "argument_contract_never_silently_disables_requirements"},
+        {"file": "src/deployment/deploy_command.rs", "test": "report_keeps_machine_fields_and_human_failure_diagnostics"},
+        {"file": "tests/cli_native.rs", "test": "packaged_deploy_reports_gate_results_and_never_publishes_hook_scope"},
+        {"file": "tests/cli_native.rs", "test": "packaged_deploy_propagates_each_worker_stop_failure_without_starting_workers"}
+      ],
+      "note": "承接全部历史退出码/参数合同：新部署与 up-to-date、未检测/禁用/缺结果/未知 ID、底层错误、无 require 的失败/跳过、worker 停止失败、require 拆分去重/空值/缺值/未知选项。补齐生产 JSON 报告与停止失败传播，并经隔离正式 CLI 验证两个 worker 均被尝试、manifest 修复后可重试且不启动 worker。这里只验证无进程的清理错误传播；底层进程身份与 Windows 停止能力仍有独立缺口。"
+    }
+  ]
+}
