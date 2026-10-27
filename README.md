@@ -7,7 +7,7 @@
 [![CI](https://github.com/alibaba/loongsuite-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/alibaba/loongsuite-pilot/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/alibaba/loongsuite-pilot)](https://github.com/alibaba/loongsuite-pilot/releases/latest)
 [![License](https://img.shields.io/github/license/alibaba/loongsuite-pilot)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.13-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.91%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-4F62AD)](https://opentelemetry.io/)
 
 **English** | [简体中文](README.zh-CN.md)
@@ -107,10 +107,11 @@ Agent definitions live in `agents.d/`. You can add new agents without changing t
 
 Prerequisites:
 
-- Node.js that can load `node:sqlite` (22.13+, 23.4+, or newer). The installer downloads a managed Node.js 22.22 runtime on supported platforms; a system Node.js is accepted only when `require('node:sqlite')` succeeds. Node.js 18/20 and 22.0–22.12 / 23.0–23.3 are not enough.
-- `npm`
-- `curl` or `wget`
-- PowerShell 5.1 or later on Windows
+- Pilot packages ship a native Rust binary. The collector, updater, CLI, and standalone hook processors need no Node.js, npm, Python, or Rust toolchain.
+- Linux/macOS: a system shell, `curl` or `wget`, and `tar`. Windows: PowerShell 5.1 or later.
+- In-process JS/Python plugins use the Agent's own runtime, not a Pilot-managed runtime.
+
+This branch contains the Rust migration. Target support is not evidence of platform acceptance. The legacy OSS endpoint is not guaranteed to serve Rust packages. Prefer the matching installer, platform archive, and checksums from one Release and pass an explicit package URL; see [Rust packages](docs/installation.md#rust-packages-and-platforms). The OSS commands below describe the historical distribution channel.
 
 Install from the public package on Linux or macOS:
 
@@ -255,32 +256,30 @@ The `LOONGSUITE_PILOT_ENABLE_STATUS_BAR_APP` environment variable still has high
 ```bash
 git clone https://github.com/alibaba/loongsuite-pilot.git
 cd loongsuite-pilot
-npm install
-npm run build
-node scripts/postinstall.js
-node dist/index.js
+cargo build --locked --release
+./target/release/loongsuite-pilot --help
 ```
 
 For local development:
 
 ```bash
-npm install
-npm run build
-npm run typecheck
-npm test
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --locked --all-features
 ```
 
-For packaging and service installation from a local build, see [Installation](docs/installation.md).
+The toolchain is pinned to 1.91.1 in `rust-toolchain.toml`. Running the binary without a subcommand starts collection and may deploy Agent configuration; `--help` is read-only.
+
+For local packaging, see [Installation](docs/installation.md). Release gates, CI budgets, and deferred test priorities are documented in [Rust release and testing](docs/zh-CN/rust-release.md).
 
 ## Contributing
 
 Issues and pull requests are welcome. Before submitting a change, run the same core checks used by CI:
 
 ```bash
-npm ci
-npm run typecheck
-npm test
-npm run build
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --locked --all-features
 ```
 
 To add support for another AI coding agent, start with the [Agent Onboarding Guide](docs/agent-onboarding.md). Report bugs and propose features through [GitHub Issues](https://github.com/alibaba/loongsuite-pilot/issues).

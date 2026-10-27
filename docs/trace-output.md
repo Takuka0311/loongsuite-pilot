@@ -48,65 +48,15 @@ Environment variables:
 
 ## Custom Span Enrichment
 
-Use `otlpTrace.spanEnrichers` to load trusted local `.mjs` modules that derive attributes
-such as `gen_ai.skill.*` from the completed `gen_ai.tool.*` fields. This also works
-with CMS/ARMS and managed trace backends, without adding a generic OTLP endpoint.
+The Rust runtime does not dynamically load `.mjs` enrichers. Non-empty `spanEnrichers` / `spanEnricherPaths` settings fail configuration and candidate activation checks; they are neither silently ignored nor automatically removed.
 
-```json
-{
-  "otlpTrace": {
-    "spanEnrichers": ["$PILOT_DATA/span-enrichers/tool-skill.mjs"]
-  }
-}
-```
+1. Implement [`SpanEnricher`](../src/flushers/span_enricher.rs), register it explicitly in `builtin_enrichers()`, and rebuild. The default registry is empty; scripts are not automatically translated.
+2. The synchronous `enrich(&SpanView, &SpanEnricherContext)` returns `Result<Option<Map<String, Value>>, String>` and only sees attributes retained by collection and privacy settings.
+3. Verify equivalent output, manually remove the legacy path settings, then run `loongsuite-pilot check --json`.
 
-Each module must default-export an object with a synchronous `enrich(span, context)` method:
+Patches support strings, finite numbers, booleans, and homogeneous arrays; nested objects and attribute deletion are unsupported. Invalid patches are discarded atomically; returned errors are warned once without tool content. Extensions execute in registration order. This is not OpenTelemetry `SpanProcessor.onEnd` or a sandbox. Keep implementations fast and do not reintroduce sensitive information.
 
-```js
-export default {
-  enrich(span, context) {
-    const attrs = span.attributes;
-    if (attrs['gen_ai.span.kind'] !== 'TOOL') return;
-    if (attrs['gen_ai.tool.name'] !== 'exec') return;
-    const raw = attrs['gen_ai.tool.call.arguments'];
-    if (typeof raw !== 'string') return;
-    const args = JSON.parse(raw);
-    if (typeof args.command !== 'string' || !args.command.startsWith('npm test')) return;
-    return {
-      'gen_ai.skill.name': 'run-tests',
-      'gen_ai.skill.id': 'run-tests',
-      'gen_ai.skill.version': '1.0',
-    };
-  },
-};
-```
-
-Execution order: `event conversion → built-in enrichment → custom enrichers → debug/failure logs and OTLP export`.
-This is a Pilot pre-export transform, not OpenTelemetry `SpanProcessor.onEnd`.
-Pilot creates a new export view instead of letting plugins mutate ended SDK spans.
-
-- `span` exposes readonly `name`, `traceId`, `spanId`, and `attributes`, including frozen
-  attribute arrays. `context` exposes readonly `agentType` and the final `serviceName`.
-  Raw events, SDK spans, and resource mutation are not exposed.
-- Return an attribute object or `undefined`. Values may be strings, finite numbers,
-  booleans, or homogeneous arrays (including null/undefined array entries).
-  Nested objects, deletion, and asynchronous callbacks are unsupported. Invalid patches
-  are discarded atomically. Plugins run in configuration order; later plugins see earlier
-  patches and override matching keys, including built-in attributes.
-- Paths may be absolute, start with `~/` or `$PILOT_DATA/` (the configured data directory),
-  or be relative to the directory containing `config.json`. At most 16 modules are loaded,
-  deduplicated by real path. No directory scanning takes place.
-- Modules load once on first conversion; restart Pilot after editing them. Loading waits
-  at most 5 seconds per module. Load failures, invalid exports, and callback exceptions do
-  not block trace export. Callback errors are logged once per plugin without exception
-  text that might disclose tool content. SDK `forceFlush`/`shutdown` methods are not called.
-- Plugins only see attributes retained by collection/privacy settings and cannot recover
-  missing or redacted content. Different backend service names may convert the same turn
-  separately; keep mappings fast and free of side effects.
-- Plugins execute inside the Pilot process. Only load trusted code. A load timeout does
-  not cancel module execution and cannot interrupt synchronous infinite loops. Frozen
-  views and exception handling are not a sandbox. New attributes do not pass through
-  input masking again; do not reintroduce sensitive information.
+Agent-hosted JS plugins such as OpenClaw remain supported; they are separate from Pilot's internal Span enricher interface.
 
 ## ARMS/CMS-Compatible Trace Output
 

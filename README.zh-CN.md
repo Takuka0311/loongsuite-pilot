@@ -7,7 +7,7 @@
 [![CI](https://github.com/alibaba/loongsuite-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/alibaba/loongsuite-pilot/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/alibaba/loongsuite-pilot)](https://github.com/alibaba/loongsuite-pilot/releases/latest)
 [![License](https://img.shields.io/github/license/alibaba/loongsuite-pilot)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.13-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.91%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-4F62AD)](https://opentelemetry.io/)
 
 [English](README.md) | **简体中文**
@@ -103,9 +103,11 @@ Agent 定义位于 `agents.d/`。如需接入新的 Agent，请参考 [新 Agent
 
 前置要求：
 
-- 能加载 `node:sqlite` 的 Node.js（22.13+、23.4+ 或更新版本）。受支持平台上安装器会下载托管 Node.js 22.22 运行时；系统 Node.js 只有在 `require('node:sqlite')` 成功时才会被接受。Node.js 18/20 以及 22.0–22.12 / 23.0–23.3 不够。
-- `npm`
-- `curl` 或 `wget`
+- Pilot 安装包自带 Rust 原生二进制，collector、updater、CLI 和独立 Hook processor 不需要 Node.js、npm、Python 或 Rust 工具链。
+- Linux/macOS 需要系统 Shell、`curl` 或 `wget`、`tar`；Windows 需要 PowerShell 5.1 或以上版本。
+- Agent 自身的 JS/Python 插件运行时仍由 Agent 提供，不属于 Pilot 运行依赖。
+
+本分支是 Rust 迁移版本。八平台目标不等于已完成平台验收；旧 OSS 安装入口不保证提供 Rust 包。请优先按[安装指南](docs/zh-CN/installation.md#rust-发行包与平台)选择同一 Release 的安装脚本、平台包和校验和，显式传入包地址。以下 OSS 命令仅适用于历史发布渠道。
 
 从公开包安装：
 
@@ -234,32 +236,30 @@ loongsuite-pilot menubar start
 ```bash
 git clone https://github.com/alibaba/loongsuite-pilot.git
 cd loongsuite-pilot
-npm install
-npm run build
-node scripts/postinstall.js
-node dist/index.js
+cargo build --locked --release
+./target/release/loongsuite-pilot --help
 ```
 
 本地开发：
 
 ```bash
-npm install
-npm run build
-npm run typecheck
-npm test
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --locked --all-features
 ```
 
-如需从本地构建包安装为后台服务，请参考 [安装指南](docs/zh-CN/installation.md)。
+工具链固定在 `rust-toolchain.toml`（1.91.1）。不带子命令运行二进制会启动采集并可能部署 Agent 配置；只查看帮助请使用 `--help`。
+
+如需从本地构建包安装为后台服务，请参考[安装指南](docs/zh-CN/installation.md)。发布流程、CI 预算和暂缓测试见 [Rust 发布与测试优先级](docs/zh-CN/rust-release.md)。
 
 ## 参与贡献
 
 欢迎提交 Issue 和 Pull Request。提交变更前，请运行与 CI 一致的核心检查：
 
 ```bash
-npm ci
-npm run typecheck
-npm test
-npm run build
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --locked --all-features
 ```
 
 如需增加新的 AI Coding Agent 支持，请先阅读[新 Agent 接入指南](docs/zh-CN/agent-onboarding.md)。Bug 和功能建议可通过 [GitHub Issues](https://github.com/alibaba/loongsuite-pilot/issues) 提交。
