@@ -12,8 +12,8 @@
 // readJsonFile() swallows parse errors and returns null, which callers read as
 // "file absent" — so a BOM alone would reset deployment state to empty instead of
 // failing loudly. readJsonFile() therefore strips it; see
-// tests/unit/utils/fs-utils.test.ts. Fixing only one side is worse than fixing
-// neither.
+// Rust 对应回归在 src/utils/fs_utils.rs 的 read_json_file_* 测试中，
+// 同时覆盖带 BOM、无 BOM、字符串内部 BOM 和损坏文件。两侧编码合同都要保留。
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';

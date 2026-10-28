@@ -190,7 +190,7 @@ stderr**，stdout 整个被丢掉；② 脚本头部 `$ErrorActionPreference = "
 | `tests/unit/scripts/ps1-restart-diagnostics.test.mjs` | `.ps1`：每个 `Write-Error` 之前都有 `Write-RestartFailure`；两个入口都先 `Clear-RestartFailure`；每个 `Start-ScheduledTask` 后面跟着等待；自愈块不门禁 `$initType` 但注册成功会标成 `taskscheduler`；兜底仍然门禁；写文件带 `-Encoding UTF8` + `Move-Item`，diag 手写 JSON object 而不是嵌套 `ConvertTo-Json`；`Wait-ForUpdaterAlive` 只认 pid；诊断只读（不碰会删 pid 文件的 `Test-PidRunning`）；`schtasks` 交叉校验保持 prevEAP/`2>&1`/`$LASTEXITCODE` 那套写法 |
 | `tests/unit/scripts/sh-restart-diagnostics.test.mjs` | `.sh` 对称版，外加 `set -euo pipefail` 的两个坑（可能空手而归的探针必须自己 `\|\| true`）、手写 JSON 的每个插值都过 `json_escape`、面包屑路径与 node 侧 `restartFailurePath()` 对齐；`wait_for_collector_process` 不得调用 `is_running`/`rm`；updater wait 排除 stop 前 pid |
 | `tests/unit/scripts/ps1-restart-best-effort.test.mjs` | 被拒的重新注册不许跳过 `Start-ScheduledTask`（两个独立 try） |
-| `tests/unit/utils/restart-breadcrumb.test.ts` | 带 BOM 能读、未知 schema/截断文件返回 null、新鲜度窗口、摘要长度预算与引号换行清洗；5.1 `{Key,Value}[]` 能被收成 `definition_owner`；timeout writer 落盘 |
+| `src/utils/restart_breadcrumb.rs`（`cargo test --lib utils::restart_breadcrumb::tests`） | 带 BOM 能读、未知 schema/截断文件返回 None、新鲜度窗口、摘要长度预算与引号换行清洗；5.1 `{Key,Value}[]` 能被收成 `definition_owner`；timeout writer 落盘 |
 
 ## 快速入口
 
