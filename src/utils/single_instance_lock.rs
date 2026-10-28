@@ -469,22 +469,59 @@ mod tests {
     use super::*;
     use serde_json::Value;
     use std::path::Path;
-    use std::process::{Child, Command};
+    use std::process::{Child, Command, Stdio};
+    use std::time::{Duration, Instant};
 
-    struct KillOnDrop(Option<Child>);
+    struct KillOnDrop {
+        child: Child,
+        _root: tempfile::TempDir,
+    }
 
     impl Drop for KillOnDrop {
         fn drop(&mut self) {
-            if let Some(child) = self.0.as_mut() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
+            let _ = self.child.kill();
+            let _ = self.child.wait();
         }
     }
 
+    #[test]
+    fn external_holder_fixture() {
+        let Some(ready) = std::env::var_os("PILOT_LOCK_FIXTURE_READY") else {
+            return;
+        };
+        std::fs::write(ready, std::process::id().to_string()).unwrap();
+        // 仅父测试显式启动的隔离子进程进入此分支，父进程通过 RAII 回收。
+        std::thread::sleep(Duration::from_secs(120));
+    }
+
     fn spawn_sleeper() -> KillOnDrop {
-        let child = Command::new("sleep").arg("30").spawn().expect("sleep");
-        KillOnDrop(Some(child))
+        let root = tempfile::tempdir().unwrap();
+        let ready = root.path().join("ready.pid");
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "utils::single_instance_lock::tests::external_holder_fixture",
+            ])
+            .env("PILOT_LOCK_FIXTURE_READY", &ready)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("启动原生锁持有者 fixture");
+        let mut guard = KillOnDrop { child, _root: root };
+        let start = Instant::now();
+        loop {
+            assert!(
+                guard.child.try_wait().unwrap().is_none(),
+                "锁持有者提前退出"
+            );
+            if let Ok(text) = std::fs::read_to_string(&ready) {
+                if text.parse::<u32>().ok() == Some(guard.child.id()) {
+                    return guard;
+                }
+            }
+            assert!(start.elapsed() < Duration::from_secs(10), "锁持有者未就绪");
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]
@@ -523,7 +560,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("collector.lock");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let dead_pid = 2i64.pow(22);
+        let mut holder = spawn_sleeper();
+        let dead_pid = holder.child.id();
+        holder.child.kill().unwrap();
+        holder.child.wait().unwrap();
+        assert!(!is_process_alive(dead_pid));
         std::fs::write(&path, format!(r#"{{"pid":{dead_pid},"startedAt":1}}"#)).unwrap();
         let result = acquire_single_instance_lock(path.to_str().unwrap(), None);
         let handle = result.lock.as_ref().unwrap();
@@ -571,7 +612,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("collector.lock");
         let sleeper = spawn_sleeper();
-        let pid = sleeper.0.as_ref().unwrap().id();
+        let pid = sleeper.child.id();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
@@ -603,7 +644,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("collector.lock");
         let sleeper = spawn_sleeper();
-        let pid = sleeper.0.as_ref().unwrap().id();
+        let pid = sleeper.child.id();
         let token = read_process_start_token(pid);
         assert!(!token.is_empty());
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -635,7 +676,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("collector.lock");
         let sleeper = spawn_sleeper();
-        let pid = sleeper.0.as_ref().unwrap().id();
+        let pid = sleeper.child.id();
         let token = read_process_start_token(pid);
         assert!(!token.is_empty());
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -688,9 +729,10 @@ mod tests {
     #[test]
     fn with_patterns_still_refuses_when_the_live_pid_runs_a_matching_command() {
         let self_cmd = read_process_command(std::process::id());
-        if self_cmd.is_empty() {
-            return;
-        }
+        assert!(
+            !self_cmd.is_empty(),
+            "正向命令匹配回归必须读取到当前进程命令"
+        );
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("collector.lock");
         let patterns = [ProcessCommandPattern::Contains(self_cmd.as_str())];
@@ -725,9 +767,7 @@ mod tests {
         handle.release();
         let payload: Value =
             serde_json::from_str(&std::fs::read_to_string(&handle.path).unwrap()).unwrap();
-        assert_eq!(payload["pid"], successor["pid"]);
-        assert_eq!(payload["ownerId"], successor["ownerId"]);
-        assert_eq!(payload["startedAt"], successor["startedAt"]);
+        assert_eq!(payload, successor);
     }
 
     #[test]

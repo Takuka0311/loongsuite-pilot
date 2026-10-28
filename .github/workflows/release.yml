@@ -101,6 +101,7 @@ jobs:
           cargo test --locked -p loongsuite-pilot --lib core::config_loader::tests::reads_inner_config_from_canonical_data_dir
           cargo test --locked -p loongsuite-pilot --lib utils::pid_utils::tests
           cargo test --locked -p loongsuite-pilot --lib utils::process_discovery::tests
+          cargo test --locked -p loongsuite-pilot --lib utils::single_instance_lock::tests
           cargo test --locked -p loongsuite-pilot --lib updater::package_archive::tests
           cargo test --locked -p loongsuite-pilot --lib updater::runtime::tests::same_version_activation_preserves_live_tree_and_retries_failed_preflight
       - name: 安装本架构 musl 编译器
