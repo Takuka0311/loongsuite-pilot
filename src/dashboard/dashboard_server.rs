@@ -145,6 +145,35 @@ impl Drop for DashboardServer {
     }
 }
 
+fn read_request_head(
+    mut read: impl FnMut(&mut [u8]) -> std::io::Result<usize>,
+) -> std::io::Result<String> {
+    let mut buf = [0_u8; 8192];
+    let mut used = 0;
+    loop {
+        if used == buf.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "dashboard request headers exceed limit",
+            ));
+        }
+        let count = match read(&mut buf[used..]) {
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "incomplete dashboard request headers",
+            ));
+        }
+        used += count;
+        if let Some(end) = buf[..used].windows(4).position(|part| part == b"\r\n\r\n") {
+            return Ok(String::from_utf8_lossy(&buf[..end + 4]).into_owned());
+        }
+    }
+}
+
 fn handle_connection(
     mut stream: TcpStream,
     asset_path: &str,
@@ -153,10 +182,16 @@ fn handle_connection(
     host: &str,
     port: u16,
 ) -> std::io::Result<()> {
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
-    let mut buf = [0_u8; 8192];
-    let read = stream.read(&mut buf).unwrap_or(0);
-    let request = String::from_utf8_lossy(&buf[..read]);
+    // TCP 读取不等于完整 HTTP 请求；累计到请求头结束，且共享两秒总预算。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let request = read_request_head(|buf| {
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|duration| !duration.is_zero())
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::TimedOut))?;
+        stream.set_read_timeout(Some(remaining))?;
+        stream.read(buf)
+    })?;
     let mut lines = request.split("\r\n");
     let request_line = lines.next().unwrap_or("");
     let mut parts = request_line.split_whitespace();
@@ -334,6 +369,50 @@ mod tests {
             .parse()
             .unwrap_or(0);
         (status, head.to_string(), body.to_string())
+    }
+
+    #[test]
+    fn request_headers_wait_for_terminator_and_enforce_bounds() {
+        let request = "GET /metrics-summary.json HTTP/1.1\r\nHost: localhost:8765\r\n\r\n";
+        for fragment_size in [1, 2, 17, 8192] {
+            let mut source = std::io::Cursor::new(request.as_bytes());
+            let mut interrupted = false;
+            let head = read_request_head(|buf| {
+                if !interrupted {
+                    interrupted = true;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                let limit = buf.len().min(fragment_size);
+                source.read(&mut buf[..limit])
+            })
+            .unwrap();
+            assert_eq!(head, request);
+        }
+        for incomplete in ["", "GET / HTTP/1.1\r\nHost: localhost:8765\r\n"] {
+            let mut source = std::io::Cursor::new(incomplete.as_bytes());
+            assert_eq!(
+                read_request_head(|buf| source.read(buf))
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::UnexpectedEof
+            );
+        }
+        let boundary = format!("{}\r\n\r\n", "x".repeat(8192 - 4));
+        let mut source = std::io::Cursor::new(boundary.as_bytes());
+        assert_eq!(read_request_head(|buf| source.read(buf)).unwrap(), boundary);
+        let mut source = std::io::Cursor::new(format!("x{boundary}").into_bytes());
+        assert_eq!(
+            read_request_head(|buf| source.read(buf))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            read_request_head(|_| Err(std::io::ErrorKind::TimedOut.into()))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::TimedOut
+        );
     }
 
     #[test]
