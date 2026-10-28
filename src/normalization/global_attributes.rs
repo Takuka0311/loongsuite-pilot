@@ -417,12 +417,11 @@ mod tests {
         let file_path = dir.path().join("span-attributes.json");
         fs::write(&file_path, r#"{"v":"1"}"#).unwrap();
         let mut provider = GlobalAttributesProvider::new(&Map::new(), &file_path);
-        assert_eq!(provider.resolve().get("v"), Some("1"));
+        assert_eq!(provider.resolve(), attr(&[("v", "1")]));
         fs::write(&file_path, r#"{"v":"2","w":"3"}"#).unwrap();
         set_mtime(&file_path, SystemTime::now() + Duration::from_secs(5));
         let resolved = provider.resolve();
-        assert_eq!(resolved.get("v"), Some("2"));
-        assert_eq!(resolved.get("w"), Some("3"));
+        assert_eq!(resolved, attr(&[("v", "2"), ("w", "3")]));
     }
 
     #[test]
@@ -443,17 +442,19 @@ mod tests {
         let mut provider =
             GlobalAttributesProvider::new(&object(r#"{"team":"infra"}"#), &file_path);
         let first = provider.resolve();
-        assert_eq!(first.get("team"), Some("infra"));
-        assert_eq!(first.get("v"), Some("1"));
+        assert_eq!(first, attr(&[("team", "infra"), ("v", "1")]));
+        let good_mtime = provider.cached_mtime;
 
         fs::write(&file_path, "{ half-written").unwrap();
-        set_mtime(&file_path, SystemTime::now() + Duration::from_secs(5));
+        let retry_mtime = SystemTime::now() + Duration::from_secs(5);
+        set_mtime(&file_path, retry_mtime);
         let kept = provider.resolve();
-        assert_eq!(kept.get("team"), Some("infra"));
-        assert_eq!(kept.get("v"), Some("1"));
+        assert_eq!(kept, first);
+        assert_eq!(provider.cached_mtime, good_mtime);
 
         fs::write(&file_path, r#"{"v":"2"}"#).unwrap();
-        set_mtime(&file_path, SystemTime::now() + Duration::from_secs(10));
+        // 修复内容但保留损坏时的 mtime，证明失败未提交缓存时间戳，下一次仍会重读。
+        set_mtime(&file_path, retry_mtime);
         let next = provider.resolve();
         assert_eq!(next.get("team"), Some("infra"));
         assert_eq!(next.get("v"), Some("2"));
@@ -468,7 +469,7 @@ mod tests {
         let mut provider =
             GlobalAttributesProvider::new(&object(r#"{"team":"infra"}"#), &file_path);
         let loaded = provider.resolve();
-        assert_eq!(loaded.get("v"), Some("1"));
+        assert_eq!(loaded, attr(&[("team", "infra"), ("v", "1")]));
         fs::remove_file(&file_path).unwrap();
         assert_eq!(provider.resolve(), attr(&[("team", "infra")]));
     }
