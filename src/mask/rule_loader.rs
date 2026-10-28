@@ -486,29 +486,6 @@ fn log_manifest_error(err: &str) {
         error = err,
         "{MANIFEST_ERROR}"
     );
-    #[cfg(test)]
-    test_support::push(err);
-}
-
-#[cfg(test)]
-mod test_support {
-    use std::cell::RefCell;
-
-    thread_local! {
-        static LOGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    }
-
-    pub fn push(err: &str) {
-        LOGS.with(|logs| logs.borrow_mut().push(err.to_string()));
-    }
-
-    pub fn clear() {
-        LOGS.with(|logs| logs.borrow_mut().clear());
-    }
-
-    pub fn errors() -> Vec<String> {
-        LOGS.with(|logs| logs.borrow().clone())
-    }
 }
 
 #[cfg(test)]
@@ -519,8 +496,40 @@ mod tests {
         resolve_enabled_mask_types, MaskConfig, MaskMode, MaskReplacementMode, MaskType,
         PII_MASK_TYPES, SUPPORTED_MASK_TYPES,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::path::{Path, PathBuf};
+
+    fn capture_errors<T>(action: impl FnOnce() -> T) -> (T, Vec<Value>) {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .json()
+            .with_writer(file.reopen().unwrap())
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, action);
+        let events = std::fs::read_to_string(file.path())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        (result, events)
+    }
+
+    fn assert_manifest_error(events: &[Value]) {
+        assert!(
+            events.iter().any(|event| {
+                event["level"] == "ERROR"
+                    && event["target"] == "MaskRuleLoader"
+                    && event["fields"]["message"]
+                        == "failed to load sensitive rule manifest, manifest rules disabled"
+                    && event["fields"]["error"]
+                        .as_str()
+                        .is_some_and(|error| !error.is_empty())
+            }),
+            "缺少真实规则加载错误日志：{events:?}"
+        );
+    }
 
     fn all_config() -> MaskConfig {
         MaskConfig {
@@ -660,37 +669,40 @@ mod tests {
 
     #[test]
     fn disables_manifest_rules_but_keeps_builtin_pii_when_manifest_cannot_compile() {
-        super::test_support::clear();
-        assert!(load_sensitive_rules_from_manifest(&json!({"version": 2, "rules": []})).is_empty());
-        let errors = super::test_support::errors();
-        assert!(errors.iter().any(|err| !err.is_empty()));
+        let (rules, events) = capture_errors(|| {
+            load_sensitive_rules_from_manifest(&json!({"version": 2, "rules": []}))
+        });
+        assert!(rules.is_empty());
+        assert_manifest_error(&events);
         let pii: Vec<&str> = load_mask_plan(&all_config())
             .pii_types
             .iter()
             .map(|ty| ty.as_str())
             .collect();
-        assert_eq!(pii.as_slice(), PII_MASK_TYPES);
+        assert_eq!(pii, ["idCard", "phone", "email", "ipAddress", "bankCard"]);
     }
 
     #[test]
     fn disables_manifest_rules_when_a_rule_definition_fails_to_compile() {
-        super::test_support::clear();
-        assert!(load_sensitive_rules_from_manifest(&json!({
-            "version": 1,
-            "rules": [{
-                "id": "broken.regex",
-                "type": "apiKey",
-                "kind": "regex",
-                "replacement": "[APIKEY_MASKED]",
-                "prefilter": ["sk-"],
-                "pattern": "[",
-                "flags": "g"
-            }]
-        }))
-        .is_empty());
-        assert!(super::test_support::errors()
-            .iter()
-            .any(|err| err.contains("broken.regex")));
+        let (rules, events) = capture_errors(|| {
+            load_sensitive_rules_from_manifest(&json!({
+                "version": 1,
+                "rules": [{
+                    "id": "broken.regex",
+                    "type": "apiKey",
+                    "kind": "regex",
+                    "replacement": "[APIKEY_MASKED]",
+                    "prefilter": ["sk-"],
+                    "pattern": "[",
+                    "flags": "g"
+                }]
+            }))
+        });
+        assert!(rules.is_empty());
+        assert_manifest_error(&events);
+        assert!(events.iter().any(|event| event["fields"]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("broken.regex"))));
     }
 
     #[test]
@@ -761,14 +773,11 @@ mod tests {
 
     #[test]
     fn invalid_on_disk_manifest_disables_manifest_rules() {
-        super::test_support::clear();
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("sensitive-rules.json");
         std::fs::write(&file, "{\"version\":2,\"rules\":[]}").unwrap();
-        let rules = load_rules_from_candidates(&[file]);
+        let (rules, events) = capture_errors(|| load_rules_from_candidates(&[file]));
         assert!(rules.is_empty());
-        assert!(super::test_support::errors()
-            .iter()
-            .any(|err| !err.is_empty()));
+        assert_manifest_error(&events);
     }
 }
