@@ -74,6 +74,16 @@ async fn read_checked_config(path: &str, required: bool) -> anyhow::Result<Optio
     Ok(Some(value))
 }
 
+fn inner_config_path(data_dir: &str) -> String {
+    // Windows 的 canonicalize 结果带 verbatim 前缀，不能再用 '/' 字符串拼接。
+    std::path::Path::new(&resolve_home(data_dir))
+        .join("configs")
+        .join("inner")
+        .join("data_config.json")
+        .to_string_lossy()
+        .into_owned()
+}
+
 async fn load_config_impl(strict: bool) -> anyhow::Result<AnalyticsConfig> {
     let config_path = config_json_path();
     let file = if strict {
@@ -96,10 +106,7 @@ async fn load_config_impl(strict: bool) -> anyhow::Result<AnalyticsConfig> {
         env_get(&sources, "LOONGSUITE_PILOT_DATA_DIR").as_deref(),
         json_str(file.as_ref().and_then(|value| value.get("dataDir"))),
     );
-    let inner_path = resolve_home(&format!(
-        "{}/configs/inner/data_config.json",
-        data_dir.trim_end_matches('/')
-    ));
+    let inner_path = inner_config_path(&data_dir);
     let inner = if strict {
         read_checked_config(&inner_path, false).await?
     } else {
@@ -2057,6 +2064,31 @@ mod tests {
 
     fn sls(config: &AnalyticsConfig) -> SlsFlusherConfig {
         config.flushers.sls.clone().unwrap()
+    }
+
+    #[tokio::test]
+    async fn reads_inner_config_from_canonical_data_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let data = root.join("预检 HOME 🚀").join("data");
+        let path = inner_config_path(data.to_str().unwrap());
+        assert!(read_checked_config(&path, false).await.unwrap().is_none());
+        assert!(!data.exists(), "只读预检不能创建数据目录");
+        assert!(read_checked_config(&path, true).await.is_err());
+        let expected = data.join("configs").join("inner").join("data_config.json");
+        std::fs::create_dir_all(expected.parent().unwrap()).unwrap();
+        let valid = br#"{"otlp":[]}"#;
+        std::fs::write(&expected, valid).unwrap();
+        assert_eq!(
+            read_checked_config(&path, false).await.unwrap(),
+            Some(serde_json::json!({"otlp":[]}))
+        );
+        assert_eq!(std::fs::read(&expected).unwrap(), valid);
+        for invalid in ["{broken", "[]"] {
+            std::fs::write(&expected, invalid).unwrap();
+            assert!(read_checked_config(&path, false).await.is_err());
+            assert_eq!(std::fs::read_to_string(&expected).unwrap(), invalid);
+        }
     }
 
     #[test]

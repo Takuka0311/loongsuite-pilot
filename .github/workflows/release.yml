@@ -88,12 +88,13 @@ jobs:
           HOME="$RUNNER_TEMP/pilot-home" USERPROFILE="$RUNNER_TEMP/pilot-home" cargo test --workspace --locked
       - name: 构建主机工具
         run: cargo build --locked -p xtask --bin xtask
-      - name: 非 Linux 包预检进程与 Hook 模板回归
+      - name: 非 Linux 包预检进程、配置路径与 Hook 模板回归
         if: runner.os != 'Linux'
         run: |
           cargo test --locked -p xtask --bin xtask package::tests
           cargo test --locked -p xtask --bin xtask hooks::tests
           cargo test --locked -p loongsuite-pilot --lib utils::candidate_process::tests
+          cargo test --locked -p loongsuite-pilot --lib core::config_loader::tests::reads_inner_config_from_canonical_data_dir
       - name: 安装本架构 musl 编译器
         if: contains(matrix.target, 'musl')
         run: |

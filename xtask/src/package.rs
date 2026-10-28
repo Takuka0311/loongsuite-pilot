@@ -568,7 +568,8 @@ pub(crate) fn run_bounded(
     let error = read_output(stderr)?;
     ensure!(
         status.success(),
-        "候选预检失败：{status}；stderr={}",
+        "候选预检失败：{status}；stdout={}；stderr={}",
+        text.chars().take(4096).collect::<String>(),
         error.chars().take(4096).collect::<String>()
     );
     Ok(text)
@@ -657,6 +658,10 @@ mod tests {
                 eprintln!("候选诊断证据");
                 std::process::exit(7);
             }
+            "stdout-failure" => {
+                println!("{}", json!({"ok":false,"check":{"error":"候选 JSON 诊断"}}));
+                std::process::exit(7);
+            }
             "output" => {
                 print!("{}", "x".repeat(1024 * 1024 + 1));
             }
@@ -690,7 +695,7 @@ mod tests {
     #[test]
     fn bounded_process_reports_failures_and_reaps_timeout_and_excess_output() {
         let temp = tempfile::tempdir().unwrap();
-        for mode in ["failure", "output", "stderr", "wait"] {
+        for mode in ["failure", "stdout-failure", "output", "stderr", "wait"] {
             let mut command = Command::new(std::env::current_exe().unwrap());
             command
                 .args([
@@ -717,6 +722,7 @@ mod tests {
             assert!(
                 error.contains(match mode {
                     "failure" => "候选诊断证据",
+                    "stdout-failure" => "候选 JSON 诊断",
                     "wait" => "超时",
                     _ => "超限",
                 }),
