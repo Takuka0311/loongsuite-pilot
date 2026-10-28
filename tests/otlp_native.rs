@@ -205,7 +205,7 @@ async fn rejected_exports_are_counted_and_persisted_without_server_secrets() {
 }
 
 #[tokio::test]
-async fn cp5_incremental_turn_preserves_ten_unique_spans_and_last_output() {
+async fn cp5_single_and_incremental_turns_preserve_unique_spans_and_last_output() {
     let records: Vec<AgentActivityEntry> =
         include_str!("unit/flushers/otlp-trace-flusher/fixtures/cp5-events.jsonl")
             .lines()
@@ -213,62 +213,69 @@ async fn cp5_incremental_turn_preserves_ten_unique_spans_and_last_output() {
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
     assert_eq!(records.len(), 23);
-    let data = tempfile::tempdir().unwrap();
-    let (url, received) = receiver(200, vec![]).await;
-    let flusher = OtlpTraceFlusher::new(config(&url, data.path(), "gzip")).unwrap();
-    flusher
-        .send_batch(records[..8].to_vec(), None)
-        .await
-        .unwrap();
-    assert_eq!(flusher.endpoint_counters()["local"].in_spans, 0);
-    assert!(!received.is_finished(), "中间轮次不能触发输出");
-    flusher
-        .send_batch(records[8..].to_vec(), None)
-        .await
-        .unwrap();
-    let (_, request) = received.await.unwrap();
-    let spans = &request.resource_spans[0].scope_spans[0].spans;
-    for (kind, count) in [
-        ("ENTRY", 1),
-        ("AGENT", 1),
-        ("STEP", 3),
-        ("LLM", 3),
-        ("TOOL", 2),
-    ] {
+    for split in [None, Some(8)] {
+        let data = tempfile::tempdir().unwrap();
+        let (url, received) = receiver(200, vec![]).await;
+        let flusher = OtlpTraceFlusher::new(config(&url, data.path(), "gzip")).unwrap();
+        if let Some(split) = split {
+            flusher
+                .send_batch(records[..split].to_vec(), None)
+                .await
+                .unwrap();
+            assert_eq!(flusher.endpoint_counters()["local"].in_spans, 0);
+            assert!(!received.is_finished(), "中间轮次不能触发输出");
+            flusher
+                .send_batch(records[split..].to_vec(), None)
+                .await
+                .unwrap();
+        } else {
+            flusher.send_batch(records.clone(), None).await.unwrap();
+        }
+        let (_, request) = received.await.unwrap();
+        let spans = &request.resource_spans[0].scope_spans[0].spans;
+        for (kind, count) in [
+            ("ENTRY", 1),
+            ("AGENT", 1),
+            ("STEP", 3),
+            ("LLM", 3),
+            ("TOOL", 2),
+        ] {
+            assert_eq!(
+                spans
+                    .iter()
+                    .filter(|span| attr(&span.attributes, "gen_ai.span.kind")
+                        == &any_value::Value::StringValue(kind.into()))
+                    .count(),
+                count,
+                "{kind}"
+            );
+        }
+        assert_eq!(spans.len(), 10);
         assert_eq!(
             spans
                 .iter()
-                .filter(|span| attr(&span.attributes, "gen_ai.span.kind")
-                    == &any_value::Value::StringValue(kind.into()))
-                .count(),
-            count,
-            "{kind}"
+                .map(|span| &span.span_id)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            10
         );
-    }
-    assert_eq!(spans.len(), 10);
-    assert_eq!(
-        spans
+        assert!(spans
             .iter()
-            .map(|span| &span.span_id)
-            .collect::<std::collections::HashSet<_>>()
-            .len(),
-        10
-    );
-    assert!(spans
-        .iter()
-        .filter(|span| attr(&span.attributes, "gen_ai.span.kind")
-            == &any_value::Value::StringValue("LLM".into()))
-        .any(|span| {
-            span.attributes.iter().any(|attribute| {
-                attribute.key == "gen_ai.output.messages"
-                    && matches!(attribute.value.as_ref().and_then(|v| v.value.as_ref()),
+            .filter(|span| attr(&span.attributes, "gen_ai.span.kind")
+                == &any_value::Value::StringValue("LLM".into()))
+            .any(|span| {
+                span.attributes.iter().any(|attribute| {
+                    attribute.key == "gen_ai.output.messages"
+                        && matches!(attribute.value.as_ref().and_then(|v| v.value.as_ref()),
                     Some(any_value::Value::StringValue(text)) if !text.is_empty())
-            })
-        }));
-    flusher.send_batch(records, None).await.unwrap();
-    assert_eq!(flusher.endpoint_counters()["local"].out_spans, 10);
-    flusher.shutdown().await.unwrap();
-    assert_eq!(flusher.endpoint_counters()["local"].in_spans, 10);
+                })
+            }));
+        flusher.send_batch(records.clone(), None).await.unwrap();
+        assert_eq!(flusher.endpoint_counters()["local"].out_spans, 10);
+        flusher.shutdown().await.unwrap();
+        assert_eq!(flusher.endpoint_counters()["local"].in_spans, 10);
+        assert_eq!(flusher.endpoint_counters()["local"].out_failed, 0);
+    }
 }
 
 #[test]

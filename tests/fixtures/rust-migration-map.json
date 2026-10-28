@@ -44,9 +44,9 @@
     },
     {
       "legacy": "tests/unit/flushers/otlp-trace-flusher/cp5-no-double-emit.test.ts",
-      "coverage": "partial",
-      "rust": [{"file": "tests/otlp_native.rs", "test": "cp5_incremental_turn_preserves_ten_unique_spans_and_last_output"}],
-      "note": "复用原始 23 条 fixture，经默认 HTTP/protobuf 验证增量批次、10 个唯一 Span、最后输出和迟到重复；独立单批场景待承接。"
+      "coverage": "complete",
+      "rust": [{"file": "tests/otlp_native.rs", "test": "cp5_single_and_incremental_turns_preserve_unique_spans_and_last_output"}],
+      "note": "复用原始 23 条 fixture，以参数化单批和第 8 条分批场景承接全部四个历史合同：ENTRY/AGENT/STEP/LLM/TOOL 数量与 Span ID 唯一、迟到重复不二次输出、LLM 非空输出，以及中间 model_call_ended 不提前结束轮次。经过真实 HTTP/gzip/protobuf 路径并核对失败计数，不扩张 runner；不代表全部 Agent 场景或跨平台验收。"
     },
     {
       "legacy": "tests/integration/qwen-subagent-event-log-flow.test.ts",
