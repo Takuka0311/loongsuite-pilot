@@ -104,6 +104,10 @@ jobs:
           cargo test --locked -p loongsuite-pilot --lib utils::single_instance_lock::tests
           cargo test --locked -p loongsuite-pilot --lib updater::package_archive::tests
           cargo test --locked -p loongsuite-pilot --lib updater::runtime::tests::same_version_activation_preserves_live_tree_and_retries_failed_preflight
+          cargo test --locked -p loongsuite-pilot --test cli_native native_span_attributes_preserve_types_strings_and_never_launch_a_runtime -- --exact
+          if [[ "$TARGET" == *windows* ]]; then
+            cargo test --locked -p loongsuite-pilot --test installer_native windows_installer_config_bridge_preserves_unicode_and_environment_in_both_shells -- --exact
+          fi
       - name: 安装本架构 musl 编译器
         if: contains(matrix.target, 'musl')
         run: |

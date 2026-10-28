@@ -1359,7 +1359,7 @@ fn windows_installer_config_bridge_preserves_unicode_and_environment_in_both_she
             fs::create_dir_all(&fixture.data).unwrap();
             fs::write(
                 fixture.data.join("config.json"),
-                r#"{"privacy":{"excludeWorkspaces":["keep"]}}"#,
+                "\u{feff}{\"privacy\":{\"excludeWorkspaces\":[\"保留\u{feff}🚀\"]}}",
             )
             .unwrap();
             let source = include_str!("../deploy/installer-opensource.ps1");
@@ -1386,17 +1386,29 @@ $DataDir = $env:TEST_DATA
 $script:UserId = $env:TEST_VALUE
 $CmsLicenseKey = $env:TEST_VALUE
 $script:PROBE_RESULT = '[]'
-$env:LOONGSUITE_PILOT_INSTALL_INPUT = 'previous'
 Check-Deps
 Assert-SingleSlsConfig
-Invoke-InstallerHelper -Operation 'validate-config' -Json (Get-InstallConfigJson) | Out-Null
-Write-Config
-if ($env:LOONGSUITE_PILOT_INSTALL_INPUT -ne 'previous') { throw 'input environment not restored' }
+foreach ($previous in @($null, 'previous 研发 🚀')) {
+    $env:LOONGSUITE_PILOT_INSTALL_INPUT = $previous
+    Invoke-InstallerHelper -Operation 'validate-config' -Json (Get-InstallConfigJson) | Out-Null
+    Write-Config
+    if ($env:LOONGSUITE_PILOT_INSTALL_INPUT -ne $previous) { throw 'input environment not restored' }
+    try {
+        Invoke-InstallerHelper -Operation 'validate-config' -Json '{"unknown":"bridge-payload-secret"}' | Out-Null
+        throw 'unexpected validation success'
+    } catch {
+        if ("$_" -notmatch 'exit=1') { throw }
+    }
+    if ($env:LOONGSUITE_PILOT_INSTALL_INPUT -ne $previous) { throw 'failed input environment not restored' }
+    if ($ErrorActionPreference -ne 'Stop') { throw 'error preference not restored' }
+}
 "#,
             );
             let path = fixture.root.path().join("bridge.ps1");
             fs::write(&path, script).unwrap();
-            let value = "研发 O'Brien 🚀 \"quoted\" $literal";
+            let value = "bridge-payload-secret 研发 O'Brien 🚀 \"quoted\" $literal";
+            let temp = fixture.root.path().join("隔离 TEMP🚀");
+            fs::create_dir(&temp).unwrap();
             let mut command = fixture.command(&shell);
             command
                 .args([
@@ -1409,13 +1421,23 @@ if ($env:LOONGSUITE_PILOT_INSTALL_INPUT -ne 'previous') { throw 'input environme
                 .arg(&path)
                 .env("TEST_CANDIDATE", &fixture.candidate)
                 .env("TEST_DATA", &fixture.data)
-                .env("TEST_VALUE", value);
-            success(&bounded(command));
+                .env("TEST_VALUE", value)
+                .env("TEMP", &temp)
+                .env("TMP", &temp);
+            let output = bounded(command);
+            success(&output);
+            for stream in [&output.stdout, &output.stderr] {
+                assert!(!String::from_utf8_lossy(stream).contains("bridge-payload-secret"));
+            }
+            assert_eq!(fs::read_dir(&temp).unwrap().count(), 0);
+            assert_eq!(fs::read_dir(&fixture.data).unwrap().count(), 1);
+            assert!(!fixture.data.join("logs").exists());
+            assert!(!fixture.root.path().join("cache").exists());
             assert_eq!(fixture.config()["userId"], value);
             assert_eq!(fixture.config()["cms"]["licenseKey"], value);
             assert_eq!(
                 fixture.config()["privacy"]["excludeWorkspaces"],
-                json!(["keep"])
+                json!(["保留\u{feff}🚀"])
             );
         }
     }

@@ -80,6 +80,8 @@ pub const WINDOWS_PROCESS_SCAN_PROGRAM: &str = "powershell.exe";
 pub const WINDOWS_PROCESS_SCAN_TIMEOUT_MS: u64 = 8_000;
 pub const WINDOWS_PROCESS_SCAN_ENCODING: &str = "utf-8";
 pub const WINDOWS_PROCESS_SCAN_WINDOWS_HIDE: bool = true;
+// CIM 冷启动在 Windows ARM 上可能超过 5 秒；单 PID 查询仍保持有界。
+const WINDOWS_PROCESS_QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 pub const WINDOWS_PROCESS_SCAN_COMMAND: &str =
     "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }";
 pub const WINDOWS_PROCESS_SCAN_ARGS: &[&str] = &[
@@ -383,7 +385,7 @@ pub fn read_process_command(pid: u32) -> String {
         run_command(
             "powershell.exe",
             &["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script],
-            Duration::from_millis(5_000),
+            WINDOWS_PROCESS_QUERY_TIMEOUT,
         )
     } else {
         let pid = pid.to_string();
@@ -408,24 +410,7 @@ pub fn read_process_start_token(pid: u32) -> String {
         return linux_proc_start_token(&stat, &boot);
     }
     if cfg!(windows) {
-        let script = format!(
-            "$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\"; if ($p) {{ $p.CreationDate.ToUniversalTime().ToString(\"O\") }}"
-        );
-        return match run_command(
-            "powershell.exe",
-            &["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script],
-            Duration::from_millis(5_000),
-        ) {
-            Ok(text) => {
-                let creation = text.trim();
-                if creation.is_empty() {
-                    String::new()
-                } else {
-                    format!("win32-cim-v1:{creation}")
-                }
-            }
-            Err(_) => String::new(),
-        };
+        return windows_process_start_token(pid).unwrap_or_default();
     }
     let pid_text = pid.to_string();
     match run_command(
@@ -436,6 +421,30 @@ pub fn read_process_start_token(pid: u32) -> String {
         Ok(text) => ps_lstart_token(node_platform(), &text),
         Err(_) => String::new(),
     }
+}
+
+fn windows_process_start_token(pid: u32) -> io::Result<String> {
+    let script = format!(
+        "$ErrorActionPreference = 'Stop'; $p = Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\"; if ($p) {{ $p.CreationDate.ToUniversalTime().ToString(\"O\") }}"
+    );
+    let text = run_command(
+        WINDOWS_PROCESS_SCAN_PROGRAM,
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &script,
+        ],
+        WINDOWS_PROCESS_QUERY_TIMEOUT,
+    )?;
+    let creation = text.trim();
+    Ok(if creation.is_empty() {
+        String::new()
+    } else {
+        format!("win32-cim-v1:{creation}")
+    })
 }
 
 pub(crate) fn linux_proc_start_token(stat: &str, boot_id: &str) -> String {
@@ -671,16 +680,31 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_probe_does_not_allocate_a_console() {
-        let script = r#"$ErrorActionPreference = 'Stop';
-Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class PilotConsoleProbe { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }';
-[PilotConsoleProbe]::GetConsoleWindow().ToInt64()"#;
+        let executable = std::env::current_exe().unwrap();
         let output = run_command(
-            WINDOWS_PROCESS_SCAN_PROGRAM,
-            &["-NoProfile", "-NonInteractive", "-Command", script],
+            executable.to_str().unwrap(),
+            &[
+                "--exact",
+                "utils::pid_utils::tests::windows_console_fixture",
+                "--nocapture",
+            ],
             Duration::from_secs(15),
         )
         .unwrap();
-        assert_eq!(output.trim(), "0", "进程探针不应分配控制台窗口");
+        assert!(
+            output
+                .lines()
+                .any(|line| line.trim() == "PILOT_CONSOLE_WINDOW=0"),
+            "进程探针分配了控制台窗口：{output}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_console_fixture() {
+        // 直接查询子进程控制台，避免为这个断言启动 PowerShell 和 C# 编译器。
+        let window = unsafe { windows_sys::Win32::System::Console::GetConsoleWindow() };
+        println!("\nPILOT_CONSOLE_WINDOW={}", window as usize);
     }
 
     #[test]
@@ -770,7 +794,11 @@ Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; pu
     #[test]
     fn current_process_start_token_uses_native_identity_and_is_stable() {
         let pid = std::process::id();
-        let first = read_process_start_token(pid);
+        let first = if cfg!(windows) {
+            windows_process_start_token(pid).expect("Windows 启动身份探针失败")
+        } else {
+            read_process_start_token(pid)
+        };
         assert!(!first.is_empty(), "当前进程必须能读到启动身份");
         assert_eq!(read_process_start_token(pid), first);
         assert!(read_process_start_token(0).is_empty());

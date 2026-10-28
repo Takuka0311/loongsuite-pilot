@@ -2027,6 +2027,30 @@ fn native_span_attributes_preserve_types_strings_and_never_launch_a_runtime() {
             .status
             .success()
     );
+    let mut legacy = serde_json::json!({
+        "team": "研发\u{feff}🚀",
+        "count": 7,
+        "enabled": true,
+        "labels": ["中文", "O'Brien"]
+    });
+    fs::write(&file, format!("\u{feff}{legacy}")).unwrap();
+    let bom_bytes = fs::read(&file).unwrap();
+    let listed = invoke(executable(), root.path(), &["span-attr", "list"]);
+    assert!(listed.status.success());
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("研发\u{feff}🚀"));
+    assert_eq!(fs::read(&file).unwrap(), bom_bytes);
+    assert!(invoke(
+        executable(),
+        root.path(),
+        &["span-attr", "set", "new", "值\\\"🚀"]
+    )
+    .status
+    .success());
+    legacy["new"] = serde_json::json!("值\\\"🚀");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&file).unwrap()).unwrap(),
+        legacy
+    );
     fs::write(&file, "broken").unwrap();
     assert!(!invoke(
         executable(),
