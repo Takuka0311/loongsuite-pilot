@@ -44,6 +44,7 @@ jobs:
       TARGET: ${{ matrix.target }}
       HOST: ${{ matrix.host }}
       RUSTUP_TOOLCHAIN: 1.91.1-${{ matrix.host }}
+      PACKAGE_OUTPUT: pilot-packages-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.target }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
@@ -75,6 +76,7 @@ jobs:
         with:
           prefix-key: rust-release-v1
           key: ${{ matrix.target }}-opensource
+          cache-on-failure: true
       - name: Linux 主质量门禁（默认测试与严格 lint）
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
@@ -86,6 +88,12 @@ jobs:
           HOME="$RUNNER_TEMP/pilot-home" USERPROFILE="$RUNNER_TEMP/pilot-home" cargo test --workspace --locked
       - name: 构建主机工具
         run: cargo build --locked -p xtask --bin xtask
+      - name: 非 Linux 包预检进程与 Hook 模板回归
+        if: runner.os != 'Linux'
+        run: |
+          cargo test --locked -p xtask --bin xtask package::tests
+          cargo test --locked -p xtask --bin xtask hooks::tests
+          cargo test --locked -p loongsuite-pilot --lib utils::candidate_process::tests
       - name: 安装本架构 musl 编译器
         if: contains(matrix.target, 'musl')
         run: |
@@ -110,11 +118,11 @@ jobs:
           if [[ "$TARGET" == *apple* ]]; then args+=(--status-bar-binary target/status-bar/LoongSuitePilotMenuBarApp); fi
           "./target/debug/xtask$suffix" package --target "$TARGET" \
             --binary "target/$TARGET/release/loongsuite-pilot$suffix" \
-            --commit "$RELEASE_SHA" --output target/packages "${args[@]}"
+            --commit "$RELEASE_SHA" --output "$RUNNER_TEMP/$PACKAGE_OUTPUT" "${args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: package-${{ matrix.target }}
-          path: target/packages/
+          path: ${{ runner.temp }}/${{ env.PACKAGE_OUTPUT }}/
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -128,6 +136,8 @@ jobs:
     environment: ${{ github.event_name == 'push' && 'release' || 'release-dry-run' }}
     env:
       RUSTUP_TOOLCHAIN: 1.91.1
+      RELEASE_INPUT: pilot-release-input-${{ github.run_id }}-${{ github.run_attempt }}
+      RELEASE_OUTPUT: pilot-release-assets-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: write
     steps:
@@ -144,7 +154,7 @@ jobs:
         with:
           pattern: package-*
           merge-multiple: true
-          path: target/release-input
+          path: ${{ runner.temp }}/${{ env.RELEASE_INPUT }}
       - name: 安装固定工具链
         run: rustup toolchain install 1.91.1 --profile minimal
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -158,8 +168,8 @@ jobs:
         env:
           REPOSITORY: ${{ github.repository }}
         run: |
-          ./target/debug/xtask release --packages target/release-input \
-            --output target/release-assets --commit "$(git rev-parse HEAD)" --repository "$REPOSITORY"
+          ./target/debug/xtask release --packages "$RUNNER_TEMP/$RELEASE_INPUT" \
+            --output "$RUNNER_TEMP/$RELEASE_OUTPUT" --commit "$(git rev-parse HEAD)" --repository "$REPOSITORY"
       - name: 核对八平台资产并自动发布已有 tag
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
@@ -167,14 +177,14 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          ./target/debug/xtask release --packages target/release-input \
-            --output target/release-assets --commit "$(git rev-parse HEAD)" \
+          ./target/debug/xtask release --packages "$RUNNER_TEMP/$RELEASE_INPUT" \
+            --output "$RUNNER_TEMP/$RELEASE_OUTPUT" --commit "$(git rev-parse HEAD)" \
             --repository "$REPOSITORY" --tag "$RELEASE_TAG" --publish
       - name: 保存轻门禁资产（不是完整注入验收）
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-assets
-          path: target/release-assets/*
+          path: ${{ runner.temp }}/${{ env.RELEASE_OUTPUT }}/*
           if-no-files-found: error
           retention-days: 90
           compression-level: 0

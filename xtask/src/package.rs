@@ -183,8 +183,9 @@ pub fn build(root: &Path, options: Options) -> Result<()> {
         staged.join("runtime-manifest.json"),
         serde_json::to_vec_pretty(&manifest)?,
     )?;
-    validate_runtime(&staged, version, &options.target, &options.edition)?;
-    validate_imports(&staged)?;
+    validate_runtime(&staged, version, &options.target, &options.edition)
+        .context("暂存包运行时校验失败")?;
+    validate_imports(&staged).context("暂存包宿主依赖校验失败")?;
     let format = ArchiveFormat::for_target(&options.target);
     let extension = if format == ArchiveFormat::Zip {
         "zip"
@@ -195,11 +196,14 @@ pub fn build(root: &Path, options: Options) -> Result<()> {
     let publish = temporary.path().join("artifact");
     fs::create_dir(&publish)?;
     let archive = publish.join(&archive_name);
-    archive_package(&staged, &archive, format, &name)?;
-    let bytes = read_archive(&archive)?;
-    let unpacked = unpack_release_archive(&bytes, format, temporary.path(), &name)?;
-    validate_runtime(&unpacked.root, version, &options.target, &options.edition)?;
-    let preflight = preflight(&unpacked.root, &manifest, temporary.path())?;
+    archive_package(&staged, &archive, format, &name).context("候选归档生成失败")?;
+    let bytes = read_archive(&archive).context("候选归档读取失败")?;
+    let unpacked = unpack_release_archive(&bytes, format, temporary.path(), &name)
+        .context("候选归档解包回读失败")?;
+    validate_runtime(&unpacked.root, version, &options.target, &options.edition)
+        .context("解包后运行时校验失败")?;
+    let preflight =
+        preflight(&unpacked.root, &manifest, temporary.path()).context("解包后原生命令预检失败")?;
     let sha256 = sha256_file(&archive)?;
     let candidate = Candidate {
         schema: 1,
@@ -285,7 +289,13 @@ fn copy(source: &Path, destination: &Path) -> Result<()> {
         source.display()
     );
     fs::create_dir_all(destination.parent().context("目标缺少父目录")?)?;
-    fs::copy(source, destination)?;
+    fs::copy(source, destination).with_context(|| {
+        format!(
+            "资源复制失败：{} -> {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
     if destination.extension().is_some_and(|ext| ext == "sh") {
         executable(destination)?;
     }
@@ -440,6 +450,7 @@ fn preflight(root: &Path, manifest: &RuntimeManifest, temporary: &Path) -> Resul
             .env("LOONGSUITE_PILOT_CACHE_DIR", home.join("cache"))
             .env("AGENT_DATA_COLLECTION_CONFIG", &config);
         run_bounded(&mut command, temporary, Duration::from_secs(30))
+            .with_context(|| format!("预检命令失败：{} {}", binary.display(), args.join(" ")))
     };
     ensure!(
         invoke(&["--version"])?.trim() == format!("loongsuite-pilot {}", manifest.version),
@@ -546,7 +557,8 @@ pub(crate) fn run_bounded(
             stdout.metadata()?.len() <= 1024 * 1024 && stderr.metadata()?.len() <= 1024 * 1024,
             "候选预检输出超限"
         );
-        if let Some(status) = child.try_wait()? {
+        if let Some(status) = child.try_wait().context("候选退出观察或进程树回收失败")?
+        {
             break status;
         }
         ensure!(start.elapsed() < timeout, "候选预检超时");
@@ -638,6 +650,9 @@ mod tests {
             return;
         };
         match mode.as_str() {
+            "success" => {
+                println!("候选正常退出");
+            }
             "failure" => {
                 eprintln!("候选诊断证据");
                 std::process::exit(7);
@@ -652,6 +667,23 @@ mod tests {
                 std::thread::sleep(Duration::from_secs(60));
             }
             _ => panic!("未知测试场景"),
+        }
+    }
+
+    #[test]
+    fn bounded_process_preserves_success_without_descendants() {
+        let temp = tempfile::tempdir().unwrap();
+        for _ in 0..8 {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "package::tests::preflight_child_fixture",
+                    "--nocapture",
+                ])
+                .env("PILOT_PACKAGE_TEST_CHILD", "success");
+            let output = run_bounded(&mut command, temp.path(), Duration::from_secs(10)).unwrap();
+            assert!(output.contains("候选正常退出"));
         }
     }
 

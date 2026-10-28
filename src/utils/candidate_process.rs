@@ -61,14 +61,73 @@ impl Tree {
             // 进程组包含继承 stdout/stderr 的后代；不按进程名扫描或终止其他安装。
             if unsafe { libc::kill(-group, libc::SIGKILL) } != 0 {
                 let error = io::Error::last_os_error();
+                self.group = Some(group);
+                #[cfg(target_os = "macos")]
+                if error.raw_os_error() == Some(libc::EPERM)
+                    && group_has_only_exited_members(group)?
+                {
+                    self.group = None;
+                    return Ok(());
+                }
                 if error.raw_os_error() != Some(libc::ESRCH) {
-                    self.group = Some(group);
                     return Err(error);
                 }
+                self.group = None;
             }
         }
         Ok(())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn group_has_only_exited_members(group: libc::pid_t) -> io::Result<bool> {
+    // XNU killpg 跳过僵尸：只有僵尸的组也会返回 EPERM。不能忽略真正的权限失败，
+    // 必须在组长 PID 尚未回收时，确认该组不存在活进程；查询失败或容量不足均失败关闭。
+    let mut members = [0 as libc::pid_t; 4096];
+    let count = unsafe {
+        // libproc 将底层错误折叠为 0，必须清理并读取 errno 区分空组与查询失败。
+        *libc::__error() = 0;
+        libc::proc_listpgrppids(
+            group,
+            members.as_mut_ptr().cast(),
+            std::mem::size_of_val(&members) as i32,
+        )
+    };
+    if count <= 0 {
+        let error = io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(0) | Some(libc::ESRCH) if count == 0 => Ok(true),
+            _ => Err(error),
+        };
+    }
+    if count as usize >= members.len() {
+        return Err(io::Error::other("候选进程组查询不完整"));
+    }
+    for &pid in &members[..count as usize] {
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of_val(&info) as i32;
+        let read = unsafe {
+            *libc::__error() = 0;
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                (&mut info as *mut libc::proc_bsdinfo).cast(),
+                size,
+            )
+        };
+        if read != size {
+            let error = io::Error::last_os_error();
+            if read == 0 && error.raw_os_error() == Some(libc::ESRCH) {
+                continue;
+            }
+            return Err(io::Error::other(format!("候选进程状态查询不完整：{error}")));
+        }
+        if info.pbi_pgid == group as u32 && info.pbi_status != libc::SZOMB {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(windows)]
@@ -495,6 +554,8 @@ pub(crate) mod tests {
         let unrelated = tempfile::tempdir().unwrap();
         let mut sentinel = CandidateChild::spawn(&mut fixture(unrelated.path(), "wait")).unwrap();
         let sentinel_pid = ready(unrelated.path()).await;
+        #[cfg(target_os = "macos")]
+        assert!(!group_has_only_exited_members(sentinel.child.id() as libc::pid_t).unwrap());
         let root = tempfile::tempdir().unwrap();
         let mut command = tokio::process::Command::from(fixture(root.path(), "wait"));
         let task =
