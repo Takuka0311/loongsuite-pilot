@@ -39,7 +39,7 @@ cargo test --workspace --locked --all-features
 
 默认 feature 的构建与现有测试放到发布的 Linux GNU 任务执行。独立 Rust 测试已分两批提交，并在同一个日常质量任务内执行，不逐测试扩张 runner。
 
-10 分钟是预算与超时上限，不是所有运行的性能保证。实测：独立测试提交前冷缓存为 3 分 22 秒；纳入独立测试后缓存命中为 2 分 45 秒，均为 1 个 runner。包含独立测试的冷缓存尚未单独实测。冷缓存、排队及依赖下载可能超出墙钟目标；超时则 CI 失败，不能直接跳过失败步骤。优先优化 Cargo 缓存、编译配置和重复 feature 编译，超预算仍无法解决时交由维护者决定下面的裁剪项。
+10 分钟是预算与超时上限，不是所有运行的性能保证。实测：独立测试提交前冷缓存为 3 分 22 秒；纳入独立测试后缓存命中为 2 分 45 秒，最新未命中缓存的完整 1,367 项回归为 2 分 49 秒，均为 1 个 runner。冷缓存、排队及依赖下载可能超出墙钟目标；超时则 CI 失败，不能直接跳过失败步骤。优先优化 Cargo 缓存、编译配置和重复 feature 编译，超预算仍无法解决时交由维护者决定下面的裁剪项。
 
 发布构建单独计时，不受日常 10 分钟预算限制，但每次最多 9 个 runner 任务；每个构建有有限超时。不能用拆分 workflow 绕过 runner 预算。
 
@@ -56,7 +56,7 @@ cargo test --workspace --locked --all-features
 | P2 | Docker/远程真实会话、宿主插件加载、GUI、长时间稳定性和性能 | 本地或后续手动验收，不进日常 CI | 不能声明真实采集、桌面或长期稳定性已验证 |
 | P2 | 历史断言中的重复 fixture、纯脚本文本匹配 | 迁移时归并同一行为，记录映射，不机械逐文件复制 | 仅在确认有等价 Rust 断言后删除冗余 |
 
-最近已记录的历史审计为 391 个文件：7 完整映射、14 部分映射、370 未映射。CP5 的单批/分批四个历史合同已合并为一个参数化 Rust 测试，本地 OTLP 集成组 4 项共耗时 0.27 秒，不新增 runner。这是待比对的文件数，不是失败测试或已知 bug 数。最新本地 Linux 回归已通过主库 1,250 项、xtask 单元 35 项、独立集成 82 项，共 1,367 项；其中新增一项候选无后代正常退出回归。下表既有 GitHub CI 为新增该项之前的 1,366 项；另有 2 个 doc-tests ignored。Windows 专属测试在 Linux 为 0 项，不计作 Windows 通过。测试通过不等于旧断言全部承接。
+最近已记录的历史审计为 391 个文件：9 完整映射、14 部分映射、368 未映射。StateStore / SnapshotStore 两个历史文件的 28 个测试已逐项核对，全部由现有 Rust 断言承接；checkpoint 组 34 项回归耗时 0.04 秒，不新增测试或 runner，旧文件仍保留在提交树中。CP5 的单批/分批四个历史合同已合并为一个参数化 Rust 测试，本地 OTLP 集成组 4 项共耗时 0.27 秒，不新增 runner。这是待比对的文件数，不是失败测试或已知 bug 数。最新本地及 GitHub Linux 回归已通过主库 1,250 项、xtask 单元 35 项、独立集成 82 项，共 1,367 项；其中新增一项候选无后代正常退出回归。下表更早的 GitHub CI 为新增该项之前的 1,366 项；另有 2 个 doc-tests ignored。Windows 专属测试在 Linux 为 0 项，不计作 Windows 通过。测试通过不等于旧断言全部承接。
 
 `tests/fixtures/rust-migration-map.json` 保留覆盖缺口，`migration-audit --require-complete` 在未完整映射时继续失败；本轮暂不把该完整性门禁接入轻发布，也不据此删除旧测试/工具。需要进一步裁剪时，提交实际耗时和行为覆盖变化，由维护者决定，不能仅凭测试数目裁剪。
 
@@ -74,7 +74,7 @@ cargo test --workspace --locked --all-features
 
 需要确认 GitHub-hosted 八种 runner 可用、Actions 权限、`release` Environment 保护以及分支保护检查名。仅工作流代码不能配置仓库管理员设置。正式发布仍需单独批准创建 tag；手动 dry-run 不发布。
 
-已记录的 GitHub 实跑（2026-10-27）：
+已记录的 GitHub 实跑（2026-10-27～28）：
 
 | 提交 | 工作流 / 证据 | 缓存、耗时与任务数 | 结论 |
 |---|---|---|---|
@@ -82,6 +82,8 @@ cargo test --workspace --locked --all-features
 | `7492d43` | [日常 CI](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40486204539) | 缓存命中，2 分 45 秒，1 个任务 | 严格 lint 与 1,366 项 Linux 测试通过 |
 | `e2c5002` | [首次发布 dry-run](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40482807142) | 9 个任务 | Linux x64 GNU/musl 成功，其余六平台失败，汇总正确拒绝 |
 | `f9aa186` | [日常 CI](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40487786813) | 2 分 21 秒，1 个任务 | 通过；此记录不作为冷缓存证据 |
+| `7abac87` | [日常 CI](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40618596606) | 未命中缓存，2 分 49 秒，1 个任务 | 严格 lint 与 1,367 项 Linux 测试通过；日志明确 `No cache found` |
 | `f9aa186` | [第二次发布 dry-run](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40487786768) | 9 个任务，失败 | 八平台均越过上一轮编译错误；Linux ARM64 GNU/musl 成功。Linux x64 命中缓存中的旧候选目录，Windows Hook 字节校验失败，macOS 打包报 EPERM；汇总正确拒绝 |
+| `7abac87` | [第三次发布 dry-run](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40618597067) | 18 分 56 秒，9 个任务，失败 | 四个 Linux 与两个 macOS 包成功，缓存目录污染和 macOS EPERM 修复已实跑通过；Windows 包/Hook 测试成功，主库测试编译因旧测试无条件使用 Unix 权限 API 失败，汇总正确拒绝 |
 
-`f9aa186` 的本地默认/all-features 严格 clippy、完整 Linux 回归及干净提交树严格 clippy 均已通过。第二轮之后的修复将候选输出移出缓存、固定脚本换行并富化打包阶段诊断；macOS 根据 XNU 的僵尸进程组 EPERM 行为，仅在 libproc 确认组内没有活进程时允许回收，查询不完整或真正权限失败仍报错。平台修复需新的八平台实跑确认，不能以 Linux 回归替代。上述流程没有创建 tag 或正式 Release。八平台候选包摘要须在全部构建及汇总成功后记录；Windows 专属测试、真实 Agent 注入和系统签名等暂缓项不能据此标记通过。
+`f9aa186` 的本地默认/all-features 严格 clippy、完整 Linux 回归及干净提交树严格 clippy 均已通过。第二轮之后的修复将候选输出移出缓存、固定脚本换行并富化打包阶段诊断；macOS 根据 XNU 的僵尸进程组 EPERM 行为，仅在 libproc 确认组内没有活进程时允许回收，查询不完整或真正权限失败仍报错。第三轮已确认 Linux/macOS 六包通过；`6217343` 补齐 Windows 测试的 Unix 专属权限边界，保留平台无关断言，已通过本地完整 Linux 回归及干净提交树默认/all-features 严格 clippy、主库 1,250 项回归。Windows 及八包汇总仍待下一轮实跑，不能以 Linux 回归替代。上述流程没有创建 tag 或正式 Release。八平台候选包摘要须在全部构建及汇总成功后记录；Windows 专属测试、真实 Agent 注入和系统签名等暂缓项不能据此标记通过。
