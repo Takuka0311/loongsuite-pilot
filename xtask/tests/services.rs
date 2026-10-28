@@ -18,7 +18,9 @@ fn windows_service_entry_has_no_external_runtime_or_script_daemon() {
     ] {
         assert!(!code.contains(forbidden), "仍有旧运行时入口：{forbidden}");
     }
-    assert!(code.contains("$LASTEXITCODE = 9009\n        & $Binary @nativeArgs"));
+    assert!(code.contains("$global:LASTEXITCODE = 9009\n        & $Binary @nativeArgs"));
+    assert!(code.contains("$script:PilotExitCode = $global:LASTEXITCODE"));
+    assert!(!code.contains("$LASTEXITCODE = 9009"));
     assert!(code.contains("service-helper\", \"process-alive"));
     assert!(code.contains("@('run')") || code.contains("@(\"run\")"));
     assert!(code.contains("@(\"run-updater\")"));

@@ -225,6 +225,11 @@ describe('PowerShell JSON 交换保留 UTF8、BOM 与原生环境块合同', () 
     expect(helper).toContain("$protocolArgs = @('installer-helper', $Operation)");
     expect(helper).toContain("if ($Operation -notin @('read-user-id', 'json-argv')) { $protocolArgs += '--input-env' }");
     expect(helper).toMatch(/\$result = & \$binary @nativeArgs[\s\S]*finally\s*\{[^}]*\$env:LOONGSUITE_PILOT_INSTALL_INPUT = \$previousInput/);
+    for (const body of [helper, psFunction(text, 'Probe-Agents')]) {
+      expect(body).toContain('$global:LASTEXITCODE = 9009');
+      expect(body).toContain('$code = $global:LASTEXITCODE');
+      expect(body).not.toMatch(/\$LASTEXITCODE\s*=/);
+    }
     expect(helper).not.toMatch(/Set-Content|Out-File|Write-Host|Write-Output|\$Json\s*\||NODE_BIN/);
     expect(helper.match(/\$Json\b/g)).toHaveLength(2);
     expect(psFunction(text, 'Write-Config')).toContain('Invoke-InstallerHelper -Operation "write-config" -Json (Get-InstallConfigJson)');

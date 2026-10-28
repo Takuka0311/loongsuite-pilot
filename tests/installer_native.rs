@@ -1356,7 +1356,7 @@ fn windows_installer_config_bridge_preserves_unicode_and_environment_in_both_she
         assert!(shell.is_file(), "缺少 Windows 测试 Shell");
         for constrained in [false, true] {
             let fixture = Fixture::new();
-            fs::create_dir_all(&fixture.data).unwrap();
+            fixture.package();
             fs::write(
                 fixture.data.join("config.json"),
                 "\u{feff}{\"privacy\":{\"excludeWorkspaces\":[\"保留\u{feff}🚀\"]}}",
@@ -1375,19 +1375,35 @@ fn windows_installer_config_bridge_preserves_unicode_and_environment_in_both_she
                 "Assert-SingleSlsConfig",
                 "Check-Deps",
                 "Write-Config",
+                "Probe-Agents",
             ] {
                 script.push_str(&function(source, &format!("function {name} {{")));
             }
+            script.push_str(&function(
+                include_str!("../scripts/loongsuite-pilot.ps1"),
+                "function Invoke-Pilot {",
+            ));
             script.push_str(
                 r#"
 function Msg { param($Chinese, $English) }
+$script:LASTEXITCODE = 4321
 $script:INSTALL_SRC = $env:TEST_CANDIDATE
 $DataDir = $env:TEST_DATA
 $script:UserId = $env:TEST_VALUE
 $CmsLicenseKey = $env:TEST_VALUE
 $script:PROBE_RESULT = '[]'
 Check-Deps
+Probe-Agents
+if (@($script:PROBE_RESULT | ConvertFrom-Json).Count -lt 1) { throw 'empty native probe result' }
 Assert-SingleSlsConfig
+$DATA_DIR = $DataDir
+$CACHE_DIR = $env:LOONGSUITE_PILOT_CACHE_DIR
+$CONFIG_FILE = Join-Path $DataDir 'config.json'
+$binary = Join-Path $script:INSTALL_SRC 'bin\loongsuite-pilot.exe'
+Invoke-Pilot -Binary $binary -Arguments @('--version') | Out-Null
+if ($script:PilotExitCode -ne 0) { throw 'native success exit code lost' }
+Invoke-Pilot -Binary $binary -Arguments @('--invalid-fixture-option') | Out-Null
+if ($script:PilotExitCode -ne 2) { throw 'native failure exit code lost' }
 foreach ($previous in @($null, 'previous 研发 🚀')) {
     $env:LOONGSUITE_PILOT_INSTALL_INPUT = $previous
     Invoke-InstallerHelper -Operation 'validate-config' -Json (Get-InstallConfigJson) | Out-Null
@@ -1425,7 +1441,12 @@ foreach ($previous in @($null, 'previous 研发 🚀')) {
                 .env("TEMP", &temp)
                 .env("TMP", &temp);
             let output = bounded(command);
-            success(&output);
+            assert!(
+                output.status.success(),
+                "安装桥接失败：shell={} constrained={constrained}\n{}",
+                shell.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
             for stream in [&output.stdout, &output.stderr] {
                 assert!(!String::from_utf8_lossy(stream).contains("bridge-payload-secret"));
             }

@@ -173,9 +173,9 @@ function Invoke-Pilot {
     $prevEAP = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
-        $LASTEXITCODE = 9009
+        $global:LASTEXITCODE = 9009
         & $Binary @nativeArgs
-        if ($null -ne $LASTEXITCODE) { $script:PilotExitCode = $LASTEXITCODE }
+        if ($null -ne $global:LASTEXITCODE) { $script:PilotExitCode = $global:LASTEXITCODE }
     } finally { $ErrorActionPreference = $prevEAP }
 }
 

@@ -821,9 +821,10 @@ function Invoke-InstallerHelper {
             $escaped = $escaped -replace '(\\+)$', '$1$1'
             $nativeArgs += '"' + $escaped + '"'
         }
-        $LASTEXITCODE = 9009
+        # PowerShell 原生命令更新全局退出码，局部同名变量会遮蔽真实结果。
+        $global:LASTEXITCODE = 9009
         $result = & $binary @nativeArgs
-        $code = $LASTEXITCODE
+        $code = $global:LASTEXITCODE
     } finally {
         $ErrorActionPreference = $previousEAP
         $env:LOONGSUITE_PILOT_INSTALL_INPUT = $previousInput
@@ -926,9 +927,9 @@ function Probe-Agents {
     $prevEAP = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
-        $LASTEXITCODE = 9009
+        $global:LASTEXITCODE = 9009
         $raw = & $probeBin probe --installer
-        $code = $LASTEXITCODE
+        $code = $global:LASTEXITCODE
     } finally { $ErrorActionPreference = $prevEAP }
     if ($code -ne 0) { throw "Agent 探测失败 (exit=$code)" }
     $script:PROBE_RESULT = if ($raw -is [array]) { $raw -join "" } else { "$raw" }
