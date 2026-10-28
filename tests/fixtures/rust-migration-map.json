@@ -3,6 +3,49 @@
   "baselineCommit": "ef8953de1b5d2aa6d719cb0409cb5f48f2b99b42",
   "mappings": [
     {
+      "legacy": "tests/unit/checkpoints/state-store.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {"file": "src/checkpoints/state_store.rs", "test": "starts_with_empty_state"},
+        {"file": "src/checkpoints/state_store.rs", "test": "persists_state_across_save_load"},
+        {"file": "src/checkpoints/state_store.rs", "test": "handles_missing_file"},
+        {"file": "src/checkpoints/state_store.rs", "test": "handles_corrupt_json"},
+        {"file": "src/checkpoints/state_store.rs", "test": "get_returns_empty_state_for_unknown_id"},
+        {"file": "src/checkpoints/state_store.rs", "test": "sets_and_retrieves_state"},
+        {"file": "src/checkpoints/state_store.rs", "test": "updates_partial_state_without_losing_fields"},
+        {"file": "src/checkpoints/state_store.rs", "test": "set_stores_an_independent_copy"},
+        {"file": "src/checkpoints/state_store.rs", "test": "get_offset_returns_zero_for_unknown_input"},
+        {"file": "src/checkpoints/state_store.rs", "test": "sets_and_gets_offset"},
+        {"file": "src/checkpoints/state_store.rs", "test": "get_row_id_returns_zero_for_unknown_input"},
+        {"file": "src/checkpoints/state_store.rs", "test": "sets_and_gets_row_id"},
+        {"file": "src/checkpoints/state_store.rs", "test": "does_not_write_without_a_new_revision"},
+        {"file": "src/checkpoints/state_store.rs", "test": "writes_when_the_revision_changes"},
+        {"file": "src/checkpoints/state_store.rs", "test": "does_not_rewrite_an_already_persisted_revision"},
+        {"file": "src/checkpoints/state_store.rs", "test": "serializes_saves_and_persists_mutations_during_write"},
+        {"file": "src/checkpoints/state_store.rs", "test": "retains_unpersisted_revision_after_failed_write"}
+      ],
+      "note": "逐项核对全部 17 个历史测试：空状态、缺失/损坏文件、保存重载、get/set/partial update、独立副本、offset/rowId 默认与设置、revision 不写/写入/不重写，以及活动写入期间变更、最大单写并发和失败后重试。已有 Rust 测试完整保留这些断言，并加强持久化字节和写次数验证；不新增测试或 runner；保留旧文件，等待完整清理门禁通过，不代表其他 checkpoint 并发合同或全平台验收。"
+    },
+    {
+      "legacy": "tests/unit/checkpoints/snapshot-store.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "should_process_unseen_keys"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "should_not_process_pending_keys"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "should_not_process_processed_keys"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "transitions_from_pending_to_processed"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "tracks_size"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "updates_high_watermark_on_mark_processed"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "high_watermark_is_the_max_processed_timestamp"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "uses_retention_floor_when_high_watermark_is_zero"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "prunes_entries_older_than_retention_on_flush"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "persists_and_restores_state"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "handles_missing_file_on_load"},
+        {"file": "src/checkpoints/snapshot_store.rs", "test": "restores_high_watermark_from_persisted_entries"}
+      ],
+      "note": "逐项核对全部 11 个历史测试：未见/pending/processed 去重、状态转换、size、水位更新与保留期下限、过期清理、pending/processed 同时持久化重载、缺失文件及水位恢复。复用实例级时钟的现有 Rust 断言，并验证精确水位与持久化字节；不新增测试或 runner；保留旧文件，等待完整清理门禁通过。完整映射仅针对该历史文件，不能当作更广泛的并发或跨平台证明。"
+    },
+    {
       "legacy": "tests/unit/validate-trace.test.mjs",
       "coverage": "complete",
       "rust": [
