@@ -1,7 +1,715 @@
 {
-  "schema": 1,
+  "schema": 2,
   "baselineCommit": "ef8953de1b5d2aa6d719cb0409cb5f48f2b99b42",
   "mappings": [
+    {
+      "legacy":"tests/unit/utils/crash-breadcrumb.test.ts", "coverage":"complete", "rust":[],
+      "note":"五个历史声明逐项覆盖落盘/读回、错误文本、清理和不可写目录；不依赖实际 Node 异常。",
+      "source_hash":"cf444fbad0cdb0bb6ff5a55006d381dc66fc2616e4bb456680a5eeaf2714d5fd",
+      "cases":[
+        {"source":{"id":"L23:C3","title":"writes a breadcrumb from an Error and reads it back","suites":["crash-breadcrumb"],"parameters":[]},
+         "coverage":"complete","behavior":"文件存在，读回 schema/phase/version/message/stack/pid 相同且时间戳为正数","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/crash_breadcrumb.rs","test":"writes_a_breadcrumb_from_an_error_and_reads_it_back"}]}},
+        {"source":{"id":"L43:C3","title":"accepts a non-Error value and empties the stack head","suites":["crash-breadcrumb"],"parameters":[]},
+         "coverage":"complete","behavior":"普通错误文本 boom 保留、stack 为空、空版本回退 unknown","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/crash_breadcrumb.rs","test":"accepts_a_non_error_value_and_empties_the_stack_head"}]}},
+        {"source":{"id":"L51:C3","title":"clears the breadcrumb and tolerates a missing file","suites":["crash-breadcrumb"],"parameters":[]},
+         "coverage":"complete","behavior":"清理后读回 None，第二次清理不失败","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/crash_breadcrumb.rs","test":"clears_the_breadcrumb_and_tolerates_a_missing_file"}]}},
+        {"source":{"id":"L59:C3","title":"returns null when no breadcrumb exists","suites":["crash-breadcrumb"],"parameters":[]},
+         "coverage":"complete","behavior":"缺失文件返回 None","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/crash_breadcrumb.rs","test":"returns_none_when_no_breadcrumb_exists"}]}},
+        {"source":{"id":"L63:C3","title":"is best-effort and never throws on an unwritable data dir","suites":["crash-breadcrumb"],"parameters":[]},
+         "coverage":"complete","behavior":"父路径为普通文件导致目录不可写时 best-effort 返回，无 panic","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/crash_breadcrumb.rs","test":"is_best_effort_and_never_throws_on_an_unwritable_data_dir"}]}}
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/fs-utils.test.ts", "coverage":"complete", "rust":[],
+      "note":"保留临时文件年龄规则、并发原子写和 BOM 读取合同；补固定同一毫秒的命名及实际 rename 回归。",
+      "source_hash":"d063801412b76965650b793b73672546a165acc2f619be5bccaa3c3bf2cdc115",
+      "cases":[
+        {"source":{"id":"L37:C3","title":"removes stale tmp files but keeps fresh ones (any pid)","suites":["cleanStaleTmpFiles"],"parameters":[]},
+         "coverage":"complete","behavior":"自身/其他 pid 的新文件保留，过期旧格式与 unique 格式删除；正式文件和 foo.tmp 不变，七个断言全部保留","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/fs_utils.rs","test":"removes_stale_tmp_files_but_keeps_fresh_ones"}]}},
+        {"source":{"id":"L60:C3","title":"does not throw when dir is missing","suites":["cleanStaleTmpFiles"],"parameters":[]},
+         "coverage":"complete","behavior":"临时目录不存在时清理正常返回","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/fs_utils.rs","test":"does_not_throw_when_dir_is_missing"}]}},
+        {"source":{"id":"L64:C3","title":"rejects a guarded write when the observed file content has changed","suites":["cleanStaleTmpFiles"],"parameters":[]},
+         "coverage":"complete","behavior":"expected=old、现有=new 时返回 file changed before write，文件内容仍为 new","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/fs_utils.rs","test":"rejects_a_guarded_write_when_content_changed"}]}},
+        {"source":{"id":"L77:C3","title":"uses unique temporary files for concurrent writes in the same millisecond","suites":["cleanStaleTmpFiles"],"parameters":[]},
+         "coverage":"complete","behavior":"公开写入入口与固定 1786000000000 毫秒的真实命名/rename 两路均并发 20 次；名称唯一、全部成功、最终值完整且无 tmp 残留","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/fs_utils.rs","test":"uses_unique_temporary_files_for_concurrent_writes"}]}},
+        {"source":{"id":"L109:C3","title":"parses a file written with a UTF-8 BOM (PowerShell 5.1 -Encoding UTF8)","suites":["readJsonFile"],"parameters":[]},
+         "coverage":"complete","behavior":"EF BB BF 前缀 JSON 读回 hermes-agent.targetDir 为含中文的原 Windows 路径，不降为空对象","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/fs_utils.rs","test":"read_json_file_strips_a_leading_bom"}]}},
+        {"source":{"id":"L124:C3","title":"parses the same content without a BOM","suites":["readJsonFile"],"parameters":[]},
+         "coverage":"complete","behavior":"无 BOM 的 JSON 读回数值 a=1","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/fs_utils.rs","test":"read_json_file_parses_without_a_bom"}]}},
+        {"source":{"id":"L130:C3","title":"strips only a leading BOM, leaving one inside a string untouched","suites":["readJsonFile"],"parameters":[]},
+         "coverage":"complete","behavior":"经 write_json_file/read_json_file 往返，note 中间的 U+FEFF 保留","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/fs_utils.rs","test":"read_json_file_keeps_a_bom_inside_a_string"}]}},
+        {"source":{"id":"L136:C3","title":"still returns null for a missing file and for malformed JSON","suites":["readJsonFile"],"parameters":[]},
+         "coverage":"complete","behavior":"缺失文件和带 BOM 的截断 JSON 均返回 None","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/fs_utils.rs","test":"read_json_file_returns_none_for_missing_and_malformed"}]}}
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/restart-breadcrumb.test.ts", "coverage":"complete", "rust":[],
+      "note":"20 个声明逐项保留；路径期望使用平台路径拼接，补 nested/array/null 诊断字段过滤断言。",
+      "source_hash":"f54826a073025e8953982cd504e4562ef56ec9f77df8e4c9d4d9c205b2ed7312",
+      "cases":[
+        {"source":{"id":"L41:C3","title":"reads a breadcrumb written with a BOM","suites":["restart-breadcrumb reader"],"parameters":[]},
+         "coverage":"complete","behavior":"BOM 文件读回 register-denied 和 BUILTIN\\Administrators，诊断不丢失","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"reads_a_breadcrumb_written_with_a_bom"}]}},
+        {"source":{"id":"L61:C3","title":"returns null for a missing file, an unknown schema, and a stage-less payload","suites":["restart-breadcrumb reader"],"parameters":[]},
+         "coverage":"complete","behavior":"缺文件、schema=2、缺少 stage 三分支均返回 None","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"returns_none_for_missing_unknown_schema_and_stage_less"}]}},
+        {"source":{"id":"L71:C3","title":"returns null for a truncated file instead of throwing","suites":["restart-breadcrumb reader"],"parameters":[]},
+         "coverage":"complete","behavior":"截断 JSON 返回 None，无 panic","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"returns_none_for_a_truncated_file"}]}},
+        {"source":{"id":"L78:C3","title":"clears the file and tolerates a second clear","suites":["restart-breadcrumb reader"],"parameters":[]},
+         "coverage":"complete","behavior":"清理后读回 None，重复清理不失败","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"clears_the_file_and_tolerates_a_second_clear"}]}},
+        {"source":{"id":"L85:C3","title":"places the file under logs/ per target","suites":["restart-breadcrumb reader"],"parameters":[]},
+         "coverage":"complete","behavior":"collector/updater 分别写入 dataDir/logs 下对应文件；以本平台 Path 拼接断言","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"places_the_file_under_logs_per_target"}]}},
+        {"source":{"id":"L90:C3","title":"maps 5.1 Key/Value arrays and ignores nested objects","suites":["restart-breadcrumb reader"],"parameters":[]},
+         "coverage":"complete","behavior":"Key/Value 与 key/value 数组转字符串映射，普通对象保留 task_state，null 返回 None；额外验证对象的嵌套值被过滤","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"maps_powershell_key_value_arrays_and_ignores_nested_objects"}]}},
+        {"source":{"id":"L102:C3","title":"coerces the 5.1 ConvertTo-Json nested-hashtable shape into a string map","suites":["restart-breadcrumb reader"],"parameters":[]},
+         "coverage":"complete","behavior":"实际落盘 diag 数组读回 owner/state，摘要包含两者且不出现 [object Object]","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"coerces_nested_hashtable_shape_into_a_string_map"}]}},
+        {"source":{"id":"L129:C3","title":"writeRestartFailure persists a timeout breadcrumb the cooldown alarm can read","suites":["restart-breadcrumb reader"],"parameters":[]},
+         "coverage":"complete","behavior":"真实 writer/reader 往返 timeout，摘要含 stage=timeout","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"write_restart_failure_persists_a_timeout_breadcrumb"}]}},
+        {"source":{"id":"L144:C3","title":"accepts a breadcrumb written during the attempt","suites":["isRestartFailureFresh"],"parameters":[]},
+         "coverage":"complete","behavior":"尝试开始后三秒的 breadcrumb 判为新鲜","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"freshness_accepts_a_breadcrumb_written_during_the_attempt"}]}},
+        {"source":{"id":"L149:C3","title":"accepts one written just before the attempt started, within the skew","suites":["isRestartFailureFresh"],"parameters":[]},
+         "coverage":"complete","behavior":"开始前两秒在允许偏差内，前六十秒被拒绝","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"freshness_accepts_skew_and_rejects_an_older_breadcrumb"}]}},
+        {"source":{"id":"L157:C3","title":"rejects a missing or nonsensical timestamp","suites":["isRestartFailureFresh"],"parameters":[]},
+         "coverage":"complete","behavior":"零、NaN 和缺失时间戳的 NaN 表示均判为不新鲜","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"freshness_rejects_a_missing_or_nonsensical_timestamp"}]}},
+        {"source":{"id":"L166:C3","title":"leads with the stage and quotes the reason","suites":["summarizeRestartFailure"],"parameters":[]},
+         "coverage":"complete","behavior":"stage 置首，reason 带引号，init_type/task_state/definition_owner 均保留","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"summary_leads_with_the_stage_and_quotes_the_reason"}]}},
+        {"source":{"id":"L183:C3","title":"drops empty diag values so the script can emit placeholder keys","suites":["summarizeRestartFailure"],"parameters":[]},
+         "coverage":"complete","behavior":"空串和纯空白诊断键省略，非空 task_state 保留","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"summary_drops_empty_diag_values"}]}},
+        {"source":{"id":"L193:C3","title":"keeps the stage readable no matter how large the diagnostics are","suites":["summarizeRestartFailure"],"parameters":[]},
+         "coverage":"complete","behavior":"四个 5000 字符字段下摘要不超过 1000 字符，stage 与优先 task_state 仍可读","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"summary_keeps_the_stage_readable"}]}},
+        {"source":{"id":"L210:C3","title":"strips quotes, newlines and tabs that would break key=\"value\" parsing","suites":["summarizeRestartFailure"],"parameters":[]},
+         "coverage":"complete","behavior":"reason 内引号、换行和 tab 清洗，最终摘要逐字匹配预期","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"summary_strips_quotes_newlines_and_tabs"}]}},
+        {"source":{"id":"L220:C3","title":"reports both stream tails, because the scripts print diagnostics on stdout","suites":["describeRestartCommandError"],"parameters":[]},
+         "coverage":"complete","behavior":"退出码 1、stdout 和 stderr 三段诊断完整出现","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"describe_reports_both_stream_tails"}]}},
+        {"source":{"id":"L232:C3","title":"keeps the end of a long stream, where the failure actually is","suites":["describeRestartCommandError"],"parameters":[]},
+         "coverage":"complete","behavior":"5000 字符流保留末尾 THE-REAL-REASON，结果小于 1000 字符","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"describe_keeps_the_end_of_a_long_stream"}]}},
+        {"source":{"id":"L238:C3","title":"falls back to the error message when there is no output at all","suites":["describeRestartCommandError"],"parameters":[]},
+         "coverage":"complete","behavior":"无流输出回退 spawn ENOENT 文本，无错误返回 no error detail","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"describe_falls_back_to_the_error_message"}]}},
+        {"source":{"id":"L244:C3","title":"recognises a timeout kill","suites":["describeRestartCommandError"],"parameters":[]},
+         "coverage":"complete","behavior":"killed+SIGTERM 与 ETIMEDOUT 为超时；普通 code=1 和 Error 文本不是超时","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"recognises_a_timeout_kill"}]}},
+        {"source":{"id":"L253:C3","title":"collapses whitespace and truncates","suites":["sanitizeAlarmText"],"parameters":[]},
+         "coverage":"complete","behavior":"混合空白折叠为 a b c，abcdef 限长 3 得 abc","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/restart_breadcrumb.rs","test":"sanitize_collapses_whitespace_and_truncates"}]}}
+      ]
+    },
+    {
+      "legacy":"tests/unit/normalization/agent-system-map.test.ts", "coverage":"complete", "rust":[],
+      "note":"逐项对照历史的产品映射、别名、未知值和 19 项键集合。",
+      "source_hash":"2159ba074747289e9b7bc8f78086b1f0e37220b62aa436ca54728d5a8d84e1a4",
+      "cases":[
+        {
+          "source":{"id":"L5:C3","title":"maps claude-code to claude","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"claude-code 映射到 claude", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_claude_code_to_claude"}]}
+        },
+        {
+          "source":{"id":"L9:C3","title":"maps codex variants to codex","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"codex 和 codex-session 都映射到 codex", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_codex_variants_to_codex"}]}
+        },
+        {
+          "source":{"id":"L14:C3","title":"maps qoder variants to qoder","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"qoder、qoder-idea、qoder-work、qoder-work-cn、qoder-cli、qoder-cli-hook 六个别名都归 qoder", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_qoder_variants_to_qoder"}]}
+        },
+        {
+          "source":{"id":"L23:C3","title":"maps cursor variants to cursor","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"cursor 和 cursor-hook 都归 cursor", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_cursor_variants_to_cursor"}]}
+        },
+        {
+          "source":{"id":"L28:C3","title":"maps grok-build to grok","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"grok-build 映射到 grok", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_grok_build_to_grok"}]}
+        },
+        {
+          "source":{"id":"L32:C3","title":"maps qwen-code-cli to qwen-code","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"qwen-code-cli→qwen-code，qwen-work-cn→qwen 两个原断言都保留", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_qwen_variants"}]}
+        },
+        {
+          "source":{"id":"L37:C3","title":"maps mimo-code to mimo-code","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"mimo-code 保持同名系统", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_mimo_code_to_mimo_code"}]}
+        },
+        {
+          "source":{"id":"L41:C3","title":"maps pi-coding-agent to pi","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"pi-coding-agent 映射到 pi", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_pi_coding_agent_to_pi"}]}
+        },
+        {
+          "source":{"id":"L45:C3","title":"maps workbuddy to workbuddy","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"workbuddy 保持同名系统", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_workbuddy_to_workbuddy"}]}
+        },
+        {
+          "source":{"id":"L49:C3","title":"maps dsh to dsh","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"dsh 保持同名系统", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_dsh_to_dsh"}]}
+        },
+        {
+          "source":{"id":"L53:C3","title":"maps hermes to hermes","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"hermes 保持同名系统", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"maps_hermes_to_hermes"}]}
+        },
+        {
+          "source":{"id":"L57:C3","title":"returns unknown for unmapped types","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"some-future-agent 和空串均返回 unknown", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"returns_unknown_for_unmapped_types"}]}
+        },
+        {
+          "source":{"id":"L62:C3","title":"has entries for all expected agent types","suites":["resolveAgentSystem"],"parameters":[]},
+          "coverage":"complete", "behavior":"遍历与历史相同的 19 个 expected_keys 并逐项检查映射存在", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/agent_system_map.rs","test":"has_entries_for_all_expected_agent_types"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/normalization/invocation-identity.test.ts", "coverage":"complete", "rust":[],
+      "note":"保留身份优先级、非法覆盖值及 transport 字段始终删除的三个用例。",
+      "source_hash":"18ba564f2b08d604d637a1bd0c50f5a4da5a1a0696a430ea12d266c586fe5967",
+      "cases":[
+        {
+          "source":{"id":"L10:C3","title":"gives invocation identity precedence and removes transport fields","suites":["applyInvocationIdentity"],"parameters":[]},
+          "coverage":"complete", "behavior":"trim invocation user/session 后覆盖 native/configured/fallback；两个 transport 字段均删除", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/invocation_identity.rs","test":"gives_invocation_identity_precedence_and_removes_transport_fields"}]}
+        },
+        {
+          "source":{"id":"L26:C3","title":"preserves the existing configured/native/fallback user precedence without an override","suites":["applyInvocationIdentity"],"parameters":[]},
+          "coverage":"complete", "behavior":"无 invocation 时配置用户优先，其次 native，最后 fallback，三分支逐项断言", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/invocation_identity.rs","test":"preserves_configured_native_fallback_user_precedence_without_an_override"}]}
+        },
+        {
+          "source":{"id":"L40:C3","title":"ignores invalid transport values but always removes them","suites":["applyInvocationIdentity"],"parameters":[]},
+          "coverage":"complete", "behavior":"空白 session 与 513 字符 user 无效，保留 native session、使用 configured user，仍删除两个 transport 字段", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/invocation_identity.rs","test":"ignores_invalid_transport_values_but_always_removes_them"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/normalization/normalize-messages.test.ts", "coverage":"complete", "rust":[],
+      "note":"按 output、input delta、input 三个真实入口保留 17 个历史声明；undefined 对应 Option::None。",
+      "source_hash":"288e18d9d3a15fa687703b15e8ce225f71d59eb9edbccfad5e7847a10aa65907",
+      "cases":[
+        {
+          "source":{"id":"L9:C3","title":"returns undefined for undefined input","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"output 输入缺失时返回 None", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"output_returns_none_for_missing_and_null"}]}
+        },
+        {
+          "source":{"id":"L13:C3","title":"returns undefined for null input","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"output 显式 null 时返回 None", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"output_returns_none_for_missing_and_null"}]}
+        },
+        {
+          "source":{"id":"L17:C3","title":"wraps bare parts array into {role, parts}","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"裸 text part 包成单个 assistant 消息，内容 hello 不变", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"wraps_bare_parts_array_into_role_parts"}]}
+        },
+        {
+          "source":{"id":"L24:C3","title":"wraps bare reasoning part","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"裸 reasoning part 包成 assistant 消息，type 和 thinking... 均保留", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"wraps_bare_reasoning_part"}]}
+        },
+        {
+          "source":{"id":"L31:C3","title":"wraps multiple bare parts into a single message","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"reasoning 与 text 两个 part 合成单条 assistant，顺序和内容不变", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"wraps_multiple_bare_parts_into_a_single_message"}]}
+        },
+        {
+          "source":{"id":"L47:C3","title":"renames camelCase finishReason to snake_case finish_reason","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"finishReason=stop 改为 finish_reason，旧 key 消失，role/parts 不变", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"renames_camel_case_finish_reason"}]}
+        },
+        {
+          "source":{"id":"L56:C3","title":"passes through already canonical format unchanged","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"含 finish_reason 的标准 assistant 消息内容完全相等", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"passes_through_canonical_output_with_and_without_finish_reason"}]}
+        },
+        {
+          "source":{"id":"L63:C3","title":"passes through canonical format without finish_reason","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"无 finish_reason 的标准 assistant 消息内容完全相等", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"passes_through_canonical_output_with_and_without_finish_reason"}]}
+        },
+        {
+          "source":{"id":"L70:C3","title":"returns empty array as-is","suites":["normalizeOutputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"output 空数组仍为空数组，不变为 None", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"output_returns_empty_array_as_is"}]}
+        },
+        {
+          "source":{"id":"L76:C3","title":"returns undefined for undefined input","suites":["normalizeInputMessagesDelta"],"parameters":[]},
+          "coverage":"complete", "behavior":"delta 输入缺失时返回 None", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"input_delta_returns_none_for_missing_and_null"}]}
+        },
+        {
+          "source":{"id":"L80:C3","title":"returns undefined for null input","suites":["normalizeInputMessagesDelta"],"parameters":[]},
+          "coverage":"complete", "behavior":"delta 显式 null 时返回 None", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"input_delta_returns_none_for_missing_and_null"}]}
+        },
+        {
+          "source":{"id":"L84:C3","title":"converts flat content to parts array","suites":["normalizeInputMessagesDelta"],"parameters":[]},
+          "coverage":"complete", "behavior":"delta 的 user/content=hello 转成 parts text，移除旧 content key", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"input_delta_converts_flat_content_to_parts"}]}
+        },
+        {
+          "source":{"id":"L91:C3","title":"passes through already canonical format unchanged","suites":["normalizeInputMessagesDelta"],"parameters":[]},
+          "coverage":"complete", "behavior":"delta 标准 user 消息内容不变", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"input_delta_passes_through_canonical_format"}]}
+        },
+        {
+          "source":{"id":"L98:C3","title":"returns empty array as-is","suites":["normalizeInputMessagesDelta"],"parameters":[]},
+          "coverage":"complete", "behavior":"delta 空数组仍为空数组", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"input_delta_returns_empty_array_as_is"}]}
+        },
+        {
+          "source":{"id":"L104:C3","title":"returns undefined for undefined input","suites":["normalizeInputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"input 缺失时返回 None", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"input_messages_returns_none_for_missing"}]}
+        },
+        {
+          "source":{"id":"L108:C3","title":"converts flat content to parts array","suites":["normalizeInputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"input user/content=hello 转成 parts text，移除旧 content key", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"input_messages_converts_flat_content_to_parts"}]}
+        },
+        {
+          "source":{"id":"L115:C3","title":"passes through already canonical format unchanged","suites":["normalizeInputMessages"],"parameters":[]},
+          "coverage":"complete", "behavior":"input 标准 user 消息内容不变", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/normalize_messages.rs","test":"input_messages_passes_through_canonical_format"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/normalization/finish-reason.test.ts", "coverage":"complete", "rust":[],
+      "note":"枚举一致性改为 xtask 中对真实 collector 与 validator 常量及校验入口的比较，不用本地副本充当另一实现；保留供应商拼写、透传和未知值丢弃合同。",
+      "source_hash":"9eb5fb8bbbeaacfacf2dfdab3a23babce5ce1c054876bf60461fd814dbb78e6a",
+      "cases":[
+        {
+          "source":{"id":"L6:C3","title":"keeps its finish-reason allowlist equal to the trace validator's","suites":["normalizeFinishReason"],"parameters":[]},
+          "coverage":"complete", "behavior":"真实采集器和 Trace 校验器允许列表排序后相等，并逐值验证输出消息接受、未知值拒绝", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"xtask/src/trace_validate/messages.rs","test":"collector_and_validator_finish_reason_allowlists_match"}]}
+        },
+        {
+          "source":{"id":"L14:C3","title":"maps vendor spellings onto the OTel GenAI enum","suites":["normalizeFinishReason"],"parameters":[]},
+          "coverage":"complete", "behavior":"tool_use→tool_call、stop_sequence/refusal→stop、model_context_window_exceeded→length 四组逐项对应", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/finish_reason.rs","test":"maps_vendor_spellings_onto_the_otel_genai_enum"}]}
+        },
+        {
+          "source":{"id":"L21:C3","title":"passes through values already in the enum","suites":["normalizeFinishReason"],"parameters":[]},
+          "coverage":"complete", "behavior":"遍历全部已发布枚举，归一化后逐值不变", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/finish_reason.rs","test":"passes_through_values_already_in_the_enum"}]}
+        },
+        {
+          "source":{"id":"L27:C3","title":"drops unknown values instead of coercing them to a terminal reason","suites":["normalizeFinishReason"],"parameters":[]},
+          "coverage":"complete", "behavior":"pause_turn、some_future_reason 和空串都返回 None，不转换成终止原因", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/finish_reason.rs","test":"drops_unknown_values_instead_of_coercing_them_to_a_terminal_reason"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/normalization/redact.test.ts", "coverage":"complete", "rust":[],
+      "note":"保留字段过滤、输入不变及返回副本的四个历史用例，缺少敏感字段时额外通过修改结果验证副本独立。",
+      "source_hash":"013c36a04387aef3cfaf1828611b5b976f502f81af8e19f4cfc794f19a66d100",
+      "cases":[
+        {
+          "source":{"id":"L6:C3","title":"removes filePath, content, and inlineDiffMessage","suites":["redactCodeGenerationFields"],"parameters":[]},
+          "coverage":"complete", "behavior":"删除 filePath/content/inlineDiffMessage，保留 sessionId/uuid/agentType 的全部原值", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"removes_file_path_content_and_inline_diff"}]}
+        },
+        {
+          "source":{"id":"L24:C3","title":"returns a new object without mutating the original","suites":["redactCodeGenerationFields"],"parameters":[]},
+          "coverage":"complete", "behavior":"输入仍含原三个敏感字段；返回独立拥有的数据且 filePath 已移除", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"returns_a_new_object_without_mutating_the_original"}]}
+        },
+        {
+          "source":{"id":"L38:C3","title":"does not alter output when fields are already missing","suites":["redactCodeGenerationFields"],"parameters":[]},
+          "coverage":"complete", "behavior":"没有敏感字段时内容相等，修改返回 sessionId 不改变输入", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"does_not_alter_output_when_fields_are_already_missing"}]}
+        },
+        {
+          "source":{"id":"L49:C3","title":"preserves all non-redacted fields","suites":["redactCodeGenerationFields"],"parameters":[]},
+          "coverage":"complete", "behavior":"保留历史显式断言的 sessionId、uuid、userId、repoId、customField 原值", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"preserves_all_non_redacted_fields"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/normalization/serialise.test.ts", "coverage":"complete", "rust":[],
+      "note":"15 个历史用例逐项复用现有序列化回归；JS undefined 对应字段缺失，null 和旧别名均不输出。",
+      "source_hash":"11d6b492d5b52102b16e399db9273c3fb34cac92328a89319e81610dcd9a3630",
+      "cases":[
+        {
+          "source":{"id":"L21:C3","title":"serializes basic fields","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"session/event/user/agent/event.name 五个基础字段逐值相同", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"serializes_basic_fields"}]}
+        },
+        {
+          "source":{"id":"L30:C3","title":"serializes standard extra fields","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"agent.custom_key 以 customVal 输出", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"serializes_standard_extra_fields"}]}
+        },
+        {
+          "source":{"id":"L37:C3","title":"drops agent-scoped extension fields when requested","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"drop 开关删除 qoder/cursor/qoderwork 命名空间扩展，保留 custom_key、file_path、agent.type", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"drops_agent_scoped_extension_fields_when_requested"}]}
+        },
+        {
+          "source":{"id":"L53:C3","title":"converts scalar values to strings","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"input_tokens 数值 42 输出字符串 42", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"converts_scalar_values_to_strings"}]}
+        },
+        {
+          "source":{"id":"L60:C3","title":"JSON.stringifies JSON object values","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"tool.call.arguments 对象 a=1 输出紧凑 JSON 字符串", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"json_stringifies_object_values"}]}
+        },
+        {
+          "source":{"id":"L68:C3","title":"keeps content fields before endpoint redaction","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"端点内容脱敏之前 tool.call.result 的 output=visible 完整序列化", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"keeps_content_fields_before_endpoint_redaction"}]}
+        },
+        {
+          "source":{"id":"L75:C3","title":"keeps tool result status as a serialized field","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"tool.result.status=cancelled 原样保留", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"keeps_tool_result_status_as_a_serialized_field"}]}
+        },
+        {
+          "source":{"id":"L81:C3","title":"normalizes completed tool results before serializing the global status field","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"真实 builder 将 tool.result 的 completed 转换为 success，序列化后仍为 success", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"normalizes_completed_tool_results_before_serializing_status"}]}
+        },
+        {
+          "source":{"id":"L90:C3","title":"skips null and undefined values","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"未提供 provider.name 和 null tool.arguments 均不输出", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"skips_null_and_undefined_values"}]}
+        },
+        {
+          "source":{"id":"L99:C3","title":"serializes nanosecond timestamp as-is","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"1700000000000000000 纳秒时间字符串不丢精度、不改内容", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"serializes_nanosecond_timestamp_as_is"}]}
+        },
+        {
+          "source":{"id":"L104:C3","title":"includes input messages when present","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"user/hi 输入 delta 数组序列化为完整 JSON", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"includes_input_messages_when_present"}]}
+        },
+        {
+          "source":{"id":"L109:C3","title":"includes output messages when present","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"text/ok 输出数组序列化为完整 JSON", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"includes_output_messages_when_present"}]}
+        },
+        {
+          "source":{"id":"L114:C3","title":"serializes canonical source contract fields","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"git.repo/git.branch/workspace.current_root 三个标准来源字段逐字保留", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"serializes_canonical_source_contract_fields"}]}
+        },
+        {
+          "source":{"id":"L126:C3","title":"omits optional message fields when undefined","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"缺省输入 delta 和输出消息时不生成对应字段", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"omits_optional_message_fields_when_absent"}]}
+        },
+        {
+          "source":{"id":"L132:C3","title":"omits legacy aliases from new output","suites":["serialiseLogEntry"],"parameters":[]},
+          "coverage":"complete", "behavior":"session.id、agent.type、usage.input_tokens、tool.arguments、gen_ai.message.role、is_error、attributes 七个旧字段均移除", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/normalization/entry_builder.rs","test":"omits_legacy_aliases_from_new_output"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/json-document.test.ts", "coverage":"complete", "rust":[],
+      "note":"六个历史断言逐项对应，BOM 只在解析时剥离，原始文本与编辑后的 BOM 均保留。",
+      "source_hash":"d682c7c30f60fdd9eaa3f61482636c8a9f5b6bb1439b3dc559b960603e98082a",
+      "cases":[
+        {
+          "source":{"id":"L29:C3","title":"parses BOM-prefixed strict JSON","suites":["parseJsonDocument with a leading BOM"],"parameters":[]},
+          "coverage":"complete", "behavior":"BOM 前缀严格 JSON 成功解析 model=pilot", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/json_document.rs","test":"parses_bom_prefixed_strict_json"}]}
+        },
+        {
+          "source":{"id":"L35:C3","title":"parses BOM-prefixed JSONC, comments and trailing commas included","suites":["parseJsonDocument with a leading BOM"],"parameters":[]},
+          "coverage":"complete", "behavior":"同时含 BOM、注释和尾逗号的 JSONC 解析得到 hooks.a=1", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/json_document.rs","test":"parses_bom_prefixed_jsonc_with_comments_and_trailing_commas"}]}
+        },
+        {
+          "source":{"id":"L44:C3","title":"still reports malformed content as an error, BOM or not","suites":["parseJsonDocument with a leading BOM"],"parameters":[]},
+          "coverage":"complete", "behavior":"有无 BOM 的截断 JSON 和带 BOM 的无值 JSONC 全部报错", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/json_document.rs","test":"reports_malformed_content_as_an_error"}]}
+        },
+        {
+          "source":{"id":"L50:C3","title":"strips only a leading BOM, leaving one inside a string intact","suites":["parseJsonDocument with a leading BOM"],"parameters":[]},
+          "coverage":"complete", "behavior":"字符串 a 与 b 之间的 BOM 字符不变", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/json_document.rs","test":"strips_only_a_leading_bom_inside_parse"}]}
+        },
+        {
+          "source":{"id":"L66:C3","title":"returns the BOM in raw while still parsing the data","suites":["readJsonDocument keeps raw byte-exact"],"parameters":[]},
+          "coverage":"complete", "behavior":"真实文件读取 model=pilot 且 raw 与磁盘文本逐字一致，包括 BOM 和尾换行", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/json_document.rs","test":"returns_the_bom_in_raw_while_parsing"}]}
+        },
+        {
+          "source":{"id":"L84:C3","title":"editJsonc round-trips BOM-prefixed text and preserves the BOM","suites":["readJsonDocument keeps raw byte-exact"],"parameters":[]},
+          "coverage":"complete", "behavior":"编辑 model 从 old 到 pilot，结果仍有 BOM 且可重新解析", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/json_document.rs","test":"edit_jsonc_round_trips_bom_prefixed_text"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/logger-flush.test.ts", "coverage":"complete", "rust":[],
+      "note":"隔离子进程保证未初始化文件日志，避免其他并行测试改变此用例前提。",
+      "source_hash":"e8107d00189f29dbfada58bcc80231b0806ca1b3f9a6ece13b0990dac47e4a5d",
+      "cases":[
+        {
+          "source":{"id":"L5:C3","title":"is a safe no-op before file logging is initialized","suites":["logger flushLogsSync"],"parameters":[]},
+          "coverage":"complete", "behavior":"文件日志未初始化时同步 flush 不 panic，调用前后 appender 为空且不启用文件日志", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/logger.rs","test":"flush_logs_sync_is_a_safe_noop_before_file_logging"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/pid-utils.write.test.ts", "coverage":"complete", "rust":[],
+      "note":"六个真实文件系统场景归并到现有 Rust 测试，保留 PID 格式、递归目录、所有权和失败容错。",
+      "source_hash":"5fcf55ea8d812b968899c4b56984c9060766efba83a77f4adc87843cfca0513d",
+      "cases":[
+        {
+          "source":{"id":"L25:C3","title":"writes the current pid as a bare integer + trailing newline","suites":["pid-utils write/remove"],"parameters":[]},
+          "coverage":"complete", "behavior":"磁盘字节严格为当前 PID 加换行，read_pid_file 返回当前 PID", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"writes_and_removes_the_current_pid"}]}
+        },
+        {
+          "source":{"id":"L34:C3","title":"creates missing parent directories (recursive mkdir)","suites":["pid-utils write/remove"],"parameters":[]},
+          "coverage":"complete", "behavior":"创建 nested/deep 目录并写入可读取的当前 PID", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"writes_and_removes_the_current_pid"}]}
+        },
+        {
+          "source":{"id":"L42:C3","title":"removeOwnPidFileSync removes the file when it still records this process","suites":["pid-utils write/remove"],"parameters":[]},
+          "coverage":"complete", "behavior":"清理当前 PID 后文件不存在", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"writes_and_removes_the_current_pid"}]}
+        },
+        {
+          "source":{"id":"L51:C3","title":"removeOwnPidFileSync preserves a file owned by a peer (different pid)","suites":["pid-utils write/remove"],"parameters":[]},
+          "coverage":"complete", "behavior":"文件被其他 PID 接管后保留文件及原 PID", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"writes_and_removes_the_current_pid"}]}
+        },
+        {
+          "source":{"id":"L64:C3","title":"removeOwnPidFileSync is a no-op when the file is missing","suites":["pid-utils write/remove"],"parameters":[]},
+          "coverage":"complete", "behavior":"删除缺失的 ghost.pid 不 panic", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"writes_and_removes_the_current_pid"}]}
+        },
+        {
+          "source":{"id":"L68:C3","title":"write and remove are best-effort: an unwritable path never throws","suites":["pid-utils write/remove"],"parameters":[]},
+          "coverage":"complete", "behavior":"父路径是普通文件时写入和清理都不 panic，目标 PID 文件不存在", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"writes_and_removes_the_current_pid"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/data-dir-parity.test.ts", "coverage":"complete", "rust":[],
+      "note":"补齐八个场景中真实 load_config 与 resolve_data_dir 的交叉断言；Windows padding 对接生产 assembler。原路径插值改用 JSON serializer 保留 Windows 路径。each 的六个参数场景完整保留。",
+      "source_hash":"e6ee9c7d6497e702dd789d1bbf26a075413f0babd18a736bff83ef0a1974e901",
+      "cases":[
+        {
+          "source":{"id":"L58:C3","title":"falls back to the default when neither env nor config file says anything","suites":["data-dir precedence parity: loadConfig vs resolveDataDir"],"parameters":[]},
+          "coverage":"complete", "behavior":"default 场景无环境覆盖和 dataDir 字段，两个真实入口都解析到默认目录", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"resolve_data_dir_precedence_matches_the_documented_chain"}]}
+        },
+        {
+          "source":{"id":"L64:C3","title":"reads the config-file dataDir when the env var is absent","suites":["data-dir precedence parity: loadConfig vs resolveDataDir"],"parameters":[]},
+          "coverage":"complete", "behavior":"file 场景两个真实入口使用配置中的 from-config", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"resolve_data_dir_precedence_matches_the_documented_chain"}]}
+        },
+        {
+          "source":{"id":"L71:C3","title":"lets the env var win over the config-file dataDir","suites":["data-dir precedence parity: loadConfig vs resolveDataDir"],"parameters":[]},
+          "coverage":"complete", "behavior":"env 场景配置有 from-config，两个真实入口仍优先 from-env", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"resolve_data_dir_precedence_matches_the_documented_chain"}]}
+        },
+        {
+          "source":{"id":"L78:C3","title":"expands ~ in the config-file dataDir on both sides","suites":["data-dir precedence parity: loadConfig vs resolveDataDir"],"parameters":[]},
+          "coverage":"complete", "behavior":"tilde 场景配置 ~/some-dir，两个入口最终都展开到隔离 home", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"resolve_data_dir_precedence_matches_the_documented_chain"}]}
+        },
+        {
+          "source":{"id":"L84:C3","title":"treats an empty config-file dataDir as unset on both sides","suites":["data-dir precedence parity: loadConfig vs resolveDataDir"],"parameters":[]},
+          "coverage":"complete", "behavior":"empty 场景空字符串 dataDir 在两个入口都回退默认值", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"resolve_data_dir_precedence_matches_the_documented_chain"}]}
+        },
+        {
+          "source":{"id":"L93:C3","title":"survives an unreadable config file (both sides fall through)","suites":["data-dir precedence parity: loadConfig vs resolveDataDir"],"parameters":[]},
+          "coverage":"complete", "behavior":"missing 场景配置路径不存在，兼容加载和同步目录解析均回退默认值", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"resolve_data_dir_precedence_matches_the_documented_chain"}]}
+        },
+        {
+          "source":{"id":"L99:C3","title":"survives an unparsable config file","suites":["data-dir precedence parity: loadConfig vs resolveDataDir"],"parameters":[]},
+          "coverage":"complete", "behavior":"malformed 场景无效 JSON 的两个兼容加载入口均回退默认值；严格预检合同独立保留", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"resolve_data_dir_precedence_matches_the_documented_chain"}]}
+        },
+        {
+          "source":{"id":"L105:C3","title":"strips a leading BOM exactly like readJsonFile does","suites":["data-dir precedence parity: loadConfig vs resolveDataDir"],"parameters":[]},
+          "coverage":"complete", "behavior":"bom 场景同步字段读取与两个真实入口都使用 BOM 配置中的 bom-dir", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"resolve_data_dir_precedence_matches_the_documented_chain"}]}
+        },
+        {
+          "source":{"id":"L123:C3","title":"loadConfig and resolveDataDir agree on a padded LOONGSUITE_PILOT_DATA_DIR","suites":["win32 env padding parity"],"parameters":[]},
+          "coverage":"complete", "behavior":"注入 Win32 平台时环境读取、目录解析与 load_config 复用的 assembler 都去除 dataDir 两侧空白并相等", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"win32_env_padding_is_trimmed_before_resolution"}]}
+        },
+        {
+          "source":{"id":"L140:C3","title":"(%s, %s) -> %s","suites":["pickDataDir"],"parameters":["it.each([\n    ['/explicit', '/from/file', '/explicit'],\n    [undefined, '/from/file', '/from/file'],\n    [undefined, undefined, DEFAULT_DATA_DIR],\n    ['', '/from/file', '/from/file'],\n    ['', '', DEFAULT_DATA_DIR],\n    ['/explicit', undefined, '/explicit'],\n  ])"]},
+          "coverage":"complete", "behavior":"六组 explicit/file 输入逐项核对：显式优先、文件回退、缺失和空串默认、无文件显式值", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"pick_data_dir_table"}]}
+        },
+        {
+          "source":{"id":"L153:C3","title":"uses AGENT_DATA_COLLECTION_CONFIG when set","suites":["configJsonPath"],"parameters":[]},
+          "coverage":"complete", "behavior":"显式配置路径 elsewhere.json 原样使用", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"config_json_path_uses_env_and_treats_whitespace_as_unset"}]}
+        },
+        {
+          "source":{"id":"L158:C3","title":"treats a whitespace-only value as unset","suites":["configJsonPath"],"parameters":[]},
+          "coverage":"complete", "behavior":"配置路径环境值为三个空格时使用默认配置位置", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"config_json_path_uses_env_and_treats_whitespace_as_unset"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/process-discovery.test.ts", "coverage":"partial", "rust":[],
+      "note":"扫描解析与回退已对应；历史 windowsHide 断言目前只验证常量，实际 run_command 尚未设置创建标志，保留部分覆盖直到补齐 Windows 子进程合同。",
+      "source_hash":"8b2841d52f6e22bbdc860ccce40dd3e6061f95feffd15e43b2c5f67d07f2f6ee",
+      "cases":[
+        {
+          "source":{"id":"L23:C3","title":"returns false and does not invoke powershell on non-win32","suites":["isUpdaterRunningOnWindowsSync"],"parameters":[]},
+          "coverage":"complete", "behavior":"非 Windows 真实入口直接返回 false；注入非 Windows 平台即使有匹配输出仍 false", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_false_and_does_not_scan_on_non_windows"}]}
+        },
+        {
+          "source":{"id":"L30:C3","title":"returns true when powershell output contains a matching updater command line","suites":["isUpdaterRunningOnWindowsSync"],"parameters":[]},
+          "coverage":"partial", "behavior":"保留 updater Windows 命令匹配以及程序、参数、8 秒超时、UTF-8 常量断言；缺实际子进程 windowsHide 行为验证和创建标志接线", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_true_when_powershell_output_contains_a_matching_updater_command"}]}
+        },
+        {
+          "source":{"id":"L42:C3","title":"returns false when powershell output has no matching updater command","suites":["isUpdaterRunningOnWindowsSync"],"parameters":[]},
+          "coverage":"complete", "behavior":"unrelated.js 扫描结果不匹配 updater", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_false_when_output_has_no_matching_updater_command"}]}
+        },
+        {
+          "source":{"id":"L49:C3","title":"returns false when powershell output is empty","suites":["isUpdaterRunningOnWindowsSync"],"parameters":[]},
+          "coverage":"complete", "behavior":"空扫描结果返回 false", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_false_when_powershell_output_is_empty"}]}
+        },
+        {
+          "source":{"id":"L56:C3","title":"returns false when powershell throws","suites":["isUpdaterRunningOnWindowsSync"],"parameters":[]},
+          "coverage":"complete", "behavior":"扫描出错时返回 false", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_false_when_powershell_throws"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/agent-type-normalize.test.ts", "coverage":"complete", "rust":[],
+      "note":"五个历史用例的全部输入输出逐项对应现有 Rust 测试。",
+      "source_hash":"a3e2e648ae2c81ba5892d6bcc22d79d35685c9d7c9eaa50b90badf73eaf4eb20",
+      "cases":[
+        {
+          "source":{"id":"L5:C3","title":"returns already-normalized values unchanged","suites":["normalizeAgentType"],"parameters":[]},
+          "coverage":"complete", "behavior":"claude-code、qoder-cli、cursor-hook 三个已归一化值保持不变", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/agent_type_normalize.rs","test":"returns_already_normalized_values_unchanged"}]}
+        },
+        {
+          "source":{"id":"L11:C3","title":"lowercases input","suites":["normalizeAgentType"],"parameters":[]},
+          "coverage":"complete", "behavior":"Claude-Code 和 QODER 转小写", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/agent_type_normalize.rs","test":"lowercases_input"}]}
+        },
+        {
+          "source":{"id":"L16:C3","title":"collapses non-alphanumeric runs to single dash","suites":["normalizeAgentType"],"parameters":[]},
+          "coverage":"complete", "behavior":"空格、双下划线及 @/# 分隔合并为单横线，覆盖三个历史输入", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/agent_type_normalize.rs","test":"collapses_non_alphanumeric_runs_to_single_dash"}]}
+        },
+        {
+          "source":{"id":"L22:C3","title":"trims leading and trailing dashes","suites":["normalizeAgentType"],"parameters":[]},
+          "coverage":"complete", "behavior":"--claude-code-- 和带空格的 cursor 去掉首尾分隔符", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/agent_type_normalize.rs","test":"trims_leading_and_trailing_dashes"}]}
+        },
+        {
+          "source":{"id":"L27:C3","title":"returns unknown for empty or pure non-alphanumeric input","suites":["normalizeAgentType"],"parameters":[]},
+          "coverage":"complete", "behavior":"空串、三横线和纯空格都返回 unknown", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/agent_type_normalize.rs","test":"returns_unknown_for_empty_or_pure_non_alphanumeric_input"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/poll-interval.test.ts", "coverage":"complete", "rust":[],
+      "note":"保留原十进制范围与配置回退合同；环境变量场景由隔离子进程执行，不污染并行测试。",
+      "source_hash":"d2a6c5f1d8a67904fea59c12438437cd75a772ea5f7f10d8b4bf02b894cd4fa9",
+      "cases":[
+        {
+          "source":{"id":"L13:C3","title":"accepts decimal integers from 1000 through the setInterval maximum","suites":["globalPollIntervalMs"],"parameters":[]},
+          "coverage":"complete", "behavior":"环境变量 1000、3000、2147483647 均按十进制接受，保留已发布上限", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/poll_interval.rs","test":"accepts_decimal_integers_from_1000_through_the_set_interval_maximum"}]}
+        },
+        {
+          "source":{"id":"L22:C3","title":"ignores values Node would clamp, and non-integers","suites":["globalPollIntervalMs"],"parameters":[]},
+          "coverage":"complete", "behavior":"逐项拒绝 0/0.4/3/1e5/1e-5/0x10/2147483648/nope/空串；无合法覆盖时保留配置值 30000", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/poll_interval.rs","test":"ignores_values_node_would_clamp_and_non_integers"}]}
+        }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/config-path-from.test.ts", "coverage":"complete", "rust":[],
+      "note":"五处声明含两组 each：双斜线风格两个场景、空覆盖三个场景；全部参数和断言复用 Rust 回归。系统 home 断言按 Windows USERPROFILE/POSIX HOME 区分。",
+      "source_hash":"8e0b0747c9efd0dda1f84958f17e4f782fa72f3435d0ed35f41f8074dac76f08",
+      "cases":[
+        {
+          "source":{"id":"L8:C3","title":"expands Windows %s using USERPROFILE, not HOME","suites":["shared config path resolution"],"parameters":["it.each(['~\\\\pilot\\\\config.json', '~/pilot/config.json'])"]},
+          "coverage":"complete", "behavior":"参数 ~\\pilot\\config.json 和 ~/pilot/config.json 均忽略错误 HOME，展开到 USERPROFILE 下的同一 Windows 配置路径", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"expands_windows_tilde_using_userprofile_not_home"}]}
+        },
+        {
+          "source":{"id":"L12:C3","title":"uses system home when the platform home variable is absent","suites":["shared config path resolution"],"parameters":[]},
+          "coverage":"complete", "behavior":"Linux 无 HOME 回退 /system/user；Windows 只有错误 HOME、无 USERPROFILE 时回退 C:\\system", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"uses_system_home_when_the_platform_home_variable_is_absent"}]}
+        },
+        {
+          "source":{"id":"L18:C3","title":"shares the default for empty overrides (%s)","suites":["shared config path resolution"],"parameters":["it.each(['', '   ', undefined])"]},
+          "coverage":"complete", "behavior":"空串、三个空格和未设置三个覆盖值都使用 /test 下默认配置", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"shares_the_default_for_empty_overrides"}]}
+        },
+        {
+          "source":{"id":"L22:C3","title":"preserves absolute paths and resolves a bare tilde consistently","suites":["shared config path resolution"],"parameters":[]},
+          "coverage":"complete", "behavior":"绝对配置路径去首尾空格；隔离 Linux 裸 ~ 展开 /test；进程裸 ~ 使用当前平台系统 home", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"preserves_absolute_paths_and_resolves_a_bare_tilde"}]}
+        },
+        {
+          "source":{"id":"L27:C3","title":"uses exactly the same path as the live config loader","suites":["shared config path resolution"],"parameters":[]},
+          "coverage":"complete", "behavior":"隔离子进程设置 ~/pilot/config.json，静态 helper、运行配置入口与 resolve_home 得到相同路径", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/data_dir.rs","test":"uses_exactly_the_same_path_as_the_live_config_loader"}]}
+        }
+      ]
+    },
     {
       "legacy": "tests/unit/checkpoints/state-store.test.ts",
       "coverage": "complete",
@@ -24,7 +732,95 @@
         {"file": "src/checkpoints/state_store.rs", "test": "serializes_saves_and_persists_mutations_during_write"},
         {"file": "src/checkpoints/state_store.rs", "test": "retains_unpersisted_revision_after_failed_write"}
       ],
-      "note": "逐项核对全部 17 个历史测试：空状态、缺失/损坏文件、保存重载、get/set/partial update、独立副本、offset/rowId 默认与设置、revision 不写/写入/不重写，以及活动写入期间变更、最大单写并发和失败后重试。已有 Rust 测试完整保留这些断言，并加强持久化字节和写次数验证；不新增测试或 runner；保留旧文件，等待完整清理门禁通过，不代表其他 checkpoint 并发合同或全平台验收。"
+      "note": "17 个历史用例逐项核对并复用现有 Rust 断言；加强持久化字节、写次数和并发写入验证。平台实跑结果另行记录。",
+      "source_hash": "fe32d321dae52b9ad280bc982ae632fba76ff40d9cbd8dc3c2e6683ea2365005",
+      "cases": [
+        {
+          "source": {"id":"L36:C5","title":"should start with empty state","suites":["StateStore","load/save lifecycle"],"parameters":[]},
+          "coverage":"complete", "behavior":"load 后未知输入返回空状态", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"starts_with_empty_state"}]}
+        },
+        {
+          "source": {"id":"L41:C5","title":"should persist state across save/load","suites":["StateStore","load/save lifecycle"],"parameters":[]},
+          "coverage":"complete", "behavior":"保存 offset=100、rowId=5 后重建实例得到相同状态，并校验文件字节", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"persists_state_across_save_load"}]}
+        },
+        {
+          "source": {"id":"L51:C5","title":"should handle missing file gracefully","suites":["StateStore","load/save lifecycle"],"parameters":[]},
+          "coverage":"complete", "behavior":"不存在的文件加载为空状态", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"handles_missing_file"}]}
+        },
+        {
+          "source": {"id":"L58:C5","title":"should handle corrupt JSON gracefully","suites":["StateStore","load/save lifecycle"],"parameters":[]},
+          "coverage":"complete", "behavior":"损坏 JSON 加载为空状态", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"handles_corrupt_json"}]}
+        },
+        {
+          "source": {"id":"L70:C5","title":"should get empty state for unknown id","suites":["StateStore","get/set/update"],"parameters":[]},
+          "coverage":"complete", "behavior":"未知 ID 的 get 返回空状态", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"get_returns_empty_state_for_unknown_id"}]}
+        },
+        {
+          "source": {"id":"L74:C5","title":"should set and retrieve state","suites":["StateStore","get/set/update"],"parameters":[]},
+          "coverage":"complete", "behavior":"set 后 get 返回 offset=42", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"sets_and_retrieves_state"}]}
+        },
+        {
+          "source": {"id":"L79:C5","title":"should update partial state without losing existing fields","suites":["StateStore","get/set/update"],"parameters":[]},
+          "coverage":"complete", "behavior":"更新 offset=30 时保留原 rowId=20", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"updates_partial_state_without_losing_fields"}]}
+        },
+        {
+          "source": {"id":"L87:C5","title":"should set state immutably (no reference leaks)","suites":["StateStore","get/set/update"],"parameters":[]},
+          "coverage":"complete", "behavior":"修改调用方副本的 offset 不影响存储的 offset=10 和 extra", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"set_stores_an_independent_copy"}]}
+        },
+        {
+          "source": {"id":"L100:C5","title":"should return 0 for unknown input","suites":["StateStore","getOffset/setOffset"],"parameters":[]},
+          "coverage":"complete", "behavior":"未知输入 offset 默认 0", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"get_offset_returns_zero_for_unknown_input"}]}
+        },
+        {
+          "source": {"id":"L104:C5","title":"should set and get offset","suites":["StateStore","getOffset/setOffset"],"parameters":[]},
+          "coverage":"complete", "behavior":"set_offset 后读得 256", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"sets_and_gets_offset"}]}
+        },
+        {
+          "source": {"id":"L115:C5","title":"should return 0 for unknown input","suites":["StateStore","getRowId/setRowId"],"parameters":[]},
+          "coverage":"complete", "behavior":"未知输入 rowId 默认 0", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"get_row_id_returns_zero_for_unknown_input"}]}
+        },
+        {
+          "source": {"id":"L119:C5","title":"should set and get rowId","suites":["StateStore","getRowId/setRowId"],"parameters":[]},
+          "coverage":"complete", "behavior":"set_row_id 后读得 42", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"sets_and_gets_row_id"}]}
+        },
+        {
+          "source": {"id":"L126:C5","title":"should not write without a new revision","suites":["StateStore","revision optimization"],"parameters":[]},
+          "coverage":"complete", "behavior":"没有 revision 变化时 save 不创建文件", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"does_not_write_without_a_new_revision"}]}
+        },
+        {
+          "source": {"id":"L135:C5","title":"should write when the revision changes","suites":["StateStore","revision optimization"],"parameters":[]},
+          "coverage":"complete", "behavior":"revision 变化后 save 创建文件", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"writes_when_the_revision_changes"}]}
+        },
+        {
+          "source": {"id":"L144:C5","title":"should not rewrite an already persisted revision","suites":["StateStore","revision optimization"],"parameters":[]},
+          "coverage":"complete", "behavior":"连续两次 save 的实际写次数为 1", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"does_not_rewrite_an_already_persisted_revision"}]}
+        },
+        {
+          "source": {"id":"L154:C5","title":"serializes saves and persists mutations made during an active write","suites":["StateStore","concurrent saves"],"parameters":[]},
+          "coverage":"complete", "behavior":"活动写入时新增输入并更新 offset；两个 save 最终持久化全部变化，写次数=2、最大并发=1", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"serializes_saves_and_persists_mutations_during_write"}]}
+        },
+        {
+          "source": {"id":"L204:C5","title":"retains an unpersisted revision after a failed write","suites":["StateStore","concurrent saves"],"parameters":[]},
+          "coverage":"complete", "behavior":"第一次写失败返回原因；第二次重试仍写入 offset=10，总调用次数=2", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/state_store.rs","test":"retains_unpersisted_revision_after_failed_write"}]}
+        }
+      ]
     },
     {
       "legacy": "tests/unit/checkpoints/snapshot-store.test.ts",
@@ -43,7 +839,65 @@
         {"file": "src/checkpoints/snapshot_store.rs", "test": "handles_missing_file_on_load"},
         {"file": "src/checkpoints/snapshot_store.rs", "test": "restores_high_watermark_from_persisted_entries"}
       ],
-      "note": "逐项核对全部 11 个历史测试：未见/pending/processed 去重、状态转换、size、水位更新与保留期下限、过期清理、pending/processed 同时持久化重载、缺失文件及水位恢复。复用实例级时钟的现有 Rust 断言，并验证精确水位与持久化字节；不新增测试或 runner；保留旧文件，等待完整清理门禁通过。完整映射仅针对该历史文件，不能当作更广泛的并发或跨平台证明。"
+      "note": "11 个历史用例逐项核对；复用 Rust 时钟控制、水位和持久化断言。平台实跑结果另行记录。",
+      "source_hash": "856d73cdf21cd3a06a87a1277097f020a8e7b41c0c1cee6a1122d817a0408090",
+      "cases": [
+        {
+          "source":{"id":"L22:C5","title":"should return true for unseen keys","suites":["SnapshotStore","shouldProcess"],"parameters":[]},
+          "coverage":"complete", "behavior":"未见 key 允许处理", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"should_process_unseen_keys"}]}
+        },
+        {
+          "source":{"id":"L27:C5","title":"should return false for already-seen keys","suites":["SnapshotStore","shouldProcess"],"parameters":[]},
+          "coverage":"complete", "behavior":"pending key 不重复处理", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"should_not_process_pending_keys"}]}
+        },
+        {
+          "source":{"id":"L33:C5","title":"should return false for processed keys","suites":["SnapshotStore","shouldProcess"],"parameters":[]},
+          "coverage":"complete", "behavior":"processed key 不重复处理", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"should_not_process_processed_keys"}]}
+        },
+        {
+          "source":{"id":"L42:C5","title":"should transition from pending to processed","suites":["SnapshotStore","markPending/markProcessed state transitions"],"parameters":[]},
+          "coverage":"complete", "behavior":"pending 转 processed 后仍不重复处理", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"transitions_from_pending_to_processed"}]}
+        },
+        {
+          "source":{"id":"L49:C5","title":"should track size correctly","suites":["SnapshotStore","markPending/markProcessed state transitions"],"parameters":[]},
+          "coverage":"complete", "behavior":"新增 key 后 size 从 0 到 1 到 2", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"tracks_size"}]}
+        },
+        {
+          "source":{"id":"L60:C5","title":"should update highWatermark on markProcessed","suites":["SnapshotStore","highWatermark"],"parameters":[]},
+          "coverage":"complete", "behavior":"两个已处理 timestamp=1000/2000，水位至少 2000；固定时钟下精确等于最大已处理时间", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"updates_high_watermark_on_mark_processed"},{"file":"src/checkpoints/snapshot_store.rs","test":"high_watermark_is_the_max_processed_timestamp"}]}
+        },
+        {
+          "source":{"id":"L71:C5","title":"should use retention floor if highWatermark is 0","suites":["SnapshotStore","highWatermark"],"parameters":[]},
+          "coverage":"complete", "behavior":"水位为 0 时建议时间等于 now-retention", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"uses_retention_floor_when_high_watermark_is_zero"}]}
+        },
+        {
+          "source":{"id":"L81:C5","title":"should remove entries older than retention period on flush","suites":["SnapshotStore","prune"],"parameters":[]},
+          "coverage":"complete", "behavior":"推进时钟 600ms、保留期 500ms，flush 后旧 key 清除、新 key 保留且 size=1", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"prunes_entries_older_than_retention_on_flush"}]}
+        },
+        {
+          "source":{"id":"L102:C5","title":"should persist and restore state","suites":["SnapshotStore","load/flush persistence"],"parameters":[]},
+          "coverage":"complete", "behavior":"processed/pending 同时持久化；重建实例后两个 key 都不重复处理，size=2，并校验文件字节", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"persists_and_restores_state"}]}
+        },
+        {
+          "source":{"id":"L116:C5","title":"should handle missing file on load","suites":["SnapshotStore","load/flush persistence"],"parameters":[]},
+          "coverage":"complete", "behavior":"缺失文件 load 后 size=0", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"handles_missing_file_on_load"}]}
+        },
+        {
+          "source":{"id":"L123:C5","title":"should restore highWatermark from persisted entries","suites":["SnapshotStore","load/flush persistence"],"parameters":[]},
+          "coverage":"complete", "behavior":"processed timestamp=5000 保存重载后水位至少 5000；固定时钟下精确等于 5000", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/checkpoints/snapshot_store.rs","test":"restores_high_watermark_from_persisted_entries"}]}
+        }
+      ]
     },
     {
       "legacy": "tests/unit/validate-trace.test.mjs",

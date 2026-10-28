@@ -487,14 +487,20 @@ mod tests {
 
     #[test]
     fn places_the_file_under_logs_per_target() {
-        assert_eq!(
-            restart_failure_path("/d", RestartTarget::Updater),
-            "/d/logs/last-restart-failure-updater.json"
-        );
-        assert_eq!(
-            restart_failure_path("/d", RestartTarget::Collector),
-            "/d/logs/last-restart-failure-collector.json"
-        );
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path().to_str().unwrap();
+        for (target, filename) in [
+            (RestartTarget::Updater, "last-restart-failure-updater.json"),
+            (
+                RestartTarget::Collector,
+                "last-restart-failure-collector.json",
+            ),
+        ] {
+            assert_eq!(
+                Path::new(&restart_failure_path(data_dir, target)),
+                dir.path().join("logs").join(filename)
+            );
+        }
     }
 
     #[test]
@@ -509,8 +515,11 @@ mod tests {
             Some("BUILTIN\\Administrators")
         );
         assert_eq!(mapped.get("task_state").map(String::as_str), Some("Ready"));
-        let object = coerce_restart_diag(&json!({"task_state": "Ready"})).unwrap();
+        let object = coerce_restart_diag(&json!({
+            "task_state": "Ready", "nested": {"secret": "not-for-summary"}, "array": [1], "empty": null
+        })).unwrap();
         assert_eq!(object.get("task_state").map(String::as_str), Some("Ready"));
+        assert_eq!(object.len(), 1);
         assert!(coerce_restart_diag(&Value::Null).is_none());
     }
 

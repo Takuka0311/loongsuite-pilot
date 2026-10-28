@@ -157,6 +157,34 @@ mod tests {
         serde_json::from_value(json!({"traceId":"t","spanId":"s","name":"llm","startTimeUnixNano":"1","endTimeUnixNano":"2","attributes":{"gen_ai.input.messages":input}})).unwrap()
     }
     #[test]
+    fn collector_and_validator_finish_reason_allowlists_match() {
+        let mut collector = loongsuite_pilot::normalization::VALID_FINISH_REASONS.to_vec();
+        let mut validator = FINISH_REASONS.to_vec();
+        collector.sort_unstable();
+        validator.sort_unstable();
+        assert_eq!(collector, validator);
+        for reason in collector
+            .iter()
+            .copied()
+            .chain(["pause_turn", "some_future_reason", ""])
+        {
+            let mut output = span(json!([]));
+            output.attributes["gen_ai.output.messages"] = json!([
+                {"role":"assistant", "finish_reason":reason, "parts":[]}
+            ]);
+            let checks = validate(&output, "gen_ai.output.messages", "schema.output_messages");
+            if collector.contains(&reason) {
+                assert!(checks.is_empty(), "{reason}");
+            } else {
+                assert!(
+                    checks.iter().any(|check| check.status == "error"),
+                    "{reason}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn pinned_input_schema_accepts_standard_parts_and_nullable_fields() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../tests/schemas/gen-ai-input-messages.json");

@@ -276,7 +276,10 @@ pub fn to_pretty_json(data: &impl Serialize) -> Result<String, serde_json::Error
 }
 
 fn atomic_tmp_path(path: &str) -> String {
-    let millis = now_ms();
+    atomic_tmp_path_at(path, now_ms())
+}
+
+fn atomic_tmp_path_at(path: &str, millis: u128) -> String {
     format!(
         "{path}.{}.{millis}.{}.tmp",
         std::process::id(),
@@ -653,20 +656,36 @@ mod tests {
         let target = dir.path().join("state.json");
         let target_s = target.to_str().unwrap().to_string();
         let contents: Vec<String> = (0..20).map(|index| format!("value-{index}\n")).collect();
-        let mut set = tokio::task::JoinSet::new();
-        for content in contents.clone() {
-            let target_s = target_s.clone();
-            set.spawn(async move {
-                write_text_file_atomic(&target_s, &content, &AtomicTextWriteOptions::default())
-                    .await
-                    .unwrap();
-            });
+        for fixed_millis in [None, Some(1_786_000_000_000)] {
+            let mut set = tokio::task::JoinSet::new();
+            let mut names = std::collections::BTreeSet::new();
+            for content in contents.clone() {
+                let target_s = target_s.clone();
+                let tmp = fixed_millis.map(|millis| atomic_tmp_path_at(&target_s, millis));
+                if let Some(tmp) = &tmp {
+                    assert!(names.insert(tmp.clone()));
+                    assert!(tmp.contains(&format!(".{}.1786000000000.", std::process::id())));
+                }
+                set.spawn(async move {
+                    let options = AtomicTextWriteOptions::default();
+                    // 固定同一毫秒验证命名与实际 rename；另一路覆盖完整公开入口。
+                    if let Some(tmp) = tmp {
+                        write_rename(&target_s, &tmp, &content, &options)
+                            .await
+                            .unwrap();
+                    } else {
+                        write_text_file_atomic(&target_s, &content, &options)
+                            .await
+                            .unwrap();
+                    }
+                });
+            }
+            while let Some(joined) = set.join_next().await {
+                joined.unwrap();
+            }
+            let body = tokio::fs::read_to_string(&target).await.unwrap();
+            assert!(contents.iter().any(|item| item == &body));
         }
-        while let Some(joined) = set.join_next().await {
-            joined.unwrap();
-        }
-        let body = tokio::fs::read_to_string(&target).await.unwrap();
-        assert!(contents.iter().any(|item| item == &body));
         let mut leftovers = Vec::new();
         let mut read = tokio::fs::read_dir(dir.path()).await.unwrap();
         while let Some(entry) = read.next_entry().await.unwrap() {

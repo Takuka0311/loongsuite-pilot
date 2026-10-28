@@ -1580,8 +1580,10 @@ mod tests {
         input.insert("sessionId".to_string(), "s1".to_string());
         input.insert("uuid".to_string(), "u1".to_string());
         input.insert("agentType".to_string(), "qoder".to_string());
-        let out = redact_code_generation_fields(&input);
+        let mut out = redact_code_generation_fields(&input);
         assert_eq!(out, input);
+        out.insert("sessionId".into(), "changed".into());
+        assert_eq!(input.get("sessionId").map(String::as_str), Some("s1"));
     }
 
     #[test]

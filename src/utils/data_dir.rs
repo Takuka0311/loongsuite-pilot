@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(resolve_home_with("~", &tilde), "/test");
         assert_eq!(
             resolve_home("~"),
-            std::env::var("HOME").unwrap_or_else(|_| String::new())
+            std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default()
         );
     }
 
@@ -290,59 +290,80 @@ mod tests {
         );
     }
 
-    #[test]
-    fn resolve_data_dir_precedence_matches_the_documented_chain() {
+    #[tokio::test]
+    async fn resolve_data_dir_precedence_matches_the_documented_chain() {
         if !isolated_env_test() {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
         let mut env = EnvRestore::new();
-        env.set("LOONGSUITE_PILOT_DATA_DIR", None);
-        let config = dir.path().join("config.json");
-        env.set(
-            "AGENT_DATA_COLLECTION_CONFIG",
-            Some(config.to_str().unwrap()),
-        );
-
-        std::fs::write(&config, r#"{"sls":{"enabled":true}}"#).unwrap();
-        assert_eq!(resolve_data_dir(None), resolve_home(DEFAULT_DATA_DIR));
-
-        let custom = dir.path().join("from-config");
-        std::fs::write(&config, format!(r#"{{"dataDir":"{}"}}"#, custom.display())).unwrap();
-        assert_eq!(resolve_data_dir(None), custom.to_str().unwrap());
-
-        let from_env = dir.path().join("from-env");
-        env.set(
-            "LOONGSUITE_PILOT_DATA_DIR",
-            Some(from_env.to_str().unwrap()),
-        );
-        assert_eq!(resolve_data_dir(None), from_env.to_str().unwrap());
-        env.set("LOONGSUITE_PILOT_DATA_DIR", None);
-
-        std::fs::write(&config, r#"{"dataDir":"~/some-dir"}"#).unwrap();
-        assert_eq!(resolve_data_dir(None), resolve_home("~/some-dir"));
-
-        std::fs::write(&config, r#"{"dataDir":""}"#).unwrap();
-        assert_eq!(resolve_data_dir(None), resolve_home(DEFAULT_DATA_DIR));
-
-        env.set(
-            "AGENT_DATA_COLLECTION_CONFIG",
-            Some(dir.path().join("missing.json").to_str().unwrap()),
-        );
-        assert_eq!(resolve_data_dir(None), resolve_home(DEFAULT_DATA_DIR));
-
-        env.set(
-            "AGENT_DATA_COLLECTION_CONFIG",
-            Some(config.to_str().unwrap()),
-        );
-        std::fs::write(&config, "this is not json").unwrap();
-        assert_eq!(resolve_data_dir(None), resolve_home(DEFAULT_DATA_DIR));
-
-        let bom = dir.path().join("bom-dir");
-        let body = format!("\u{feff}{{\"dataDir\":\"{}\"}}", bom.display());
-        std::fs::write(&config, body).unwrap();
-        assert_eq!(read_config_file_data_dir().as_deref(), bom.to_str());
-        assert_eq!(resolve_data_dir(None), bom.to_str().unwrap());
+        for key in ["HOME", "USERPROFILE"] {
+            env.set(key, dir.path().to_str());
+        }
+        let custom = dir.path().join("from-config").to_str().unwrap().to_owned();
+        let from_env = dir.path().join("from-env").to_str().unwrap().to_owned();
+        let bom = dir.path().join("bom-dir").to_str().unwrap().to_owned();
+        let default = resolve_home(DEFAULT_DATA_DIR);
+        // 使用 JSON serializer 保留 Windows 反斜线；每个场景同时调用两个真实入口。
+        let cases = [
+            (
+                "default",
+                Some(r#"{"sls":{"enabled":true}}"#.to_owned()),
+                None,
+                default.clone(),
+            ),
+            (
+                "file",
+                Some(serde_json::json!({"dataDir": custom}).to_string()),
+                None,
+                custom.clone(),
+            ),
+            (
+                "env",
+                Some(serde_json::json!({"dataDir": custom}).to_string()),
+                Some(from_env.as_str()),
+                from_env.clone(),
+            ),
+            (
+                "tilde",
+                Some(r#"{"dataDir":"~/some-dir"}"#.to_owned()),
+                None,
+                resolve_home("~/some-dir"),
+            ),
+            (
+                "empty",
+                Some(r#"{"dataDir":""}"#.to_owned()),
+                None,
+                default.clone(),
+            ),
+            ("missing", None, None, default.clone()),
+            (
+                "malformed",
+                Some("this is not json".to_owned()),
+                None,
+                default,
+            ),
+            (
+                "bom",
+                Some(format!("\u{feff}{}", serde_json::json!({"dataDir": bom}))),
+                None,
+                bom.clone(),
+            ),
+        ];
+        for (name, body, override_dir, expected) in cases {
+            let config = dir.path().join(format!("{name}.json"));
+            env.set("AGENT_DATA_COLLECTION_CONFIG", config.to_str());
+            env.set("LOONGSUITE_PILOT_DATA_DIR", override_dir);
+            if let Some(body) = body {
+                std::fs::write(&config, body).unwrap();
+            }
+            let loaded = crate::core::load_config().await.unwrap();
+            assert_eq!(resolve_data_dir(None), expected, "{name}");
+            assert_eq!(resolve_home(&loaded.data_dir), expected, "{name}");
+            if name == "bom" {
+                assert_eq!(read_config_file_data_dir().as_deref(), Some(bom.as_str()));
+            }
+        }
     }
 
     #[test]
@@ -370,6 +391,26 @@ mod tests {
         assert_eq!(
             read_env_data_dir_on(Platform::Win32).as_deref(),
             padded_dir.to_str()
+        );
+        let values = HashMap::from([(
+            "LOONGSUITE_PILOT_DATA_DIR".to_owned(),
+            format!("  {}  ", padded_dir.display()),
+        )]);
+        let loaded = crate::core::assemble_config(
+            Some(&serde_json::json!({"sls": {"enabled": true}})),
+            None,
+            &crate::core::ConfigSources {
+                env: &values,
+                platform: Platform::Win32,
+                hostname: "parity-test",
+                config_path: config.to_str().unwrap(),
+                global_poll_ms: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_data_dir_on(None, Platform::Win32),
+            resolve_home(&loaded.data_dir)
         );
     }
 }

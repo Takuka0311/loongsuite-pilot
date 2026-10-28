@@ -365,7 +365,14 @@ mod tests {
 
     #[test]
     fn flush_logs_sync_is_a_safe_noop_before_file_logging() {
+        if !crate::utils::isolated_env_test() {
+            return;
+        }
+        assert!(!lock_state().file_logging);
+        assert!(lock_state().appender.is_none());
         flush_logs_sync();
+        assert!(!lock_state().file_logging);
+        assert!(lock_state().appender.is_none());
     }
 
     #[test]

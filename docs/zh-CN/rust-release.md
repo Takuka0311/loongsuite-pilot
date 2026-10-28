@@ -56,9 +56,29 @@ cargo test --workspace --locked --all-features
 | P2 | Docker/远程真实会话、宿主插件加载、GUI、长时间稳定性和性能 | 本地或后续手动验收，不进日常 CI | 不能声明真实采集、桌面或长期稳定性已验证 |
 | P2 | 历史断言中的重复 fixture、纯脚本文本匹配 | 迁移时归并同一行为，记录映射，不机械逐文件复制 | 仅在确认有等价 Rust 断言后删除冗余 |
 
-最近已记录的历史审计为 391 个文件：9 完整映射、14 部分映射、368 未映射。StateStore / SnapshotStore 两个历史文件的 28 个测试已逐项核对，全部由现有 Rust 断言承接；checkpoint 组 34 项回归耗时 0.04 秒，不新增测试或 runner，旧文件仍保留在提交树中。CP5 的单批/分批四个历史合同已合并为一个参数化 Rust 测试，本地 OTLP 集成组 4 项共耗时 0.27 秒，不新增 runner。这是待比对的文件数，不是失败测试或已知 bug 数。最终代码 `2d56ecd` 的本地、干净提交树及 GitHub Linux 回归已通过主库 1,252 项、xtask 单元 35 项、独立集成 82 项，共 1,369 项。相较早期 1,366 项，新增候选无后代正常退出、canonical 配置路径、HTTP 请求头分段读取三个回归；stdout JSON 诊断并入既有候选失败测试。另有 2 个 doc-tests ignored。Linux 中 Windows 专属测试为 0 项，不计作 Windows 通过；发布中的 Windows 轻回归单独记录。测试通过不等于旧断言全部承接。
+schema 1 阶段的历史审计为 391 个文件：9 个文件级完整映射、14 部分映射、368 未映射。StateStore / SnapshotStore 两个历史文件的 28 个测试已逐项核对，全部由现有 Rust 断言承接；checkpoint 组 34 项回归耗时 0.04 秒，不新增测试或 runner，旧文件仍保留在提交树中。CP5 的单批/分批四个历史合同已合并为一个参数化 Rust 测试，本地 OTLP 集成组 4 项共耗时 0.27 秒，不新增 runner。这是待比对的文件数，不是失败测试或已知 bug 数。最终代码 `2d56ecd` 的本地、干净提交树及 GitHub Linux 回归已通过主库 1,252 项、xtask 单元 35 项、独立集成 82 项，共 1,369 项。相较早期 1,366 项，新增候选无后代正常退出、canonical 配置路径、HTTP 请求头分段读取三个回归；stdout JSON 诊断并入既有候选失败测试。另有 2 个 doc-tests ignored。Linux 中 Windows 专属测试为 0 项，不计作 Windows 通过；发布中的 Windows 轻回归单独记录。测试通过不等于旧断言全部承接。
 
-`tests/fixtures/rust-migration-map.json` 保留覆盖缺口，`migration-audit --require-complete` 在未完整映射时继续失败；本轮暂不把该完整性门禁接入轻发布，也不据此删除旧测试/工具。需要进一步裁剪时，提交实际耗时和行为覆盖变化，由维护者决定，不能仅凭测试数目裁剪。
+`tests/fixtures/rust-migration-map.json` 保留覆盖缺口，`migration-audit --require-complete` 在未完整映射时继续失败。历史映射与旧工具链清理已开始，当前进展见下节；全部缺口补齐后接入日常门禁。需要进一步裁剪时，提交实际耗时和行为覆盖变化，由维护者决定。
+
+## 历史用例清理（进行中）
+
+映射升级为 schema 2，固定基线仍为 `ef8953de1b5d2aa6d719cb0409cb5f48f2b99b42`。开发用 TypeScript AST 解析器从 Git 历史读取 391 个文件，提取 4,694 处测试声明，记录原始位置、标题、套件、参数表达式与文件 SHA-256；不执行旧测试源码。参数化声明数与展开后的测试数分别看待。
+
+- 每个用例记录行为断言、适用平台和去向：`rust`、`retained`、`retired`。保留项不计作 Rust 迁移；退役项需要理由和原生替代测试。
+- Rust 引用由 `syn` 检查真实 `#[test]` / `#[tokio::test]`，拒绝注释、普通函数、ignored 测试和歧义名称。同文件只解析一次。
+- 保留测试引用原语言测试、被测资源和 npm 执行入口，并与 Vitest 实际收集的完整名称、源码摘要核对；报告另列平台和执行状态。缺文件、缺资源或过期收集结果会阻止完整映射。
+- 当前审计为 18 个完整文件、22 个部分文件、351 个未映射文件；159 处声明已登记为 Rust 承接，其中 1 处仍为部分覆盖，另有 4,535 处未登记。已完整核对 checkpoint、部分 utils，以及产品映射、身份、消息、finish-reason、脱敏和序列化；旧文件级“完整”不会自动通过新门禁。
+- 补测了真实配置加载器与数据目录解析器的一致性、初始化前日志 flush、采集器与 Trace 校验器的真实允许列表、脱敏副本独立性、同毫秒并发原子写，以及报告清空和失败状态。进程发现的 `windowsHide` 尚缺实际创建标志接线，对应用例继续标为部分覆盖。
+- 旧测试删除与旧 Node 工具链退役尚未提交。宿主 JS/Python、有效 E2E 工具和系统脚本测试保留；Windows 卸载的 Python 调用及 Dashboard shortcut 的 Node 包装层待原生替代后清理。
+
+开发机先运行 `npm ci --ignore-scripts`，再生成审计报告：
+
+```bash
+cargo run -p xtask -- migration-audit --output target/migration-audit
+cargo run -p xtask -- migration-audit --require-complete
+```
+
+第二条命令当前预期非零退出，报告保留全部未映射用例。保留测试执行时可添加 `--reporter=./scripts/testing/migration-reporter.mjs`，并设置 `PILOT_MIGRATION_REPORT=target/migration-audit/retained.json`；审计通过 `--retained-report target/migration-audit/retained.json` 读取结果。Node/TypeScript 仅用于开发测试审计，不进入原生运行包。
 
 ## 提交批次与验证
 
@@ -119,4 +139,4 @@ cargo test --workspace --locked --all-features
 | `x86_64-unknown-linux-gnu` | `cd39025c9eacdc93256b39aa0ccaa836000d49ec4af44645751f0cbe42152570` |
 | `x86_64-unknown-linux-musl` | `2b81e28f314b504d2e0dbd2a45a66c211a2ff2cdb5650e6b62be55fb73d5ca71` |
 
-这些是 dry-run 候选，不是正式发行。`latest-rust.json` 中的 Release 下载地址仅为预生成地址，未上传为更新渠道；没有创建 tag 或正式 Release。后续仅补充本文的提交不改变上述候选的生产代码，发行候选 SHA 仍以上述完整提交为准。历史测试完整映射与旧工具清理仍按前述门禁暂缓。
+这些是 dry-run 候选，不是正式发行。`latest-rust.json` 中的 Release 下载地址仅为预生成地址，未上传为更新渠道；没有创建 tag 或正式 Release。后续仅补充本文的提交不改变上述候选的生产代码，发行候选 SHA 仍以上述完整提交为准。历史测试映射与旧工具清理的后续进展见上文，新增清理代码需要重新验证，不沿用本次候选的通过结果。

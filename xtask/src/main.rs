@@ -71,6 +71,9 @@ enum Task {
         output: PathBuf,
         #[arg(long)]
         require_complete: bool,
+        /// 保留测试的 Vitest 收集与执行报告。
+        #[arg(long)]
+        retained_report: Option<PathBuf>,
     },
     /// 在隔离目录运行质量门禁，保存逐命令结果与日志。
     Baseline {
@@ -124,7 +127,8 @@ fn main() -> Result<ExitCode> {
         Task::MigrationAudit {
             output,
             require_complete,
-        } => migration::audit(root, &output, require_complete),
+            retained_report,
+        } => migration::audit(root, &output, require_complete, retained_report.as_deref()),
         Task::Baseline {
             output,
             timeout_seconds,
