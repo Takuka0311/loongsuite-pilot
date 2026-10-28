@@ -277,6 +277,69 @@ mod tests {
     }
 
     #[test]
+    fn unicode_staging_extracts_both_formats_and_cleans_failed_candidates() {
+        let temp = tempfile::tempdir().unwrap();
+        let entries = [
+            (
+                "pkg/runtime-manifest.json",
+                b"{}".as_slice(),
+                tar::EntryType::Regular,
+            ),
+            (
+                "pkg/bin/pilot",
+                b"candidate".as_slice(),
+                tar::EntryType::Regular,
+            ),
+        ];
+        let tar = tar_bytes(&entries);
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, bytes, _) in entries {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        let zip = zip.finish().unwrap().into_inner();
+        for name in ["ascii-install", "张三 安装 🚀"] {
+            let parent = temp.path().join(name);
+            fs::create_dir(&parent).unwrap();
+            let current = parent.join("current");
+            fs::write(&current, b"existing-version").unwrap();
+            for (format, bytes) in [(ArchiveFormat::TarGz, &tar), (ArchiveFormat::Zip, &zip)] {
+                let result = unpack(bytes, format, &parent, "pkg").unwrap();
+                let staging = result.root.parent().unwrap();
+                assert_eq!(staging.parent(), Some(parent.as_path()));
+                assert!(staging
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with(".unpack-"));
+                assert_eq!(
+                    fs::read(result.root.join("bin/pilot")).unwrap(),
+                    b"candidate"
+                );
+                assert_eq!(fs::read(&current).unwrap(), b"existing-version");
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    assert_eq!(
+                        fs::metadata(staging).unwrap().permissions().mode() & 0o777,
+                        0o700
+                    );
+                }
+                drop(result);
+                assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+                assert!(unpack(&bytes[..bytes.len() / 2], format, &parent, "pkg").is_err());
+                assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+                assert_eq!(fs::read(&current).unwrap(), b"existing-version");
+                // 解包失败后不残留目标目录，原位置可立即重试。
+                drop(unpack(bytes, format, &parent, "pkg").unwrap());
+                assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+            }
+        }
+    }
+
+    #[test]
     fn rejects_unsafe_names_and_links_without_leaving_partial_directories() {
         let dir = tempfile::tempdir().unwrap();
         for name in [

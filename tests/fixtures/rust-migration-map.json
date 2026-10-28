@@ -599,7 +599,7 @@
     },
     {
       "legacy":"tests/unit/utils/process-discovery.test.ts", "coverage":"partial", "rust":[],
-      "note":"扫描解析与回退已对应；历史 windowsHide 断言目前只验证常量，实际 run_command 尚未设置创建标志，保留部分覆盖直到补齐 Windows 子进程合同。",
+      "note":"扫描解析与回退已对应；run_command 已接入 CREATE_NO_WINDOW 并新增真实 PowerShell 控制台回归，保留部分覆盖等待 Windows 平台执行证据。",
       "source_hash":"8b2841d52f6e22bbdc860ccce40dd3e6061f95feffd15e43b2c5f67d07f2f6ee",
       "cases":[
         {
@@ -609,8 +609,8 @@
         },
         {
           "source":{"id":"L30:C3","title":"returns true when powershell output contains a matching updater command line","suites":["isUpdaterRunningOnWindowsSync"],"parameters":[]},
-          "coverage":"partial", "behavior":"保留 updater Windows 命令匹配以及程序、参数、8 秒超时、UTF-8 常量断言；缺实际子进程 windowsHide 行为验证和创建标志接线", "platforms":["linux","macos","windows"],
-          "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_true_when_powershell_output_contains_a_matching_updater_command"}]}
+          "coverage":"partial", "behavior":"保留 updater Windows 命令匹配以及程序、参数、8 秒超时、UTF-8 常量断言；CREATE_NO_WINDOW 已接线，新增真实 PowerShell GetConsoleWindow=0 断言，待 Windows 实跑", "platforms":["linux","macos","windows"],
+          "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_true_when_powershell_output_contains_a_matching_updater_command"},{"file":"src/utils/pid_utils.rs","test":"windows_probe_does_not_allocate_a_console"},{"file":"src/utils/pid_utils.rs","test":"command_runner_preserves_output_and_reports_failures"}]}
         },
         {
           "source":{"id":"L42:C3","title":"returns false when powershell output has no matching updater command","suites":["isUpdaterRunningOnWindowsSync"],"parameters":[]},
@@ -627,6 +627,71 @@
           "coverage":"complete", "behavior":"扫描出错时返回 false", "platforms":["linux","macos","windows"],
           "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_false_when_powershell_throws"}]}
         }
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/pid-utils.test.ts", "coverage":"partial", "rust":[],
+      "note":"九个历史声明逐项登记；身份匹配和六个 liveness 分支保留全部字段断言，启动 token 增加生产入口稳定性测试。EPERM 的现有 helper 无生产调用，仍为缺口；macOS/Windows 原生 token 回归已接发布平台任务，执行结果另记。",
+      "source_hash":"efe20676800667fbc4a071122b998aadb4158b68c1e1d4c9622d51745ee21ae8",
+      "cases":[
+        {"source":{"id":"L39:C3","title":"matches strict collector and updater command identities","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"complete","behavior":"保留 collector/updater 旧入口、run-service 命中，以及 run-service-helper/unrelated 拒绝的六个断言；增加原生 collector 与 status 排除","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"matches_strict_collector_and_updater_command_identities"}]}},
+        {"source":{"id":"L48:C3","title":"treats EPERM from kill zero as alive","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"partial","behavior":"现有测试仅检查 process_alive_from_kill 的 EPERM/成功/ESRCH 分类，生产入口 Linux 使用 /proc、其他平台使用 sysinfo；尚缺生产探针权限拒绝的回归，不将未调用 helper 计为完整承接","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"treats_eperm_from_kill_zero_as_alive"}]}},
+        {"source":{"id":"L58:C3","title":"reads a stable process-start token from the platform process identity","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"complete","behavior":"保留 Linux 带空格 comm 的 stat/boot-id 精确 token 与 macOS lstart 文本归一化；真实入口两次读取本进程 token 相同、PID=0 为空；Windows 验证 CIM ISO 时间，Linux 与实际 /proc 数据一致","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"reads_a_stable_process_start_token_from_linux_stat"},{"file":"src/utils/pid_utils.rs","test":"current_process_start_token_uses_native_identity_and_is_stable"}]}},
+        {"source":{"id":"L71:C3","title":"uses pid file as fast path when pid command matches identity","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"complete","behavior":"PID 123 存活且命令匹配时 running=true、pid=123、source=pid-file、state=matched","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"uses_pid_file_as_fast_path_when_pid_command_matches"}]}},
+        {"source":{"id":"L86:C3","title":"falls through to process scan when pid file command is unreadable","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"complete","behavior":"PID 123 存活但命令为空，扫描命中 456；running=true、source=process-scan、state=stale、alive=true、commandMatched=None 六字段全部保留","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"falls_through_to_process_scan_when_pid_file_command_is_unreadable"}]}},
+        {"source":{"id":"L104:C3","title":"reports unhealthy when pid file command is unreadable and scan finds nothing","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"complete","behavior":"PID 123 存活、命令为空且扫描只有无关进程，running=false、pid=123、source=none、state=stale、alive=true、commandMatched=None","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"reports_unhealthy_when_command_is_unreadable_and_scan_finds_nothing"}]}},
+        {"source":{"id":"L122:C3","title":"does not report down when pid changed but command identity is present","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"complete","behavior":"PID 123 失效但扫描命中 456，running=true、pid=456、source=process-scan、state=stale","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"does_not_report_down_when_pid_changed_but_command_identity_is_present"}]}},
+        {"source":{"id":"L141:C3","title":"reports unhealthy when pid is stale and no matching command exists","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"complete","behavior":"PID 123 失效且扫描无匹配，running=false、pid=123、source=none、state=stale","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"reports_unhealthy_when_pid_is_stale_and_no_matching_command_exists"}]}},
+        {"source":{"id":"L160:C3","title":"falls back to command identity when pid file is missing","suites":["pid-utils identity-first liveness"],"parameters":[]},
+         "coverage":"complete","behavior":"缺少 PID 文件时扫描 updater 命中 789，running=true、pid=789、source=process-scan、state=missing","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"falls_back_to_command_identity_when_pid_file_is_missing"}]}}
+      ]
+    },
+    {
+      "legacy":"tests/unit/utils/win-archive.test.ts", "coverage":"complete", "rust":[],
+      "note":"七个旧 Node/tar.exe/node_modules 机制声明退役，不计作 Rust 迁移；同版本活跃目录保护由实际原生激活测试承接。替代断言直接测试生产解包/激活入口，不引用无 updater 消费者的 win_archive 旧 helper。Linux 已执行；Windows/macOS 平台结果另记，本批暂不提交该旧文件删除。",
+      "source_hash":"96dde8371f8d210aaf613e4c21c674d1b08dd214558d47f6f0569302910bfc83",
+      "cases":[
+        {"source":{"id":"L22:C3","title":"accepts printable ASCII and rejects anything else","suites":["isAsciiPath"],"parameters":[]},
+         "coverage":"complete","behavior":"不再需要用可打印 ASCII 判定 tar.exe 参数安全；保留安装路径可含中文/空格/emoji，以及归档危险路径拒绝","platforms":["linux","macos","windows"],
+         "target":{"kind":"retired","reason":"原生解包使用 flate2/tar/zip，不再向 tar.exe 传递文件路径；仅用于 ANSI 参数限制的 ASCII 分类已失去 updater 消费者。","replacement":[{"file":"src/updater/package_archive.rs","test":"unicode_staging_extracts_both_formats_and_cleans_failed_candidates"},{"file":"src/updater/package_archive.rs","test":"rejects_unsafe_names_and_links_without_leaving_partial_directories"}]}},
+        {"source":{"id":"L33:C3","title":"keeps an ASCII preference as-is, so the caller can still rename within one volume","suites":["makeTarStagingDir"],"parameters":[]},
+         "coverage":"complete","behavior":"保留 staging 位于指定父目录、可同卷 rename 的合同；原生实现使用独占 .unpack- 目录而非复用固定 download-tmp","platforms":["linux","macos","windows"],
+         "target":{"kind":"retired","reason":"固定 ASCII 临时目录机制改为目标 versions 内独占临时目录；替代测试逐字验证 staging 的父目录和清理后目录项。","replacement":[{"file":"src/updater/package_archive.rs","test":"unicode_staging_extracts_both_formats_and_cleans_failed_candidates"}]}},
+        {"source":{"id":"L44:C3","title":"redirects a non-ASCII preference to an ASCII root","suites":["makeTarStagingDir"],"parameters":[]},
+         "coverage":"complete","behavior":"Unicode 父目录无需绕到系统 ASCII 根；两种格式都在原父目录解包，成功/截断失败都保留 current 且可重试","platforms":["linux","macos","windows"],
+         "target":{"kind":"retired","reason":"取消 tar.exe 后不再存在 ANSI 参数重编码，改在安装目录继承权限并保持同卷；不再测试重定向到全局 ASCII 根。","replacement":[{"file":"src/updater/package_archive.rs","test":"unicode_staging_extracts_both_formats_and_cleans_failed_candidates"}]}},
+        {"source":{"id":"L61:C3","title":"replaces an existing destination with the staged tree","suites":["replaceDirWith"],"parameters":[]},
+         "coverage":"complete","behavior":"node_modules 整树覆盖退役；原生新版本落唯一兄弟目录、没有旧独有文件，旧活跃树字节和二进制摘要保持不变","platforms":["linux","macos","windows"],
+         "target":{"kind":"retired","reason":"原生发行包不安装 node_modules，更新不再删除目标树再 rename；使用预检后的唯一版本目录与指针事务。","replacement":[{"file":"src/updater/updater.rs","test":"same_version_activation_preserves_live_tree_and_retries_failed_preflight"}]}},
+        {"source":{"id":"L83:C3","title":"discards the tree and throws when the inherited ACL cannot be repaired","suites":["replaceDirWith ACL handling"],"parameters":[]},
+         "coverage":"complete","behavior":"保留不可用候选不得发布的合同：候选执行拒绝或 check 报错都返回错误，配置/指针/服务入口不变；解包错误不留残树，Unix staging 为 0700","platforms":["linux","macos","windows"],
+         "target":{"kind":"retired","reason":"跨根移动 node_modules 后执行 icacls /reset 的机制已取消；原生在目标 versions 内创建临时目录，并在发布前执行候选预检。拒绝结果用注入的执行错误验证，不宣称模拟了 Windows ACL。","replacement":[{"file":"src/updater/package_archive.rs","test":"unicode_staging_extracts_both_formats_and_cleans_failed_candidates"},{"file":"src/updater/updater.rs","test":"same_version_activation_preserves_live_tree_and_retries_failed_preflight"}]}},
+        {"source":{"id":"L100:C3","title":"the only caller turns that throw into an npm install fallback","suites":["replaceDirWith ACL handling"],"parameters":[]},
+         "coverage":"complete","behavior":"失败后可重试且不发布坏安装；原生只调用候选 --version/check，错误后同一候选可以再次预检并激活，不启动 npm","platforms":["linux","macos","windows"],
+         "target":{"kind":"retired","reason":"已取消 ensureNodeModules/npm install；原生包自包含，不静默下载依赖，失败由恢复原状态和后续重试接替。","replacement":[{"file":"src/updater/updater.rs","test":"same_version_activation_preserves_live_tree_and_retries_failed_preflight"}]}},
+        {"source":{"id":"L111:C3","title":"routes every tar call through extractTarGz","suites":["updater tar ratchet"],"parameters":[]},
+         "coverage":"complete","behavior":"保留不受 PATH 中 GNU tar 或 Windows ANSI 参数影响的解包能力；两种归档都由实际原生 unpack 成功读取，危险条目与损坏包被拒绝","platforms":["linux","macos","windows"],
+         "target":{"kind":"retired","reason":"生产 download_and_deploy 直接调用 package_archive::unpack，无外部 tar 调用；旧 extractTarGz 次数下限是已移除机制的源码形状断言。","replacement":[{"file":"src/updater/package_archive.rs","test":"unicode_staging_extracts_both_formats_and_cleans_failed_candidates"},{"file":"src/updater/package_archive.rs","test":"rejects_duplicate_case_paths_wrong_root_legacy_and_corrupt_gzip"}]}},
+        {"source":{"id":"L127:C3","title":"stages tar input under an ASCII root and never deletes a live version dir in place","suites":["updater tar ratchet"],"parameters":[]},
+         "coverage":"complete","behavior":"ASCII staging 调用次数随原生解包退役；仍有效的活跃版本保护由真实 activate_staged 承接：同版本重复激活生成不同兄弟目录，旧文件/manifest/二进制摘要不变，失败/回滚恢复原指针，最后成功提交","platforms":["linux","macos","windows"],
+         "target":{"kind":"rust","tests":[{"file":"src/updater/package_archive.rs","test":"unicode_staging_extracts_both_formats_and_cleans_failed_candidates"},{"file":"src/updater/updater.rs","test":"same_version_activation_preserves_live_tree_and_retries_failed_preflight"}]}}
       ]
     },
     {

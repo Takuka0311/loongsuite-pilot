@@ -2681,6 +2681,122 @@ mod tests {
         assert!(!older.exists() ^ !old.exists());
     }
 
+    #[tokio::test]
+    async fn same_version_activation_preserves_live_tree_and_retries_failed_preflight() {
+        use crate::utils::runtime_paths::sha256_file;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("张三 安装 🚀");
+        std::fs::create_dir(&root).unwrap();
+        let base = root.to_str().unwrap();
+        let paths = build_paths(base);
+        let old_name = format!("1.2.0_{}_{}", "a".repeat(40), uuid::Uuid::new_v4().simple());
+        let old_root = Path::new(&paths.versions_dir).join(&old_name);
+        native_package(&old_root);
+        let old_manifest = std::fs::read(old_root.join("runtime-manifest.json")).unwrap();
+        let binary = if cfg!(windows) {
+            "bin/loongsuite-pilot.exe"
+        } else {
+            "bin/loongsuite-pilot"
+        };
+        let old_digest = sha256_file(&old_root.join(binary)).unwrap();
+        std::fs::write(old_root.join("live-only.txt"), b"keep live tree").unwrap();
+        write_pointer_file(&paths.current_file, &old_name)
+            .await
+            .unwrap();
+        write_pointer_file(&paths.previous_file, "1.1.0_previous")
+            .await
+            .unwrap();
+
+        let staging = Path::new(&paths.versions_dir).join("candidate");
+        let manifest = native_package(&staging);
+        let mut outcomes = vec![Err(CommandFailure::message("candidate access denied"))];
+        outcomes.extend(preflight_outputs(&manifest));
+        outcomes[2] = Ok(ExecOutput {
+            stdout: "{\"schema\":1,\"ok\":false}".into(),
+            ..ExecOutput::default()
+        });
+        outcomes.extend(preflight_outputs(&manifest));
+        outcomes.extend(preflight_outputs(&manifest));
+        let net = ScriptedNet::new(vec![], outcomes);
+        let mut updater = Updater::with_net(base_config(), Some(base), net.clone());
+        updater.paths.loongsuite_pilot_bin = root.join("service").to_string_lossy().into_owned();
+        std::fs::write(&updater.paths.loongsuite_pilot_bin, b"old service").unwrap();
+        std::fs::write(&updater.config_path, b"{\"user\":\"keep\"}\n").unwrap();
+        let original: Vec<_> = updater
+            .activation_targets()
+            .into_values()
+            .map(|path| {
+                let bytes = std::fs::read(&path).ok();
+                (path, bytes)
+            })
+            .collect();
+        let assert_original = || {
+            for (path, bytes) in &original {
+                assert_eq!(&std::fs::read(path).ok(), bytes, "{}", path.display());
+            }
+            assert!(!root.join("update-recovery.json").exists());
+        };
+        for expected in ["candidate access denied", "预检失败"] {
+            let err = match updater.activate_staged(&staging, &manifest).await {
+                Ok(_) => panic!("预检失败时不应激活候选包"),
+                Err(err) => err,
+            };
+            assert!(err.contains(expected), "{err}");
+            assert_original();
+            assert!(staging.join(binary).is_file());
+            assert_eq!(std::fs::read_dir(&paths.versions_dir).unwrap().count(), 2);
+        }
+
+        let mut first = updater.activate_staged(&staging, &manifest).await.unwrap();
+        let first_name = read_pointer_file(&paths.current_file).await.unwrap();
+        assert_ne!(first_name, old_name);
+        assert!(first_name.starts_with(&format!("1.2.0_{}_", manifest.git_commit)));
+        assert_eq!(
+            read_pointer_file(&paths.previous_file).await.as_deref(),
+            Some(old_name.as_str())
+        );
+        assert!(!staging.exists());
+        let first_root = Path::new(&paths.versions_dir).join(&first_name);
+        assert!(first_root.join(binary).is_file());
+        assert!(!first_root.join("live-only.txt").exists());
+        first.rollback().unwrap();
+        assert_original();
+
+        native_package(&staging);
+        let mut second = updater.activate_staged(&staging, &manifest).await.unwrap();
+        let second_name = read_pointer_file(&paths.current_file).await.unwrap();
+        assert_ne!(second_name, old_name);
+        assert_ne!(second_name, first_name);
+        second.commit().unwrap();
+        assert_eq!(
+            read_pointer_file(&paths.current_file).await.as_deref(),
+            Some(second_name.as_str())
+        );
+        assert_eq!(
+            read_pointer_file(&paths.previous_file).await.as_deref(),
+            Some(old_name.as_str())
+        );
+        assert_eq!(
+            std::fs::read(old_root.join("live-only.txt")).unwrap(),
+            b"keep live tree"
+        );
+        assert_eq!(
+            std::fs::read(old_root.join("runtime-manifest.json")).unwrap(),
+            old_manifest
+        );
+        assert_eq!(sha256_file(&old_root.join(binary)).unwrap(), old_digest);
+        assert!(first_root.join(binary).is_file());
+        assert!(!root.join("update-recovery.json").exists());
+        assert!(net.fetch_log.lock().unwrap().is_empty());
+        let log = net.exec_log.lock().unwrap();
+        assert_eq!(log.len(), 7);
+        assert!(log
+            .iter()
+            .all(|(program, args)| Path::new(program) == staging.join(binary)
+                && (args == &["--version"] || args == &["check", "--json"])));
+    }
+
     fn native_package(root: &Path) -> VersionManifest {
         native_package_version(root, "1.2.0", &"a".repeat(40))
     }

@@ -511,11 +511,21 @@ fn unix_line_re() -> &'static regex::Regex {
 }
 
 fn run_command(program: &str, args: &[&str], timeout: Duration) -> io::Result<String> {
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+        if WINDOWS_PROCESS_SCAN_WINDOWS_HIDE {
+            // PowerShell 的 Hidden 参数只隐藏窗口，创建标志才能避免分配控制台。
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+    }
+    let mut child = command.spawn()?;
     let mut stdout = child
         .stdout
         .take()
@@ -658,6 +668,49 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_probe_does_not_allocate_a_console() {
+        let script = r#"$ErrorActionPreference = 'Stop';
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class PilotConsoleProbe { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }';
+[PilotConsoleProbe]::GetConsoleWindow().ToInt64()"#;
+        let output = run_command(
+            WINDOWS_PROCESS_SCAN_PROGRAM,
+            &["-NoProfile", "-NonInteractive", "-Command", script],
+            Duration::from_secs(15),
+        )
+        .unwrap();
+        assert_eq!(output.trim(), "0", "进程探针不应分配控制台窗口");
+    }
+
+    #[test]
+    fn command_runner_preserves_output_and_reports_failures() {
+        let (program, success, failure): (&str, &[&str], &[&str]) = if cfg!(windows) {
+            (
+                "cmd.exe",
+                &["/d", "/c", "echo probe-ok"],
+                &["/d", "/c", "exit 7"],
+            )
+        } else {
+            ("sh", &["-c", "printf 'probe-ok\\n'"], &["-c", "exit 7"])
+        };
+        assert_eq!(
+            run_command(program, success, Duration::from_secs(5))
+                .unwrap()
+                .trim(),
+            "probe-ok"
+        );
+        assert_eq!(
+            run_command(program, failure, Duration::from_secs(5))
+                .unwrap_err()
+                .to_string(),
+            "exit 7"
+        );
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("missing-probe");
+        assert!(run_command(missing.to_str().unwrap(), &[], Duration::from_secs(5)).is_err());
+    }
+
     #[test]
     fn matches_strict_collector_and_updater_command_identities() {
         assert!(is_command_match(
@@ -712,6 +765,28 @@ mod tests {
             ps_lstart_token("darwin", "Tue Aug 18 15:03:36 2026\n"),
             "darwin-ps-lstart-v1:Tue Aug 18 15:03:36 2026"
         );
+    }
+
+    #[test]
+    fn current_process_start_token_uses_native_identity_and_is_stable() {
+        let pid = std::process::id();
+        let first = read_process_start_token(pid);
+        assert!(!first.is_empty(), "当前进程必须能读到启动身份");
+        assert_eq!(read_process_start_token(pid), first);
+        assert!(read_process_start_token(0).is_empty());
+        assert!(is_process_alive(pid));
+        assert!(!is_process_alive(0));
+        if cfg!(target_os = "linux") {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+            let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap();
+            assert_eq!(first, linux_proc_start_token(&stat, &boot));
+        } else if cfg!(windows) {
+            let creation = first.strip_prefix("win32-cim-v1:").unwrap();
+            assert!(chrono::DateTime::parse_from_rfc3339(creation).is_ok());
+        } else {
+            assert!(first.starts_with(&format!("{}-ps-lstart-v1:", node_platform())));
+            assert!(first.split_whitespace().count() >= 5);
+        }
     }
 
     #[test]

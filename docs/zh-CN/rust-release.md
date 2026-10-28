@@ -67,11 +67,14 @@ schema 1 阶段的历史审计为 391 个文件：9 个文件级完整映射、1
 - 每个用例记录行为断言、适用平台和去向：`rust`、`retained`、`retired`。保留项不计作 Rust 迁移；退役项需要理由和原生替代测试。
 - Rust 引用由 `syn` 检查真实 `#[test]` / `#[tokio::test]`，拒绝注释、普通函数、ignored 测试和歧义名称。同文件只解析一次。
 - 保留测试引用原语言测试、被测资源和 npm 执行入口，并与 Vitest 实际收集的完整名称、源码摘要核对；报告另列平台和执行状态。缺文件、缺资源或过期收集结果会阻止完整映射。
-- 当前审计为 18 个完整文件、22 个部分文件、351 个未映射文件；159 处声明已登记为 Rust 承接，其中 1 处仍为部分覆盖，另有 4,535 处未登记。已完整核对 checkpoint、部分 utils，以及产品映射、身份、消息、finish-reason、脱敏和序列化；旧文件级“完整”不会自动通过新门禁。
-- 补测了真实配置加载器与数据目录解析器的一致性、初始化前日志 flush、采集器与 Trace 校验器的真实允许列表、脱敏副本独立性、同毫秒并发原子写，以及报告清空和失败状态。进程发现的 `windowsHide` 尚缺实际创建标志接线，对应用例继续标为部分覆盖。
-- 首批门禁、映射与补测提交为 `d1a88dd`。清理范围为上述 18 个完整文件（154 处历史声明），同步更新两处旧测试引用；其余未完成映射的旧测试不纳入本批删除。历史分母仍从固定 Git 基线读取。
-- 本地默认及 all-features 均通过严格 clippy 和 1,377 项 Rust 回归（主库 1,252、xtask 43、独立集成 82），另有 2 项 doc-tests ignored；映射工具 Vitest 7 项通过。严格完整映射门禁仍按预期失败。
+- 当前审计为 19 个完整文件、23 个部分文件、349 个未映射文件；169 处声明登记为 Rust 承接、7 处旧机制退役，其中 2 处仍为部分覆盖，另有 4,518 处未登记。已完整核对 checkpoint、部分 utils，以及产品映射、身份、消息、finish-reason、脱敏和序列化；旧文件级“完整”不会自动通过新门禁。
+- 补测了真实配置加载器与数据目录解析器的一致性、初始化前日志 flush、采集器与 Trace 校验器的真实允许列表、脱敏副本独立性、同毫秒并发原子写，以及报告清空和失败状态。进程探针已接入 `CREATE_NO_WINDOW`，新增真实 PowerShell `GetConsoleWindow=0` 断言；Windows 实跑前保留部分覆盖。另一处缺口是 EPERM 测试仅调用未接入生产入口的旧 helper。
+- 首批门禁、映射与补测提交为 `d1a88dd`；18 个完整文件（154 处历史声明）已由 `c21753f` 清理并推送，同步更新两处旧测试引用。删除后干净提交树的审计分母仍为 391 文件、4,694 声明；严格 clippy 与 1,377 项 Rust 回归通过。
+- 首批本地默认及 all-features 均通过严格 clippy 和 1,377 项 Rust 回归（主库 1,252、xtask 43、独立集成 82），另有 2 项 doc-tests ignored；映射工具 Vitest 7 项通过。严格完整映射门禁仍按预期失败。
 - 清理前执行 `ps1-json-encoding.test.mjs` 得到 8 通过、2 失败、5 跳过：失败项仍要求已移除的 span-attr 内嵌 Node 读取与安装配置临时文件机制存在，待宿主批次对齐原生入口；本批仅更新注释引用，不删除或跳过这些断言。
+- 第二批新增进程身份 9 条和归档 8 条逐用例映射。归档中的 7 条 ASCII staging、tar.exe、node_modules/ACL/npm 旧机制退役；仍有效的同版本活跃目录保护由真实原生激活测试承接。新增双格式 Unicode 解包/截断清理/重试、预检失败不改配置与指针、重复激活生成独立目录及旧二进制摘要不变的断言；不以旧 `win_archive` 无调用方 helper 的测试代替生产入口。
+- 第二批本地专项回归已通过：pid-utils 12 项、process-discovery 5 项、package-archive 5 项、同版本激活 1 项。macOS/Windows 同组回归放入既有发布平台任务，隔离 HOME；Windows 另执行无控制台回归。平台执行结果待记录，本批不提交三个进程/归档历史文件的删除。
+- 第二批默认及 all-features 均通过严格 clippy 和 1,381 项 Rust 回归（主库 1,256、xtask 43、独立集成 82），另有 2 项 doc-tests ignored。首次 all-features 安装回归曾因同时构建默认配置而报 edition 不匹配：fixture 从共享 `CARGO_BIN_EXE_loongsuite-pilot` 路径复制主程序，清单 edition 却来自测试自身 feature。保留默认测试二进制后构建 proprietary 主程序，可稳定复现同一错误；匹配的 all-features 测试通过，随后串行全量通过。不同 feature 的构建与集成测试必须串行，或使用独立 `CARGO_TARGET_DIR`；未改动安装断言。
 - 旧 Node 工具链尚未退役。宿主 JS/Python、有效 E2E 工具和系统脚本测试保留；Windows 卸载的 Python 调用及 Dashboard shortcut 的 Node 包装层待原生替代后清理。
 
 开发机先运行 `npm ci --ignore-scripts`，再生成审计报告：
@@ -114,6 +117,7 @@ cargo run -p xtask -- migration-audit --require-complete
 | `a0c49cd` | [第五次发布 dry-run](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40622987158) | 12 分 58 秒，9 个任务 | 八平台包与汇总首次全部通过；Windows 原生配置路径修复已实跑验证 |
 | `2d56ecd` | [日常 CI](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40624833561) | 缓存命中，2 分 04 秒，1 个任务 | 严格 lint 与 1,369 项 Linux 测试通过，包含 Dashboard 修复 |
 | `2d56ecd` | [第六次发布 dry-run](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40624834661) | 15 分 08 秒，9 个任务 | 最终代码的八平台包、原生预检与汇总全部通过；资产下载后 SHA-256 复核通过 |
+| `c21753f` | [首批历史测试清理 CI](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40649531061) | 2 分 51 秒，1 个任务 | 18 文件删除后严格 lint 与 Rust 全量回归通过；不含后续进程/归档补测 |
 
 修复链路：候选输出移出 Cargo 缓存，脚本通过 Git 属性固定 LF；macOS 仅在 libproc 确认组内没有活进程时处理 XNU 的僵尸组 EPERM，查询不完整或真正权限失败仍报错。`6217343` 限定 Unix 专属权限测试，保留平台无关断言。`a0c49cd` 将内置配置路径改为原生 `Path::join`，避免 Windows `\\?\` 路径混入 `/`；同时保留有界 stdout/stderr 失败诊断，防止丢失 `check --json` 的错误报告。
 

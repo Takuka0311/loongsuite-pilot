@@ -91,10 +91,18 @@ jobs:
       - name: 非 Linux 包预检进程、配置路径与 Hook 模板回归
         if: runner.os != 'Linux'
         run: |
+          set -euo pipefail
+          export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+          mkdir -p "$RUNNER_TEMP/pilot-regression-home"
+          export HOME="$RUNNER_TEMP/pilot-regression-home" USERPROFILE="$RUNNER_TEMP/pilot-regression-home"
           cargo test --locked -p xtask --bin xtask package::tests
           cargo test --locked -p xtask --bin xtask hooks::tests
           cargo test --locked -p loongsuite-pilot --lib utils::candidate_process::tests
           cargo test --locked -p loongsuite-pilot --lib core::config_loader::tests::reads_inner_config_from_canonical_data_dir
+          cargo test --locked -p loongsuite-pilot --lib utils::pid_utils::tests
+          cargo test --locked -p loongsuite-pilot --lib utils::process_discovery::tests
+          cargo test --locked -p loongsuite-pilot --lib updater::package_archive::tests
+          cargo test --locked -p loongsuite-pilot --lib updater::runtime::tests::same_version_activation_preserves_live_tree_and_retries_failed_preflight
       - name: 安装本架构 musl 编译器
         if: contains(matrix.target, 'musl')
         run: |
