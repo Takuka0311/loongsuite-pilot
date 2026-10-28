@@ -119,7 +119,6 @@ fn pi_transform(enabled: AgentEnabled) -> TransformFn {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::{Arc, Mutex};
 
     use serde_json::json;
@@ -386,8 +385,10 @@ mod tests {
         assert!(replay.lock().unwrap().is_empty());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn tightens_existing_log_directory() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().expect("temp");
         let mut perms = std::fs::metadata(dir.path()).unwrap().permissions();
         perms.set_mode(0o755);

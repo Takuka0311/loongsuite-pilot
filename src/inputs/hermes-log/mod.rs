@@ -60,14 +60,13 @@ fn hermes_lines() -> LineFn {
 #[cfg(test)]
 mod tests {
     use std::io::Write;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::sync::Arc;
 
     use serde_json::{json, Value};
 
     use super::*;
-    use crate::inputs::rest_support::{entry_json, memory_state_store, process_uid};
+    use crate::inputs::rest_support::{entry_json, memory_state_store};
     use crate::types::CollectionMethod;
 
     struct Env {
@@ -385,8 +384,11 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn diagnoses_unreadable_session_directory_once() {
+        use crate::inputs::rest_support::process_uid;
+        use std::os::unix::fs::PermissionsExt;
         if process_uid() == Some(0) {
             return;
         }

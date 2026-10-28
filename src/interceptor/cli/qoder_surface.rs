@@ -100,11 +100,13 @@ fn ancestor_names() -> Vec<String> {
     }
 }
 
+#[cfg(any(unix, test))]
 struct ProcessInfo {
     name: String,
     ppid: i64,
 }
 
+#[cfg(unix)]
 fn read_process(pid: i64) -> Option<ProcessInfo> {
     if cfg!(target_os = "linux") {
         let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;

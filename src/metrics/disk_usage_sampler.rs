@@ -574,6 +574,7 @@ mod tests {
             101,
         );
         write_file(&root.join("state").join("checkpoint.json"), 7);
+        #[cfg(unix)]
         std::os::unix::fs::symlink(root.join("logs"), root.join("linked-logs")).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let calls_cb = calls.clone();

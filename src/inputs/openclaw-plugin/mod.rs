@@ -110,7 +110,6 @@ fn openclaw_transform() -> TransformFn {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::{Arc, Mutex};
 
     use serde_json::json;
@@ -358,8 +357,10 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn tightens_existing_log_directory() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().expect("temp");
         let path = dir.path();
         let mut perms = std::fs::metadata(path).unwrap().permissions();

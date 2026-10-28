@@ -350,7 +350,6 @@ mod tests {
     use crate::interceptor::types::{HookEventName, HookRequest, InterceptorAgent};
     use serde_json::json;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     fn entry(
         event: &str,
@@ -482,14 +481,18 @@ mod tests {
         let second: Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(first["result"]["action"], "allow");
         assert_eq!(second["result"]["action"], "block");
-        assert_eq!(
-            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
-        assert_eq!(
-            fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
     }
 
     #[test]
