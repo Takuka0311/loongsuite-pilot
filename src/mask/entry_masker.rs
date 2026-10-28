@@ -357,8 +357,8 @@ mod tests {
             None,
             None,
         );
-        assert!(matches!(masked, Cow::Borrowed(_)));
-        assert_eq!(masked.output_messages, original.output_messages);
+        assert!(matches!(masked, Cow::Borrowed(value) if std::ptr::eq(value, &original)));
+        assert_eq!(masked.as_ref(), &original);
     }
 
     #[test]
@@ -376,7 +376,7 @@ mod tests {
             None,
             None,
         );
-        assert!(matches!(masked, Cow::Borrowed(_)));
+        assert!(matches!(masked, Cow::Borrowed(value) if std::ptr::eq(value, &original)));
     }
 
     #[test]
@@ -385,7 +385,7 @@ mod tests {
             "gen_ai.output.messages": [{"role": "assistant", "content": "plain content"}],
         }));
         let masked = mask_agent_activity_entry(&original, &all_config(), None, None);
-        assert!(matches!(masked, Cow::Borrowed(_)));
+        assert!(matches!(masked, Cow::Borrowed(value) if std::ptr::eq(value, &original)));
     }
 
     #[test]
@@ -399,7 +399,7 @@ mod tests {
         let masked = mask_agent_activity_entry(&original, &all_config(), None, None);
         let serialized = serde_json::to_string(&*masked).unwrap();
         assert!(serialized.contains(api_key));
-        assert!(matches!(masked, Cow::Borrowed(_)));
+        assert!(matches!(masked, Cow::Borrowed(value) if std::ptr::eq(value, &original)));
     }
 
     #[test]

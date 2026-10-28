@@ -67,7 +67,7 @@ schema 1 阶段的历史审计为 391 个文件：9 个文件级完整映射、1
 - 每个用例记录行为断言、适用平台和去向：`rust`、`retained`、`retired`。保留项不计作 Rust 迁移；退役项需要理由和原生替代测试。
 - Rust 引用由 `syn` 检查真实 `#[test]` / `#[tokio::test]`，拒绝注释、普通函数、ignored 测试和歧义名称。同文件只解析一次。
 - 保留测试引用原语言测试、被测资源和 npm 执行入口，并与 Vitest 实际收集的完整名称、源码摘要核对；报告另列平台和执行状态。缺文件、缺资源或过期收集结果会阻止完整映射。
-- 当前审计为 26 个完整文件、23 个部分文件、342 个未映射文件；231 处声明登记为 Rust 承接、7 处旧机制退役，其中 2 处仍为部分覆盖，另有 4,456 处未登记。新增 source-context 4 条、global-attributes 16 条、deployment types 5 条，以及输入双写 8 条、事件构建 9 条、代码事件转换 8 条；原语言保留项尚未登记。已完整核对 checkpoint、部分 utils，以及产品映射、身份、消息、finish-reason、脱敏和序列化；旧文件级“完整”不会自动通过新门禁。
+- 当前审计为 31 个完整文件、23 个部分文件、337 个未映射文件；279 处声明登记为 Rust 承接、7 处旧机制退役，其中 2 处仍为部分覆盖，另有 4,408 处未登记。基础与事件构建先后新增 50 条，随后 Git 富化 10 条、turn 边界 16 条、敏感检测 3 条、条目脱敏 8 条及预览替换 11 条完成逐断言核对；原语言保留项尚未登记。已完整核对 checkpoint、部分 utils，以及产品映射、身份、消息、finish-reason、脱敏和序列化；旧文件级“完整”不会自动通过新门禁。
 - 补测了真实配置加载器与数据目录解析器的一致性、初始化前日志 flush、采集器与 Trace 校验器的真实允许列表、脱敏副本独立性、同毫秒并发原子写，以及报告清空和失败状态。进程探针已接入 `CREATE_NO_WINDOW`，控制台断言现由原生测试子进程直接调用 `GetConsoleWindow`，避免 PowerShell/C# 冷启动影响；修订后的 Windows 实跑前保留部分覆盖。另一处缺口是 EPERM 测试仅调用未接入生产入口的旧 helper。
 - 首批门禁、映射与补测提交为 `d1a88dd`；18 个完整文件（154 处历史声明）已由 `c21753f` 清理并推送，同步更新两处旧测试引用。删除后干净提交树的审计分母仍为 391 文件、4,694 声明；严格 clippy 与 1,377 项 Rust 回归通过。
 - 首批本地默认及 all-features 均通过严格 clippy 和 1,377 项 Rust 回归（主库 1,252、xtask 43、独立集成 82），另有 2 项 doc-tests ignored；映射工具 Vitest 7 项通过。严格完整映射门禁仍按预期失败。
@@ -77,8 +77,9 @@ schema 1 阶段的历史审计为 391 个文件：9 个文件级完整映射、1
 - 第二批默认及 all-features 均通过严格 clippy 和 1,381 项 Rust 回归（主库 1,256、xtask 43、独立集成 82），另有 2 项 doc-tests ignored。首次 all-features 安装回归曾因同时构建默认配置而报 edition 不匹配：fixture 从共享 `CARGO_BIN_EXE_loongsuite-pilot` 路径复制主程序，清单 edition 却来自测试自身 feature。保留默认测试二进制后构建 proprietary 主程序，可稳定复现同一错误；匹配的 all-features 测试通过，随后串行全量通过。不同 feature 的构建与集成测试必须串行，或使用独立 `CARGO_TARGET_DIR`；未改动安装断言。
 - 单实例锁再补 12 条逐用例映射：外部持有者改为原生测试子进程，有界就绪握手及 RAII 回收；失效 PID 来自实际回收的子进程，命令匹配正向用例不再静默跳过，接任锁保留完整 JSON 对象。Linux 13 项通过（含 1 个 fixture 入口），对应测试加入既有 macOS/Windows 发布任务；旧文件删除等待平台结果。
 - `94afc33` 的默认及干净提交树 all-features 全量各通过 1,382 项（主库 1,257、xtask 43、独立集成 82），另有 2 项 doc-tests ignored；日常 CI 耗时 2 分 46 秒。新增 25 条基础映射复用已有测试，并强化 global attributes 的完整结果及相同 mtime 下坏 JSON 修复重试断言；普通审计通过，严格完整映射门禁仍按预期失败。
-- `c0303b8` 清理三个基础旧文件（25 处声明）。随后输入双写、事件构建及代码事件转换的另 25 处声明完成核对，复用现有 25 个 Rust 测试；双写参数化声明的 messages、messages_delta、空增量三场景全部保留。Rust 移动原条目并完整比较值，承接旧 JS 对象引用保持的业务合同。上述映射对应的本地默认全量仍为 1,382 项通过，未增加重复测试。
-- 第七轮 dry-run（`94afc33`）六个 Linux/macOS 包成功，Windows 两架构在进程身份探针处失败；ARM64 另有 PowerShell 控制台探针 15 秒超时。单 PID 查询的 5 秒上限现改为 30 秒，保留 `win32-cim-v1` 身份格式和查询失败时的保守锁行为，测试会暴露查询错误；全进程扫描仍为 8 秒。原生控制台夹具与新增编码桥接仍待新提交平台实跑，旧进程/锁/归档测试暂不删除。
+- `c0303b8` 清理三个基础旧文件（25 处声明），`99e319f` 再清理输入双写、事件构建及代码事件转换三个文件（25 处声明），均已推送。双写参数化声明的 messages、messages_delta、空增量三场景全部保留；Rust 移动原条目并完整比较值，承接旧 JS 对象引用保持的业务合同。默认全量及干净 `c0303b8` all-features 全量各通过 1,382 项，另有 2 项 doc-tests ignored；干净 `99e319f` 的格式、严格 clippy、普通审计和三提交敏感扫描通过，完整映射门禁仍按剩余缺口退出 1。
+- Git 富化和 turn 边界的 26 处声明复用现有回归，归一化模块 124 项通过。覆盖五个 namespace 别名、Windows/UNC 路径、失败后继续处理、十八种 Agent 默认生命周期、跨批结束、subagent 隔离、重复抑制与 4097 turn 淘汰。脱敏的另 22 处声明保留全部原预览字符串、参数化场景和内容白名单；条目未变化时增加 `Cow::Borrowed` 与输入地址相同的断言，none 模式检查完整原值；强化后脱敏模块 84 项通过，未修改生产脱敏逻辑。
+- 第七轮 dry-run（`94afc33`）六个 Linux/macOS 包成功，Windows 两架构在进程身份探针处失败；ARM64 另有 PowerShell 控制台探针 15 秒超时。单 PID 查询的 5 秒上限现改为 30 秒，保留 `win32-cim-v1` 身份格式和查询失败时的保守锁行为，测试会暴露查询错误；全进程扫描仍为 8 秒。第八轮 `99e319f` 的原生无控制台回归在 Windows 两架构均通过；x64 的身份、进程、锁、归档和同版本激活通过，随后安装编码桥接报 exit=9009；ARM64 的 CIM 身份查询仍在 30 秒超时。两处失败继续处理，旧进程/锁/归档测试暂不删除。
 - 旧 Node 工具链尚未退役。宿主 JS/Python、有效 E2E 工具和系统脚本测试保留；Windows 卸载的 Python 调用及 Dashboard shortcut 的 Node 包装层待原生替代后清理。
 
 开发机先运行 `npm ci --ignore-scripts`，再生成审计报告：
@@ -124,6 +125,7 @@ cargo run -p xtask -- migration-audit --require-complete
 | `c21753f` | [首批历史测试清理 CI](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40649531061) | 2 分 51 秒，1 个任务 | 18 文件删除后严格 lint 与 Rust 全量回归通过；不含后续进程/归档补测 |
 | `94afc33` | [进程与单实例锁 CI](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40654259716) | 2 分 46 秒，1 个任务 | 严格 lint 与 1,382 项 Linux 回归通过 |
 | `94afc33` | [第七次发布 dry-run](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40654728105) | 9 个任务，失败 | Linux/macOS 六包成功；Windows x64/ARM64 启动身份探针返回空值，ARM64 控制台探针超时，后续锁/归档回归未执行；汇总正确拒绝 |
+| `99e319f` | [归一化清理与 Windows 修订 CI](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40658224629) | ci-gate 2 分 12 秒，1 个任务 | 通过；不包含此后新增的 Git 富化、turn 边界和脱敏映射 |
 
 修复链路：候选输出移出 Cargo 缓存，脚本通过 Git 属性固定 LF；macOS 仅在 libproc 确认组内没有活进程时处理 XNU 的僵尸组 EPERM，查询不完整或真正权限失败仍报错。`6217343` 限定 Unix 专属权限测试，保留平台无关断言。`a0c49cd` 将内置配置路径改为原生 `Path::join`，避免 Windows `\\?\` 路径混入 `/`；同时保留有界 stdout/stderr 失败诊断，防止丢失 `check --json` 的错误报告。
 
