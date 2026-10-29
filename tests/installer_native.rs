@@ -1106,7 +1106,9 @@ fn windows_shells() -> [PathBuf; 2] {
 
 #[cfg(windows)]
 fn windows_script(constrained: bool, names: &[&str]) -> String {
-    let mut script = String::from("\u{feff}$ErrorActionPreference = 'Stop'\n");
+    let mut script = String::from(
+        "\u{feff}$env:PSModulePath = $PSHOME + '\\Modules'\n$ErrorActionPreference = 'Stop'\n",
+    );
     if constrained {
         script.push_str("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n");
     }
@@ -1490,7 +1492,7 @@ fn windows_installer_config_bridge_preserves_unicode_and_environment_in_both_she
             .unwrap();
             let source = include_str!("../deploy/installer-opensource.ps1");
             let mut script = String::from(
-                "\u{feff}$env:PILOT_TEST_STAGE = 'shell-entry'\n$ErrorActionPreference = 'Stop'\n",
+                "\u{feff}$env:PILOT_TEST_STAGE = 'shell-entry'\n$env:PSModulePath = $PSHOME + '\\Modules'\n$ErrorActionPreference = 'Stop'\n",
             );
             if constrained {
                 script.push_str(
@@ -2350,6 +2352,65 @@ fn native_uninstall_cleans_recorded_and_all_existing_alternative_configuration_p
                 );
             } else {
                 assert_eq!(data["plugin"], json!(["user-plugin@1"]));
+            }
+        }
+    }
+}
+
+#[test]
+fn native_uninstall_rejects_invalid_local_overrides_while_discovery_keeps_builtin_fallbacks() {
+    for invalid in [
+        "private-invalid-override",
+        r#"{"id":"cursor","displayName":"private-invalid-override","deployMode":"unknown","detection":{}}"#,
+        r#"{"id":"cursor","displayName":"private-invalid-override","deployMode":"hook","detection":{"paths":3}}"#,
+    ] {
+        let fixture = Fixture::new();
+        fixture.package_with(&[(
+            "agents.d/cursor.json",
+            include_str!("../agents.d/cursor.json"),
+        )]);
+        let local = fixture.data.join("agents.d.local/cursor.json");
+        fs::create_dir_all(local.parent().unwrap()).unwrap();
+        fs::write(&local, invalid).unwrap();
+        let hook = fixture.data.join(if cfg!(windows) {
+            "hooks/cursor-loongsuite-pilot-hook.ps1"
+        } else {
+            "hooks/cursor-loongsuite-pilot-hook.sh"
+        });
+        fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        fs::write(&hook, "preserve helper asset").unwrap();
+        let own = if cfg!(windows) {
+            format!(
+                "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{}\"",
+                hook.display()
+            )
+        } else {
+            loongsuite_pilot::hooks::quote_claude_hook_path(&hook.to_string_lossy())
+        };
+        let config = fixture.root.path().join(".cursor/hooks.json");
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        let original = json!({"hooks":{"afterAgentResponse":[{"command":own}]}}).to_string();
+        fs::write(&config, &original).unwrap();
+        let mut probe = fixture.command(&fixture.binary);
+        probe.args(["probe", "--installer", "--list"]);
+        let output = bounded(probe);
+        success(&output);
+        let detected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(detected
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|agent| agent["id"] == "cursor"));
+        for check_only in [true, false] {
+            let output=fixture.helper("cleanup-agents",
+                &json!({"dataDir":fixture.data,"pilotDir":fixture.candidate,"checkOnly":check_only}),true);
+            assert_eq!(output.status.code(), Some(1));
+            assert_eq!(fs::read_to_string(&config).unwrap(), original);
+            assert_eq!(fs::read_to_string(&hook).unwrap(), "preserve helper asset");
+            assert_eq!(fs::read_to_string(&local).unwrap(), invalid);
+            assert!(!fixture.data.join("deployed-agents.json").exists());
+            for stream in [&output.stdout, &output.stderr] {
+                assert!(!String::from_utf8_lossy(stream).contains("private-invalid-override"));
             }
         }
     }

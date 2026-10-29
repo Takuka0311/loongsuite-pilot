@@ -377,6 +377,14 @@ impl DeploymentManager {
         definitions
     }
 
+    pub(crate) async fn load_definitions_strict(&self) -> Result<Vec<AgentDefinition>, String> {
+        let _guard = self.gate.lock().await;
+        self.load_state().await?;
+        let definitions = self.loader.load_strict().await?;
+        *self.definitions.lock().unwrap() = definitions.clone();
+        Ok(definitions)
+    }
+
     pub async fn validate_state(&self) -> Result<(), String> {
         self.read_state_file().await.map(|_| ())
     }

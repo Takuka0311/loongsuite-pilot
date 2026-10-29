@@ -41,8 +41,17 @@ impl AgentDefLoader {
     }
 
     pub async fn load(&self) -> Vec<AgentDefinition> {
-        let builtin = self.load_from_dir(&self.opts.builtin_dir).await;
-        let local = self.load_from_dir(&self.opts.local_dir).await;
+        // Discovery keeps its historical best-effort policy.
+        self.load_mode(false).await.unwrap_or_default()
+    }
+
+    pub(crate) async fn load_strict(&self) -> Result<Vec<AgentDefinition>, String> {
+        self.load_mode(true).await
+    }
+
+    async fn load_mode(&self, strict: bool) -> Result<Vec<AgentDefinition>, String> {
+        let builtin = self.load_from_dir(&self.opts.builtin_dir, strict).await?;
+        let local = self.load_from_dir(&self.opts.local_dir, strict).await?;
         let mut merged = HashMap::new();
         let mut order = Vec::new();
         for def in builtin.iter().chain(local.iter()) {
@@ -73,20 +82,28 @@ impl AgentDefLoader {
                     .unwrap_or_default(),
             ),
         );
-        result
+        Ok(result)
     }
 
-    async fn load_from_dir(&self, dir: &str) -> Vec<AgentDefinition> {
+    async fn load_from_dir(&self, dir: &str, strict: bool) -> Result<Vec<AgentDefinition>, String> {
         let mut entries = match tokio::fs::read_dir(dir).await {
             Ok(entries) => entries,
-            Err(_) => {
+            Err(error) => {
+                if strict && error.kind() != std::io::ErrorKind::NotFound {
+                    return Err("Cannot inspect Agent definition directory".into());
+                }
                 logger().debug("agent definition directory not found", None);
-                return Vec::new();
+                return Ok(Vec::new());
             }
         };
         let mut names = Vec::new();
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            names.push(entry.file_name().to_string_lossy().into_owned());
+        loop {
+            match entries.next_entry().await {
+                Ok(Some(entry)) => names.push(entry.file_name().to_string_lossy().into_owned()),
+                Ok(None) => break,
+                Err(_) if strict => return Err("Cannot enumerate Agent definitions".into()),
+                Err(_) => break,
+            }
         }
         names.sort();
         let mut defs = Vec::new();
@@ -102,9 +119,19 @@ impl AgentDefLoader {
             }
             let file_path = Path::new(dir).join(&entry);
             let file_path = file_path.to_string_lossy().into_owned();
+            if strict {
+                let metadata = crate::utils::runtime_paths::runtime_metadata(Path::new(&file_path))
+                    .map_err(|_| "Cannot inspect Agent definition file")?;
+                if !metadata.is_file() || metadata.len() > 4 * 1024 * 1024 {
+                    return Err("Agent definition is not a bounded regular file".into());
+                }
+            }
             let raw = match tokio::fs::read_to_string(&file_path).await {
                 Ok(raw) => raw,
                 Err(err) => {
+                    if strict {
+                        return Err("Cannot read Agent definition".into());
+                    }
                     logger().warn("failed to parse agent definition", None);
                     let _ = err;
                     continue;
@@ -113,20 +140,27 @@ impl AgentDefLoader {
             let parsed: Value = match serde_json::from_str(&raw) {
                 Ok(parsed) => parsed,
                 Err(_) => {
+                    if strict {
+                        return Err("Invalid Agent definition JSON".into());
+                    }
                     logger().warn("failed to parse agent definition", None);
                     continue;
                 }
             };
             let resolved = self.resolve_value(&parsed);
             if !self.validate(&resolved, &file_path) {
+                if strict {
+                    return Err("Invalid Agent definition schema".into());
+                }
                 continue;
             }
             match serde_json::from_value::<AgentDefinition>(resolved) {
                 Ok(def) => defs.push(def),
+                Err(_) if strict => return Err("Invalid Agent definition fields".into()),
                 Err(_) => logger().warn("failed to parse agent definition", None),
             }
         }
-        defs
+        Ok(defs)
     }
 
     fn env_get(&self, name: &str) -> Option<String> {

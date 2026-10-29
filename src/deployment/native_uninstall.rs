@@ -221,7 +221,9 @@ pub(super) async fn run(value: Value) -> Result<String> {
             "Deployment state is invalid; configuration and runtime assets were preserved"
         )
     })?;
-    let definitions = manager.load_definitions().await;
+    let definitions = manager.load_definitions_strict().await.map_err(|_| {
+        anyhow::anyhow!("Cannot safely load all Agent definitions; configuration and runtime assets were preserved")
+    })?;
     ensure!(
         !definitions.is_empty(),
         "No valid Agent definitions; runtime assets were preserved"

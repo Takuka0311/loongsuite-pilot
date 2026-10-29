@@ -1129,8 +1129,8 @@
       ]
     },
     {
-      "legacy":"tests/unit/utils/process-discovery.test.ts", "coverage":"partial", "rust":[],
-      "note":"扫描解析与回退已对应；run_command 已接入 CREATE_NO_WINDOW，通过原生子进程查询控制台句柄，保留部分覆盖等待修订后的 Windows 平台执行证据。",
+      "legacy":"tests/unit/utils/process-discovery.test.ts", "coverage":"complete", "rust":[],
+      "note":"扫描解析与回退已对应；run_command 的 CREATE_NO_WINDOW、原生 GetConsoleWindow=0 及命令输出/失败回归，在 Windows ARM64/x64 的 run 40816401608、jobs 123258389911/123258389929 均通过。该轮后续安装桥接失败，不将整轮发布计为成功；保留工作区原有旧测试删除改动。",
       "source_hash":"8b2841d52f6e22bbdc860ccce40dd3e6061f95feffd15e43b2c5f67d07f2f6ee",
       "cases":[
         {
@@ -1140,7 +1140,7 @@
         },
         {
           "source":{"id":"L30:C3","title":"returns true when powershell output contains a matching updater command line","suites":["isUpdaterRunningOnWindowsSync"],"parameters":[]},
-          "coverage":"partial", "behavior":"保留 updater Windows 命令匹配以及程序、参数、8 秒超时、UTF-8 常量断言；CREATE_NO_WINDOW 已接线，原生子进程执行 GetConsoleWindow=0 断言，待 Windows 实跑", "platforms":["linux","macos","windows"],
+          "coverage":"complete", "behavior":"保留 updater Windows 命令匹配以及程序、参数、8 秒超时、UTF-8 常量断言；CREATE_NO_WINDOW 生产接线由原生子进程 GetConsoleWindow=0 和命令输出/失败回归验证，Windows ARM64/x64 均有实际执行日志。", "platforms":["linux","macos","windows"],
           "target":{"kind":"rust","tests":[{"file":"src/utils/process_discovery.rs","test":"returns_true_when_powershell_output_contains_a_matching_updater_command"},{"file":"src/utils/pid_utils.rs","test":"windows_probe_does_not_allocate_a_console"},{"file":"src/utils/pid_utils.rs","test":"command_runner_preserves_output_and_reports_failures"}]}
         },
         {
