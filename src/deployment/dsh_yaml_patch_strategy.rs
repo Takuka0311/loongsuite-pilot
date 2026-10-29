@@ -511,7 +511,7 @@ async fn remove_enabled_marker(cfg: &DshYamlPatchConfig) -> Result<(), String> {
             // bounded; a genuinely protected marker remains a cleanup failure.
             Err(err)
                 if cfg!(windows)
-                    && matches!(err.raw_os_error(), Some(5 | 32 | 33))
+                    && matches!(err.raw_os_error(), Some(5 | 32 | 33 | 303))
                     && Instant::now() < deadline =>
             {
                 tokio::time::sleep(LOCK_RETRY).await
@@ -810,9 +810,55 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn marker_cleanup_handles_delete_pending_but_rejects_a_protected_file() {
+        use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
+        use windows_sys::Win32::Storage::FileSystem::{
+            DeleteFileW, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+        let (_root, def, _plugin, _patch) = cleanup_fixture();
+        let cfg = def.dsh_yaml_patch.as_ref().unwrap();
+        let marker = enabled_marker(cfg);
+        let handle = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .open(&marker)
+            .unwrap();
+        let wide: Vec<u16> = Path::new(&marker)
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        // SAFETY: the buffer is terminated and remains valid for this call.
+        assert_ne!(unsafe { DeleteFileW(wide.as_ptr()) }, 0);
+        let denied = std::fs::File::open(&marker).unwrap_err();
+        assert!(
+            matches!(denied.raw_os_error(), Some(5 | 303)),
+            "expected a real delete-pending file: {denied}"
+        );
+        let release = tokio::task::spawn_blocking(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            drop(handle);
+        });
+        remove_enabled_marker(cfg).await.unwrap();
+        release.await.unwrap();
+        assert!(!Path::new(&marker).exists());
+        // A real access restriction is still an error after bounded retries.
+        std::fs::write(&marker, "enabled").unwrap();
+        let mut permissions = std::fs::metadata(&marker).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&marker, permissions).unwrap();
+        assert!(remove_enabled_marker(cfg).await.is_err());
+        assert!(Path::new(&marker).is_file());
+        let mut permissions = std::fs::metadata(&marker).unwrap().permissions();
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&marker, permissions).unwrap();
+    }
+
     #[tokio::test]
     async fn concurrent_stale_lock_cleanup_serializes_and_removes_both_lock_files() {
-        for _round in 0..8 {
+        for round in 0..32 {
             let (root, def, plugin, patch) = cleanup_fixture();
             std::fs::create_dir_all(patch.parent().unwrap()).unwrap();
             let block = historical_cleanup_block(false);
@@ -838,7 +884,7 @@ mod tests {
             );
             assert!(
                 a && b,
-                "cleanup results a={a} b={b}, lock={} reclaim={}",
+                "cleanup round={round} results a={a} b={b}, lock={} reclaim={}",
                 Path::new(&lock).exists(),
                 Path::new(&format!("{lock}{LOCK_GATE_SUFFIX}")).exists()
             );

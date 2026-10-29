@@ -2493,9 +2493,9 @@
     },
     {
       "legacy": "tests/unit/deploy/dsh-uninstall-cleanup.test.mjs",
-      "coverage": "partial",
+      "coverage": "complete",
       "rust": [],
-      "note": "六个历史清理声明由生产 DSH strategy 的独立固定语法夹具承接；安装器顺序改为真实原生入口测试，Windows 卸载桥接执行结果尚待确认，暂不删除旧测试。",
+      "note": "六个历史清理声明由生产 DSH strategy 的独立固定语法夹具承接；安装器顺序由真实原生卸载入口验证。40834246667 Windows x64/ARM64 的原生卸载桥接与持久化 DSH 路径清理均实跑通过，故关闭此处部分覆盖；该轮仍有独立 Hook 安装故障，不冒充整体发布通过。",
       "source_hash": "cd0e1052fe510e877e69b61beefe57d6c868d353f9cd209dd42f5824bcacc111",
       "cases": [
         {
@@ -2665,8 +2665,8 @@
             ],
             "parameters": []
           },
-          "coverage": "partial",
-          "behavior": "实际安装器调用原生 helper，预检拒绝发生在停服务前，清理失败保留版本、配置与资产；DSH 使用持久化路径。Windows 新入口等待平台实跑。",
+          "coverage": "complete",
+          "behavior": "实际安装器调用原生 helper，预检拒绝发生在停服务前，清理失败保留版本、配置与资产；DSH 使用持久化路径。Unix 与 Windows x64/ARM64 的真实安装器入口/原生 DSH 清理均有通过日志。",
           "platforms": [
             "linux",
             "macos",
