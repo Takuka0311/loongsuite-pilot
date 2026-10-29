@@ -221,7 +221,7 @@ loongsuite-pilot dashboard shortcut uninstall
 `~/Library/Application Support/LoongSuite Pilot/Shortcuts/LoongSuite Pilot Dashboard.webloc`，
 并添加到程序坞的文件区（下载、废纸篓这一侧，不能放在应用区）。点击后使用默认浏览器打开。
 不生成或编译 `.app`，不需要额外安装软件，不增加后台进程，也不会重启 Pilot。
-安装命令使用 macOS 自带工具。当前仓库里它仍会用 Node.js 执行 `scripts/dashboard-shortcut.mjs`。
+安装命令由 Rust CLI 调用 macOS 自带的 osascript/JXA，不依赖 Node.js；桥接代码内嵌于二进制，图标随 macOS 平台包提供。
 
 网址在**执行快捷方式安装命令时**读取配置中的 `dashboard.port`，支持
 `AGENT_DATA_COLLECTION_CONFIG` 和安装时的自定义数据目录；端口缺失或不合法时，

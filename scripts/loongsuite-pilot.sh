@@ -1700,42 +1700,22 @@ cmd_dashboard() {
         --help|-h) echo "Usage: loongsuite-pilot dashboard shortcut {install|status|uninstall}"; return 0 ;;
         *) echo "Usage: loongsuite-pilot dashboard shortcut {install|status|uninstall}" >&2; return 2 ;;
     esac
-    local node_bin="" version_dir repo_dir entry config_path pin pinned
-    repo_dir="$(dirname "$SCRIPT_DIR")"
-    if [ -f "$repo_dir/package.json" ] && [ -d "$repo_dir/src" ]; then
-        entry="$repo_dir/scripts/dashboard-shortcut.mjs"
-    else
-        version_dir=$(resolve_current_version 2>/dev/null) || {
-            echo "Pilot is not installed. Install Pilot before managing Dashboard shortcuts." >&2
-            return 1
-        }
-        entry="$version_dir/scripts/dashboard-shortcut.mjs"
-    fi
-    if [ ! -f "$entry" ]; then
-        echo "Dashboard shortcut command is missing. Upgrade or repair Pilot." >&2
+    case "${1:-}" in
+        install|status|uninstall|--help|-h) ;;
+        *) echo "Usage: loongsuite-pilot dashboard shortcut {install|status|uninstall}" >&2; return 2 ;;
+    esac
+    local pilot_bin config_path
+    pilot_bin=$(resolve_pilot_bin) || {
+        echo "loongsuite-pilot binary not found. Upgrade or repair Pilot." >&2
         return 1
-    fi
+    }
     config_path="${AGENT_DATA_COLLECTION_CONFIG:-}"
     config_path="${config_path#"${config_path%%[![:space:]]*}"}"
     config_path="${config_path%"${config_path##*[![:space:]]}"}"
     config_path="${config_path:-$CONFIG_FILE}"
     case "$config_path" in '~') config_path="$HOME" ;; '~/'*) config_path="$HOME/${config_path#\~/}" ;; esac
-    # A custom --data-dir installer pins Node next to config.json, not the cache.
-    # Preserve spaces in the pinned path; never rewrite the pin on this path.
-    for pin in "$(dirname "$config_path")/node-bin" "$NODE_PIN_FILE"; do
-        if [ -r "$pin" ]; then
-            IFS= read -r pinned < "$pin" || true
-            if _node_is_suitable "$pinned"; then node_bin="$pinned"; break; fi
-        fi
-    done
-    if [ -z "$node_bin" ]; then
-        node_bin=$(resolve_node false) || {
-            echo "Pilot Node.js runtime not found. Repair the Pilot installation." >&2
-            return 1
-        }
-    fi
     export AGENT_DATA_COLLECTION_CONFIG="$config_path"
-    exec "$node_bin" "$entry" "$@"
+    exec "$pilot_bin" dashboard shortcut "$@"
 }
 
 cmd_token_usage() {

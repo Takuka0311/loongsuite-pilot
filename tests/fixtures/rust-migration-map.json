@@ -1774,6 +1774,338 @@
         {"file": "tests/cli_native.rs", "test": "packaged_deploy_propagates_each_worker_stop_failure_without_starting_workers"}
       ],
       "note": "承接全部历史退出码/参数合同：新部署与 up-to-date、未检测/禁用/缺结果/未知 ID、底层错误、无 require 的失败/跳过、worker 停止失败、require 拆分去重/空值/缺值/未知选项。补齐生产 JSON 报告与停止失败传播，并经隔离正式 CLI 验证两个 worker 均被尝试、manifest 修复后可重试且不启动 worker。这里只验证无进程的清理错误传播；底层进程身份与 Windows 停止能力仍有独立缺口。"
+    },
+    {
+      "legacy": "tests/unit/scripts/dashboard-shortcut-command.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "note": "十一处原命令声明逐项由原生 CLI、真实配置组装、参数协议和有界子进程/锁回归承接；JXA 宿主策略及真实 macOS adapter 测试另行保留。",
+      "source_hash": "38049b2de6a93f7e434ccf32c898108041a202d9652029e7f8e1a8dc6bd2567b",
+      "cases": [
+        {
+          "source": {
+            "id": "L27:C3",
+            "title": "matches dashboard.port=%j",
+            "suites": [
+              "configuration parity with the unchanged collector"
+            ],
+            "parameters": [
+              "it.each([undefined, null, 0, -1, 65536, 1.5, '9000', '', [], {}, NaN, Infinity, 1, 80, 9000, 65535])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "全部原端口参数场景与真实 assemble_config 交叉核对；分数端口回退，数值整数、BOM 与端口变更保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "ports_bom_and_reloads_match_defaults_without_writing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L31:C3",
+            "title": "matches config path resolution for %j",
+            "suites": [
+              "configuration parity with the unchanged collector"
+            ],
+            "parameters": [
+              "it.each([undefined, '', '  ', '~', '~/pilot config/config.json', './relative config.json', \"/tmp/配置 ' & file.json\"])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "真实 collector 配置解析器共享缺省、空白、波浪号及显式路径；新增原生绝对路径与词法归一化断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "paths_are_absolute_and_lexical_without_requiring_a_config_file"
+              },
+              {
+                "file": "src/utils/data_dir.rs",
+                "test": "uses_exactly_the_same_path_as_the_live_config_loader"
+              },
+              {
+                "file": "src/utils/data_dir.rs",
+                "test": "config_json_path_uses_env_and_treats_whitespace_as_unset"
+              },
+              {
+                "file": "src/utils/data_dir.rs",
+                "test": "preserves_absolute_paths_and_resolves_a_bare_tilde"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": "reads a BOM-prefixed custom config and picks up port changes",
+            "suites": [
+              "configuration parity with the unchanged collector"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "中文、引号和 shell 特殊字符文件名的 BOM 配置可读取，9101/9102 重读不缓存，原字节不修改。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "ports_bom_and_reloads_match_defaults_without_writing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L45:C3",
+            "title": "matches the collector for missing/malformed config %j",
+            "suites": [
+              "configuration parity with the unchanged collector"
+            ],
+            "parameters": [
+              "it.each([undefined, '{\"secret\":\"do-not-print\"', 'null', '[]'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "缺失、坏 JSON、null、数组均回退默认端口；与真实 collector 配置组装器交叉比较且不输出配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "ports_bom_and_reloads_match_defaults_without_writing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L61:C3",
+            "title": "installs with the configured URL",
+            "suites": [
+              "shortcut command only"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "install 真实构造带当前端口 URL、图标摘要和操作身份的请求，并输出重新安装提示。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "requests_read_assets_and_configuration_only_for_install"
+              },
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "responses_and_rendering_keep_status_url_warnings_and_backups"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L67:C3",
+            "title": "%s does not read the config contents",
+            "suites": [
+              "shortcut command only"
+            ],
+            "parameters": [
+              "it.each(['status', 'uninstall'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "status/uninstall 请求不读取缺失配置或图标；状态展示 helper 返回的已存 URL。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "requests_read_assets_and_configuration_only_for_install"
+              },
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "responses_and_rendering_keep_status_url_warnings_and_backups"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L75:C3",
+            "title": "rejects platform %s before reading config or invoking native code",
+            "suites": [
+              "shortcut command only"
+            ],
+            "parameters": [
+              "it.each(['linux', 'win32'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "正式 CLI 在 Linux/Windows 拒绝快捷方式，坏配置、空 PATH 和安装目录快照不变。",
+          "platforms": [
+            "linux",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/cli_native.rs",
+                "test": "dashboard_shortcut_rejects_other_platforms_without_loading_config_or_runtimes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L81:C3",
+            "title": "rejects legacy and invalid commands without touching installation state",
+            "suites": [
+              "shortcut command only"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "正式 CLI 的帮助、无动作、旧 open/url 和额外 --port 选项在读取坏配置前处理，安装目录不变。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/cli_native.rs",
+                "test": "help_version_and_argument_errors_do_not_touch_home_or_load_config"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L90:C3",
+            "title": "does not leak configuration or process output on errors",
+            "suites": [
+              "shortcut command only"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实子进程超时与非零退出的 stdout/stderr 不进入用户错误，受控 JSON 失败消息保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "bounded_adapter_hides_process_output_and_preserves_status_locks"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L111:C3",
+            "title": "removes only the operation lock owned by the timed-out helper",
+            "suites": [
+              "native helper timeout cleanup"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "有界进程树终止后仅移除同操作身份的锁，status 超时保留锁。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "timeout_cleanup_removes_only_the_exact_operation_lock"
+              },
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "bounded_adapter_hides_process_output_and_preserves_status_locks"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L118:C3",
+            "title": "never removes a lock with another operation identifier",
+            "suites": [
+              "native helper timeout cleanup"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "不同 owner、锁/Owner 符号链接、无关目录内容保持；不得清理其他操作。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "timeout_cleanup_removes_only_the_exact_operation_lock"
+              },
+              {
+                "file": "src/cli/dashboard_shortcut.rs",
+                "test": "timeout_cleanup_preserves_symlinks_and_unrelated_files"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

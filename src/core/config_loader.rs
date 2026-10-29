@@ -35,7 +35,6 @@ use super::{fields, logger};
 
 const SLS_PUBLIC_HOST_SUFFIX: &str = ".log.aliyuncs.com";
 const DEFAULT_UPSTREAM_TTL_MS: u64 = 86_400_000;
-const DEFAULT_DASHBOARD_PORT: u16 = 8_765;
 
 pub struct ConfigSources<'a> {
     pub env: &'a HashMap<String, String>,
@@ -1177,12 +1176,10 @@ fn build_status_bar(file: Option<&Value>, sources: &ConfigSources<'_>) -> Status
 }
 
 fn build_dashboard(file: Option<&Value>) -> DashboardConfig {
-    let port = json_u64(file.and_then(|value| value.pointer("/dashboard/port")));
     DashboardConfig {
-        port: port
-            .and_then(|value| u16::try_from(value).ok())
-            .filter(|port| *port >= 1)
-            .unwrap_or(DEFAULT_DASHBOARD_PORT),
+        port: crate::dashboard::configured_port(
+            file.and_then(|value| value.pointer("/dashboard/port")),
+        ),
     }
 }
 

@@ -202,7 +202,7 @@ loongsuite-pilot dashboard shortcut uninstall
 and adds it to the Dock's files area (beside Downloads/Trash, not the applications
 area). Clicking it uses the default browser. No `.app` is compiled or signed;
 there is no additional software dependency, background process, or service restart.
-The command uses macOS system tools. In the current tree it still launches `scripts/dashboard-shortcut.mjs` with Node.js.
+The Rust CLI calls the macOS system osascript/JXA host directly. The bridge is embedded in the binary and the icon ships in the macOS package; Node.js is not required.
 
 The URL is read from `dashboard.port` in the active configuration at **shortcut
 installation time**. The CLI honors `AGENT_DATA_COLLECTION_CONFIG` and the installed

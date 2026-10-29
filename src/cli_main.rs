@@ -91,6 +91,9 @@ pub async fn dispatch(argv: &[String]) -> anyhow::Result<i32> {
         return crate::cli::span_attr::run(args).await;
     }
     if let Some(args) = parsed.subcommand_matches("dashboard") {
+        if let Some(shortcut) = args.subcommand_matches("shortcut") {
+            return crate::cli::dashboard_shortcut::run(shortcut).await;
+        }
         if let Some(probe) = args.subcommand_matches("probe") {
             return crate::cli::dashboard_probe::run(probe).await;
         }

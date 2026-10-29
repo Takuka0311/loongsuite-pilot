@@ -4,6 +4,7 @@
 
 pub(crate) mod args;
 pub(crate) mod dashboard_probe;
+pub(crate) mod dashboard_shortcut;
 mod menubar;
 pub(crate) mod service;
 pub(crate) mod span_attr;

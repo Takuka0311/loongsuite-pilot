@@ -8,14 +8,13 @@ use std::time::Duration;
 
 use crate::dashboard::{
     dashboard_instance_id, DASHBOARD_ID_HEADER, DASHBOARD_ID_VALUE, DASHBOARD_INSTANCE_HEADER,
-    DEFAULT_DASHBOARD_PORT,
 };
 
 fn configured_port(path: &Path) -> Result<u16> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(DEFAULT_DASHBOARD_PORT)
+            return Ok(crate::dashboard::DEFAULT_DASHBOARD_PORT)
         }
         Err(err) => return Err(err.into()),
     };
@@ -25,12 +24,9 @@ fn configured_port(path: &Path) -> Result<u16> {
     let config: Value = serde_json::from_str(text.trim_start_matches('\u{feff}'))
         .map_err(|_| anyhow::anyhow!("配置 JSON 无效"))?;
     ensure!(config.is_object(), "配置必须为 JSON 对象");
-    Ok(config
-        .pointer("/dashboard/port")
-        .and_then(Value::as_u64)
-        .and_then(|port| u16::try_from(port).ok())
-        .filter(|port| *port > 0)
-        .unwrap_or(DEFAULT_DASHBOARD_PORT))
+    Ok(crate::dashboard::configured_port(
+        config.pointer("/dashboard/port"),
+    ))
 }
 
 async fn available(port: u16, data_dir: &str) -> Result<bool> {

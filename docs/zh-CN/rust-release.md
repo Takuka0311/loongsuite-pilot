@@ -166,3 +166,8 @@ cargo run -p xtask -- migration-audit --require-complete
 本批第一次全 feature 全量回归 1,383 项通过，另有 2 个原有 doc-tests ignored；随后单 PID 原生命令读取补丁通过严格 clippy，pid-utils 12 项及单实例锁 14 项专项通过。当前提交树的 GitHub 全量回归及 Windows 实跑结果随工作流追加。已有工作区的 E2E 修改、四个历史测试删除和 Python 缓存未纳入本批。未创建正式 tag 或 Release。
 
 \n首轮修复提交为 34a7066，日常 CI 40805082691 已通过。发布 dry-run 40805083175 中 Windows 两架构均已越过进程身份、命令匹配、锁、归档和同版本激活回归；两者仍在安装桥接处超时，第一版依赖 Set-Content 的阶段文件未生成。后续将阶段记录改为核心输出命令，超时仅提取受控阶段名，并保留 ComSpec、ProgramFiles 和 PATHEXT 等系统启动环境；PATH、HOME、用户配置与运行时仍隔离，Windows 结果待下一轮实跑。
+
+\n### 原生 Dashboard 快捷方式与配置合同\n
+快捷方式的参数、配置、图标摘要、响应输出、有界进程树及超时锁清理由 Rust CLI 承接，JXA 系统桥接内嵌于二进制；Shell 入口只转发原生 dashboard shortcut 子命令。status/uninstall 不读取配置内容或图标，非 macOS 在读取配置前拒绝。修复 collector 将 1.5 端口截为 1 的历史迁移差异，三处入口统一按整数 1–65535 校验，并与真实配置组装器交叉测试。\n
+Linux all-features 全量 1,392 项通过，另有 2 个原有 doc-tests ignored；严格 clippy、Shell 语法和普通映射审计通过。快捷方式命令的 11 处历史声明已逐项登记，审计为 37 个完整文件、23 个部分文件、331 个未映射文件；Rust 348、退役 7、未登记 4,339，另有 2 条部分覆盖。JXA 策略及真实 macOS adapter 测试仍保留原语言，尚未登记，不沿用为本批平台通过证据。新原生专项加入既有发布任务，不增加 runner；macOS/Windows 实跑待记录。\n
+继续扫描卸载的实际调用链发现 Unix 安装器也仍有活跃 Node 清理函数，DSH 分支甚至在未部署 DSH 时先解析 Node。后续卸载迁移应覆盖两端全部清理调用，不能只替换 Windows 的 Python helper。\n

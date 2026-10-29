@@ -79,6 +79,7 @@ fn help_version_and_argument_errors_do_not_touch_home_or_load_config() {
         vec!["--version"],
         vec!["probe", "--build-edition"],
         vec!["hook", "--help"],
+        vec!["dashboard", "shortcut", "--help"],
         vec!["worker", "connect", "--help"],
         vec!["start", "--help"],
         vec!["status", "--help"],
@@ -99,6 +100,9 @@ fn help_version_and_argument_errors_do_not_touch_home_or_load_config() {
     );
     for args in [
         vec!["typo"],
+        vec!["dashboard", "shortcut"],
+        vec!["dashboard", "shortcut", "open"],
+        vec!["dashboard", "shortcut", "install", "--port", "9000"],
         vec!["run", "--typo"],
         vec!["run-updater", "unexpected"],
         vec!["hook-process"],
@@ -2148,4 +2152,24 @@ fn installed_check_uses_own_manifest_and_detects_tampered_resources() {
         fs::read_to_string(root.path().join("cache/current")).unwrap(),
         "../../unrelated"
     );
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn dashboard_shortcut_rejects_other_platforms_without_loading_config_or_runtimes() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("config.json"), "private-invalid-config").unwrap();
+    let before = snapshot(root.path());
+    for action in ["install", "status", "uninstall"] {
+        let output = invoke(
+            executable(),
+            root.path(),
+            &["dashboard", "shortcut", action],
+        );
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("macOS"));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private-invalid"));
+        assert_eq!(before, snapshot(root.path()));
+    }
 }

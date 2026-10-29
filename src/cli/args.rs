@@ -160,6 +160,12 @@ pub(crate) fn command() -> Command {
                 .about("本地 Dashboard 管理")
                 .subcommand_required(true)
                 .subcommand(
+                    Command::new("shortcut")
+                        .about("显式管理 macOS Dashboard 快捷方式")
+                        .subcommand_required(true)
+                        .subcommands(["install", "status", "uninstall"].map(Command::new)),
+                )
+                .subcommand(
                     Command::new("probe")
                         .about("只读查询端口或检查本安装的 HTTP 服务")
                         .arg(flag("port").conflicts_with_all(["data-dir", "available"]))
