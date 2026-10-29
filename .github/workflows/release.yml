@@ -103,6 +103,8 @@ jobs:
           cargo test --locked -p loongsuite-pilot --lib cli::dashboard_shortcut::tests
           cargo test --locked -p loongsuite-pilot --lib utils::process_discovery::tests
           cargo test --locked -p loongsuite-pilot --lib interceptor::cli::qoder_surface::tests
+          cargo test --locked -p loongsuite-pilot --lib hook_process::qoder::
+          cargo test --locked -p loongsuite-pilot --test hooks_native
           cargo test --locked -p loongsuite-pilot --test interceptor_native
           cargo test --locked -p loongsuite-pilot --lib utils::single_instance_lock::tests
           pilot_platform_failures=0

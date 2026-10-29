@@ -148,7 +148,12 @@ fn shell(hook: &Hook) -> String {
     } else {
         "{}"
     };
-    let mut script = format!("#!/usr/bin/env bash\nset -u\nEMPTY_RESULT='{empty}'\nNATIVE_ARGS=('hook-process' '{agent}')\n");
+    let bootstrap = if agent == "qoder-cn" {
+        "if [ -z \"${BASH_VERSION:-}\" ]; then\n  exec bash -- \"$0\" \"$@\"\nfi\nset +o posix\n"
+    } else {
+        ""
+    };
+    let mut script = format!("#!/usr/bin/env bash\n{bootstrap}set -u\nEMPTY_RESULT='{empty}'\nNATIVE_ARGS=('hook-process' '{agent}')\n");
     match hook.mode {
         Mode::Payload => {}
         Mode::Event(allowed) => {

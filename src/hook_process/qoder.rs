@@ -198,7 +198,26 @@ fn run_normal(ctx: &HookCtx<'_>, stdin: &[u8]) {
             .iter()
             .flatten()
             .any(|row| infer_variant(Some(row), &ctx.agent_id) == "qoder-cli");
-    let identity = if cli_transcript {
+    let identity = if ctx.agent_id == "qoder-cn" {
+        payload
+            .extra
+            .as_ref()
+            .and_then(extract_qoder_cn_user_identity)
+            .or_else(|| {
+                payload
+                    .desktop_invocation
+                    .then(|| read_qoder_app_user_identity(ctx.env, &ctx.agent_id))
+                    .flatten()
+            })
+    } else if ctx.agent_id == "qoder" && payload.desktop_invocation {
+        // Desktop embeds CLI-format transcripts but has its own account.
+        // A partial Hook identity is a complete snapshot, not a merge input.
+        payload
+            .extra
+            .as_ref()
+            .and_then(extract_user_identity)
+            .or_else(|| read_qoder_app_user_identity(ctx.env, &ctx.agent_id))
+    } else if cli_transcript {
         resolve_qoder_cli_user_identity(ctx.env)
     } else if ctx.agent_id == "qoder" {
         payload.extra.as_ref().and_then(extract_user_identity)
@@ -702,6 +721,7 @@ struct Payload {
     session: String,
     cwd: Option<String>,
     extra: Option<Obj>,
+    desktop_invocation: bool,
 }
 
 fn parse_payload(ctx: &HookCtx<'_>, stdin: &[u8]) -> Option<Payload> {
@@ -773,6 +793,12 @@ fn parse_payload(ctx: &HookCtx<'_>, stdin: &[u8]) -> Option<Payload> {
         session: session.to_string(),
         cwd,
         extra,
+        desktop_invocation: obj
+            .get("parent_business_info")
+            .and_then(Value::as_object)
+            .and_then(|parent| parent.get("product"))
+            .and_then(Value::as_str)
+            == Some("app"),
     })
 }
 
@@ -3405,6 +3431,71 @@ fn read_retry_user_identity(stdin: &[u8]) -> Option<UserIdentity> {
     identity_from_fields(obj.get("name"), obj.get("email"))
 }
 
+fn account_email(value: Option<&Value>) -> Option<String> {
+    let email = identity_text(value)?;
+    let (local, domain) = email.split_once('@')?;
+    if local.is_empty()
+        || domain.is_empty()
+        || domain.contains('@')
+        || email
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch == '\u{feff}')
+    {
+        return None;
+    }
+    Some(email)
+}
+
+fn extract_qoder_cn_user_identity(extra: &Obj) -> Option<UserIdentity> {
+    let user = extra.get("user").and_then(Value::as_object);
+    let name = identity_text(user.and_then(|user| user.get("name")));
+    let email = account_email(user.and_then(|user| user.get("email")))
+        .or_else(|| account_email(extra.get("email")));
+    (name.is_some() || email.is_some()).then_some(UserIdentity { name, email })
+}
+
+fn read_qoder_app_user_identity(env: &Env, agent_id: &str) -> Option<UserIdentity> {
+    let product = match agent_id {
+        "qoder" => "qoder",
+        "qoder-cn" => "qodercn",
+        _ => return None,
+    };
+    // This public projection changes with the account, without a heartbeat.
+    // Read it on each Stop and let the existing retry payload freeze the result.
+    const LIMIT: u64 = 16 * 1024;
+    let path = home_dir(env)
+        .join(format!(".{agent_id}"))
+        .join(".qoder-app-status.json");
+    let file = fs::File::open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    if !metadata.is_file() || metadata.len() > LIMIT {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(LIMIT + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > LIMIT {
+        return None;
+    }
+    let status: Value = serde_json::from_slice(&bytes).ok()?;
+    if status.get("schema_version").and_then(Value::as_f64) != Some(1.0)
+        || status.get("product").and_then(Value::as_str) != Some(product)
+        || status.get("writer").and_then(Value::as_str) != Some("main")
+        || status.get("logged_in").and_then(Value::as_bool) != Some(true)
+    {
+        return None;
+    }
+    let snapshot = status
+        .get("snapshot_at")
+        .and_then(Value::as_str)
+        .and_then(date_parse_millis)?;
+    if snapshot > now_ms().saturating_add(5 * 60_000) {
+        return None;
+    }
+    let name = identity_text(status.get("name"));
+    let email = account_email(status.get("email"));
+    (name.is_some() || email.is_some()).then_some(UserIdentity { name, email })
+}
+
 fn extract_user_identity(extra: &Obj) -> Option<UserIdentity> {
     let user = extra.get("user")?.as_object()?;
     identity_from_fields(user.get("name"), user.get("email"))
@@ -3791,7 +3882,12 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    fn invoke(root: &Path, args: &[&str], stdin: &str, extra: &[(&str, &str)]) -> (i32, String) {
+    pub(super) fn invoke(
+        root: &Path,
+        args: &[&str],
+        stdin: &str,
+        extra: &[(&str, &str)],
+    ) -> (i32, String) {
         let mut env = Env::new();
         env.insert(
             "LOONGSUITE_PILOT_DATA_DIR".into(),
@@ -3815,7 +3911,7 @@ mod tests {
         (code, String::from_utf8(stdout).expect("utf8"))
     }
 
-    fn write_transcript(path: &Path, rows: &[Value]) {
+    pub(super) fn write_transcript(path: &Path, rows: &[Value]) {
         let body = rows
             .iter()
             .map(|row| serde_json::to_string(row).expect("row"))
@@ -3825,7 +3921,7 @@ mod tests {
         fs::write(path, body).expect("transcript");
     }
 
-    fn read_history(root: &Path, agent: &str) -> Vec<Value> {
+    pub(super) fn read_history(root: &Path, agent: &str) -> Vec<Value> {
         let dir = root.join("logs").join(agent).join("history");
         let Ok(entries) = fs::read_dir(&dir) else {
             return Vec::new();
@@ -4331,7 +4427,7 @@ mod tests {
         let (code, _) = invoke(
             root,
             &["--agent-id", "qoder-cn", "--log-prefix", "qoder-cn"],
-            &json!({"session_id":"session-ide","transcript_path": transcript, "cwd":"/tmp/qoder-project", "extra":{"user":{"name":"ignored"}}}).to_string(),
+            &json!({"session_id":"session-ide","transcript_path": transcript, "cwd":"/tmp/qoder-project", "extra":{"user":{"name":"cn-account"}}}).to_string(),
             &[(
                 "LOONGSUITE_PILOT_SPAN_ATTRIBUTES",
                 "gen_ai.session.id=env-session,gen_ai.user.id=env-user",
@@ -4355,7 +4451,7 @@ mod tests {
         );
         assert!(records
             .iter()
-            .all(|record| record.get("user.name").is_none()));
+            .all(|record| record.get("user.name") == Some(&json!("cn-account"))));
         assert_eq!(records[0].get("gen_ai.turn.start"), Some(&json!(true)));
         assert_eq!(
             records.last().unwrap().get("gen_ai.turn.end"),
@@ -4715,3 +4811,7 @@ mod tests {
         assert_eq!(build_llm_boundaries(&sequential).len(), 2);
     }
 }
+
+#[cfg(test)]
+#[path = "qoder_identity_tests.rs"]
+mod identity_tests;

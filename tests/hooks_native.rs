@@ -228,3 +228,80 @@ fn powershell_51_and_pwsh_preserve_native_stdin_in_both_language_modes() {
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn qodercn_bootstraps_bash_from_sh_or_posix_mode_without_losing_stdin_or_agent_id() {
+    for program in ["/bin/sh", "/bin/bash"] {
+        let root = tempfile::tempdir().unwrap();
+        let hooks = fixture(root.path());
+        let script = hooks.join("qodercn-loongsuite-pilot-hook.sh");
+        fs::copy(
+            workspace().join("assets/hooks/qodercn-loongsuite-pilot-hook.sh"),
+            &script,
+        )
+        .unwrap();
+        fs::create_dir(root.path().join("no-runtimes")).unwrap();
+        std::os::unix::fs::symlink("/bin/bash", root.path().join("no-runtimes/bash")).unwrap();
+        let transcript = root.path().join("CN transcript 中文🚀.jsonl");
+        let rows = [
+            json!({"type":"user","timestamp":"2026-10-01T10:00:00Z","message":{"content":"你好 🚀"}}),
+            json!({"type":"assistant","timestamp":"2026-10-01T10:00:01Z","message":{
+                "model":"cn-test","content":[{"type":"text","text":"hello back"}],"stop_reason":"end_turn"}}),
+            json!({"type":"last-prompt","lastPrompt":"你好 🚀"}),
+        ];
+        fs::write(
+            &transcript,
+            rows.iter()
+                .map(|row| row.to_string() + "\n")
+                .collect::<String>(),
+        )
+        .unwrap();
+        let mut payload = vec![0xef, 0xbb, 0xbf];
+        payload.extend(
+            serde_json::to_vec(
+                &json!({"session_id":"cn-through-sh","transcript_path":transcript,
+            "extra":{"user":{"name":"CN 用户"},"email":"cn@example.com"}}),
+            )
+            .unwrap(),
+        );
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "POSIXLY_CORRECT=1 exec \"$@\"",
+            "pilot-posix-launch",
+            program,
+        ]);
+        if program == "/bin/bash" {
+            command.arg("--posix");
+        }
+        command.arg(&script).arg("qoder-cn");
+        let result = execute(command, root.path(), &payload);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(result.stdout, b"{}\n");
+        let history = hooks.parent().unwrap().join("logs/qoder-cn/history");
+        let records: Vec<Value> = fs::read_dir(history)
+            .unwrap()
+            .flat_map(|entry| {
+                fs::read_to_string(entry.unwrap().path())
+                    .unwrap()
+                    .lines()
+                    .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert!(!records.is_empty());
+        assert!(records
+            .iter()
+            .all(|row| row["gen_ai.agent.type"] == "qoder-cn"
+                && row["user.name"] == "CN 用户"
+                && row["user.email"] == "cn@example.com"));
+        assert!(records
+            .iter()
+            .any(|row| row.to_string().contains("你好 🚀")));
+    }
+}

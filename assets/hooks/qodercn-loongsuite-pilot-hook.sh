@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash -- "$0" "$@"
+fi
+set +o posix
 set -u
 EMPTY_RESULT=''
 NATIVE_ARGS=('hook-process' 'qoder-cn')

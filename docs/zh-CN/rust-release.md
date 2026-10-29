@@ -8,6 +8,8 @@
 
 ## 2026-10-29 开发收口进展（尚未发布）
 
+- 上游 2b516fb（Qoder CN 经 sh 启动）与 51886a2（Qoder Desktop/CN 账号元数据）已移植至原生路径：入口与生成器一起引导 Bash/退出 POSIX 模式；账号快照只限明确 app 调用，16 KiB 有界读取，验证来源/登录/时间并逐 Stop 刷新，不混入独立 CLI 账号，重试沿用已观测身份。Qoder 20 项、原生 Hook 入口 4 项和生成器 2 项通过；非 Linux 发布回归加入同一账号与真实脚本组。main 的其他新增能力仍待对齐。
+
 - [PR #510](https://github.com/alibaba/loongsuite-pilot/pull/510) 的目标已改为 `dev/v2.0.0`；按 [#511 的主版本建议](https://github.com/alibaba/loongsuite-pilot/issues/511#issuecomment-6462162155)，产品版本从 1.2.0 调整到 2.0.0。Rust 编译器继续固定 1.99.1，1.x 仍由 main 维护。已获取相同提交 `04d0de4` 的最新 main 与 dev/v2.0.0；相对原迁移基线新增 11 个提交、203 个文件变化，正在按功能移植，尚不能宣称 main 行为已全部对齐。原工作区五处改动已经补丁、stash 与独立安全引用备份，并逐字节恢复。2.0.0 元数据下 fmt、严格 clippy、默认/all-features 各 1,436 项 Rust 测试通过，两个原有 doc-test ignored；Cargo.lock 仅修改自身包版本。上游能力对齐仍在进行，不创建 tag、正式 Release 或更新渠道。
 
 - 工具链升级至 [Rust 1.99.1 稳定版](https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/)（2026-10-15 发布）：rust-toolchain、主程序和 xtask 的最低版本、日常 CI/八平台构建/汇总工具链及开发文档均固定为 1.99.1。该工具链升级提交未调整依赖锁、edition 2021 与产品版本；后续 2.0.0 仅变更自身包的版本元数据。适配新版严格检查：盒装较大的错误返回/错误链、修正两处 Linux read 的 C void 指针签名，并简化等价迭代与排序；不增加 lint 豁免。远端已实际安装并由仓库自动选中 1.99.1，fmt 和严格 clippy 通过；隔离 HOME 的默认与 all-features 各 1,427 项测试通过，原有两个示例 doc-test 仍 ignored。升级前 0aac136 的 dry-run 40838904907 已通过八平台和汇总共九项；该记录仅作旧工具链基线，1.99.1 的 dry-run 40842246721 已通过日常 CI 和多个平台包，但 Windows ARM64 的 DSH 32 轮并发清理在第 22 轮再次出现 2 秒锁超时；受控共享句柄、安装器与其他 Windows 回归通过。该不稳定性仍是发布阻塞，不能用旧版全绿代替；本轮上游对齐后继续定位。仍不创建 tag/正式 Release。
