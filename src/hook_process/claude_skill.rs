@@ -92,10 +92,7 @@ pub fn extract_skill_name_from_root_path(root_path: &str) -> Option<String> {
     } else {
         root_path
     };
-    let name = stripped
-        .split(['\\', '/'])
-        .filter(|part| !part.is_empty())
-        .next_back()?;
+    let name = stripped.split(['\\', '/']).rfind(|part| !part.is_empty())?;
     normalize_skill_name(name)
 }
 
@@ -747,7 +744,7 @@ pub(super) fn load_attempt_records(env: &Env, session_id: &str) -> Vec<AttemptRe
             out.push(record);
         }
     }
-    out.sort_by(|left, right| left.start_ns.cmp(&right.start_ns));
+    out.sort_by_key(|entry| entry.start_ns);
     out
 }
 
@@ -796,7 +793,7 @@ fn cap_attempt_dir(dir: &Path) {
     if files.len() <= MAX_ATTEMPT_FILES && total <= MAX_ATTEMPT_BYTES {
         return;
     }
-    files.sort_by(|left, right| left.1.cmp(&right.1));
+    files.sort_by_key(|entry| entry.1);
     let mut count = files.len();
     for (path, _mtime, size) in files {
         if count <= MAX_ATTEMPT_FILES && total <= MAX_ATTEMPT_BYTES {

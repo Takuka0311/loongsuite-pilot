@@ -4,7 +4,7 @@
 
 ## Rust 分支开发入口
 
-- Cargo workspace：主程序 `src/main.rs` / `src/cli_main.rs`，开发工具 `xtask/`，工具链固定 Rust 1.91.1。
+- Cargo workspace：主程序 `src/main.rs` / `src/cli_main.rs`，开发工具 `xtask/`，工具链固定 Rust 1.99.1。
 - `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` 和 Cargo 测试是本地门禁；内嵌测试随源码提交，独立测试分批迁移。
 - 安装后的 Pilot 不依赖 Node/npm/Python；Agent 宿主插件、preload/runtime wrapper、Dashboard 和 Swift UI 按其原生环境保留。
 - 优先级：文档 → 八平台轻发布 CI → 主要代码/脚本分批提交 → 独立测试迁移。严格 clippy 清零后才能推送。

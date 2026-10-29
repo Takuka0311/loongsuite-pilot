@@ -7,7 +7,7 @@
 [![CI](https://github.com/alibaba/loongsuite-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/alibaba/loongsuite-pilot/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/alibaba/loongsuite-pilot)](https://github.com/alibaba/loongsuite-pilot/releases/latest)
 [![License](https://img.shields.io/github/license/alibaba/loongsuite-pilot)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.91%2B-orange?logo=rust)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.99.1%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-4F62AD)](https://opentelemetry.io/)
 
 [English](README.md) | **简体中文**
@@ -248,7 +248,7 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked --all-features
 ```
 
-工具链固定在 `rust-toolchain.toml`（1.91.1）。不带子命令运行二进制会启动采集并可能部署 Agent 配置；只查看帮助请使用 `--help`。
+工具链固定在 `rust-toolchain.toml`（1.99.1）。不带子命令运行二进制会启动采集并可能部署 Agent 配置；只查看帮助请使用 `--help`。
 
 如需从本地构建包安装为后台服务，请参考[安装指南](docs/zh-CN/installation.md)。发布流程、CI 预算和暂缓测试见 [Rust 发布与测试优先级](docs/zh-CN/rust-release.md)。
 

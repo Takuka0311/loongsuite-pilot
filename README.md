@@ -7,7 +7,7 @@
 [![CI](https://github.com/alibaba/loongsuite-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/alibaba/loongsuite-pilot/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/alibaba/loongsuite-pilot)](https://github.com/alibaba/loongsuite-pilot/releases/latest)
 [![License](https://img.shields.io/github/license/alibaba/loongsuite-pilot)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.91%2B-orange?logo=rust)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.99.1%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-4F62AD)](https://opentelemetry.io/)
 
 **English** | [简体中文](README.zh-CN.md)
@@ -268,7 +268,7 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked --all-features
 ```
 
-The toolchain is pinned to 1.91.1 in `rust-toolchain.toml`. Running the binary without a subcommand starts collection and may deploy Agent configuration; `--help` is read-only.
+The toolchain is pinned to 1.99.1 in `rust-toolchain.toml`. Running the binary without a subcommand starts collection and may deploy Agent configuration; `--help` is read-only.
 
 For local packaging, see [Installation](docs/installation.md). Release gates, CI budgets, and deferred test priorities are documented in [Rust release and testing](docs/zh-CN/rust-release.md).
 

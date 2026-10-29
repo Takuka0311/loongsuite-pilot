@@ -937,13 +937,9 @@ impl StepBuilder {
                 self.current_step_has_tools = true;
             }
         } else if has_step {
-            if self.current_response.is_some() {
-                append_part(
-                    self.current_response.as_mut().unwrap(),
-                    "text",
-                    event_str(event, "text").unwrap_or(""),
-                );
-                merge_tokens(self.current_response.as_mut().unwrap(), event);
+            if let Some(response) = self.current_response.as_mut() {
+                append_part(response, "text", event_str(event, "text").unwrap_or(""));
+                merge_tokens(response, event);
             } else {
                 let step_id = self.current_step_id.clone().unwrap_or_default();
                 self.current_response = Some(build_llm_response(

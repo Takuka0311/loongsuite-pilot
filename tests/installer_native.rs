@@ -188,10 +188,9 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
             let stage = diagnostic
                 .lines()
                 .filter_map(|line| line.trim().strip_prefix("PILOT_BRIDGE_STAGE:"))
-                .filter(|name| {
+                .rfind(|name| {
                     name.len() <= 64 && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
                 })
-                .next_back()
                 .unwrap_or("shell-startup");
             #[cfg(windows)]
             let stage = environment_stage.as_deref().unwrap_or(stage);

@@ -114,7 +114,7 @@ impl GitCache {
                     .map(|entry| (key.clone(), entry.expires_at))
             })
             .collect::<Vec<_>>();
-        ranked.sort_by(|left, right| left.1.cmp(&right.1));
+        ranked.sort_by_key(|entry| entry.1);
         let overflow = self.len() - MAX_CACHE_ENTRIES;
         for (key, _) in ranked.into_iter().take(overflow) {
             self.remove(&key);

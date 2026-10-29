@@ -82,7 +82,7 @@ fn sha1(message: &[u8]) -> [u8; 20] {
     }
     data.extend_from_slice(&bit_len.to_be_bytes());
 
-    for chunk in data.chunks_exact(64) {
+    for chunk in data.as_chunks::<64>().0 {
         let mut words = [0u32; 80];
         for index in 0..16 {
             words[index] = u32::from_be_bytes([

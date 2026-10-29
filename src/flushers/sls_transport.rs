@@ -104,7 +104,7 @@ impl OwnedError {
 #[derive(Clone, Debug)]
 pub enum SendError {
     Http(HttpError),
-    Chain(OwnedError),
+    Chain(Box<OwnedError>),
     Message(String),
 }
 

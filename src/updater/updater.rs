@@ -1357,7 +1357,10 @@ impl Updater {
         collector_command_invocation(self.platform, &self.paths.loongsuite_pilot_bin, command)
     }
 
-    pub async fn run_collector_command(&self, command: &str) -> Result<ExecOutput, CommandFailure> {
+    pub async fn run_collector_command(
+        &self,
+        command: &str,
+    ) -> Result<ExecOutput, Box<CommandFailure>> {
         let (program, args) = self.collector_command_invocation(command);
         let mut env = self.process_env.clone();
         env.insert(
@@ -1384,6 +1387,7 @@ impl Updater {
                 timeout_ms: COLLECTOR_COMMAND_TIMEOUT_MS,
             })
             .await
+            .map_err(Box::new)
     }
 
     pub async fn restart_collector(

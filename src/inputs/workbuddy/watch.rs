@@ -225,9 +225,9 @@ fn errno() -> i32 {
 #[cfg(target_os = "linux")]
 unsafe fn sys_read(fd: i32, buf: *mut u8, len: usize) -> isize {
     unsafe extern "C" {
-        fn read(fd: i32, buf: *mut u8, count: usize) -> isize;
+        fn read(fd: i32, buf: *mut std::ffi::c_void, count: usize) -> isize;
     }
-    unsafe { read(fd, buf, len) }
+    unsafe { read(fd, buf.cast(), len) }
 }
 
 #[cfg(target_os = "linux")]

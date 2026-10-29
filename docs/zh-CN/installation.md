@@ -10,7 +10,7 @@ Claude Agent SDK 使用自定义 `CLAUDE_CONFIG_DIR` 时，可在启动会话前
 
 - Linux/macOS：系统 Shell、`curl` 或 `wget`、`tar`；Windows：PowerShell 5.1 或以上版本。
 - 安装包自带 Rust 二进制；Pilot 的安装配置处理、collector、updater、CLI 和独立 Hook processor 不依赖 Node.js、npm、Python 或 Rust 工具链。
-- 仅源码开发需要 `rust-toolchain.toml` 固定的 Rust 1.91.1、C/C++ 编译器（SQLite bundled）及 macOS UI 的 Swift 工具链。
+- 仅源码开发需要 `rust-toolchain.toml` 固定的 Rust 1.99.1、C/C++ 编译器（SQLite bundled）及 macOS UI 的 Swift 工具链。
 - Agent 进程内的 JS 插件、preload、runtime wrapper 和 Hermes Python 插件仍由各 Agent 宿主执行。
 
 ## Rust 发行包与平台

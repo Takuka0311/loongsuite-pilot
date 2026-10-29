@@ -267,10 +267,7 @@ mod tests {
                 };
                 let mut buf = vec![0_u8; 65536];
                 let mut received = Vec::new();
-                loop {
-                    let Ok(n) = socket.read(&mut buf).await else {
-                        break;
-                    };
+                while let Ok(n) = socket.read(&mut buf).await {
                     if n == 0 {
                         break;
                     }

@@ -33,7 +33,7 @@ const RECENT_RESTART_FAILURE_MS: i64 = 30 * 60_000;
 pub type BoxFut<T> = Pin<Box<dyn std::future::Future<Output = T> + Send>>;
 pub type UpdaterLivenessProbe = Arc<dyn Fn(&str) -> BoxFut<ProcessLiveness> + Send + Sync>;
 pub type UpdaterRestartCommand =
-    Arc<dyn Fn() -> BoxFut<Result<(String, String), RestartCommandError>> + Send + Sync>;
+    Arc<dyn Fn() -> BoxFut<Result<(String, String), Box<RestartCommandError>>> + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdaterWatchdogStatus {
@@ -499,7 +499,7 @@ fn is_agentshell(data_dir: &str) -> bool {
         .unwrap_or(false)
 }
 
-async fn run_restart_command(bin: &str) -> Result<(String, String), RestartCommandError> {
+async fn run_restart_command(bin: &str) -> Result<(String, String), Box<RestartCommandError>> {
     let mut command = if cfg!(windows) {
         let mut command = tokio::process::Command::new("powershell.exe");
         command.args([
@@ -526,7 +526,7 @@ async fn run_restart_command(bin: &str) -> Result<(String, String), RestartComma
             String::from_utf8_lossy(&output.stdout).into_owned(),
             String::from_utf8_lossy(&output.stderr).into_owned(),
         )),
-        Ok(Ok(output)) => Err(RestartCommandError {
+        Ok(Ok(output)) => Err(Box::new(RestartCommandError {
             code: output
                 .status
                 .code()
@@ -534,16 +534,16 @@ async fn run_restart_command(bin: &str) -> Result<(String, String), RestartComma
             stdout: Some(String::from_utf8_lossy(&output.stdout).into_owned()),
             stderr: Some(String::from_utf8_lossy(&output.stderr).into_owned()),
             ..RestartCommandError::default()
-        }),
-        Ok(Err(err)) => Err(RestartCommandError {
+        })),
+        Ok(Err(err)) => Err(Box::new(RestartCommandError {
             message: Some(err.to_string()),
             ..RestartCommandError::default()
-        }),
-        Err(_) => Err(RestartCommandError {
+        })),
+        Err(_) => Err(Box::new(RestartCommandError {
             killed: Some(true),
             code: Some(RestartExitCode::Name("ETIMEDOUT".into())),
             ..RestartCommandError::default()
-        }),
+        })),
     }
 }
 

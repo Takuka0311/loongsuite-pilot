@@ -486,7 +486,7 @@ fn assemble_stop(root: &Path, env: &Env, journal: &Journal, event: &Obj) -> Resu
             "info",
             &format!(
                 "skipped duplicate stop for conv={} (no pending beforeSubmitPrompt)",
-                &conversation_id.chars().take(8).collect::<String>()
+                conversation_id.chars().take(8).collect::<String>()
             ),
             None,
             None,

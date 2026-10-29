@@ -617,6 +617,7 @@ mod tests {
         let mut snapshot = sampler.get_snapshot();
         assert_eq!(snapshot.data_bytes, Some(0));
         snapshot.data_bytes = Some(999);
+        assert_eq!(snapshot.data_bytes, Some(999));
         assert_eq!(sampler.get_snapshot().data_bytes, Some(0));
     }
 

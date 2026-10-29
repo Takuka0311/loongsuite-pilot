@@ -848,7 +848,7 @@ fn build_agent_shares(
             },
         })
         .collect();
-    shares.sort_by(|left, right| right.events.cmp(&left.events));
+    shares.sort_by_key(|entry| std::cmp::Reverse(entry.events));
     shares
 }
 
@@ -886,7 +886,7 @@ fn build_repo_shares(repo_map: &BTreeMap<String, (u64, u64)>) -> Vec<RepoShareEn
             events: *events,
         })
         .collect();
-    shares.sort_by(|left, right| right.events.cmp(&left.events));
+    shares.sort_by_key(|entry| std::cmp::Reverse(entry.events));
     shares
 }
 

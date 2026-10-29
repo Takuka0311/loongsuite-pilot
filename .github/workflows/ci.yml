@@ -22,7 +22,7 @@ jobs:
     # 单个质量任务控制执行预算；冷缓存及排队耗时仍需实测。
     timeout-minutes: 10
     env:
-      RUSTUP_TOOLCHAIN: 1.91.1
+      RUSTUP_TOOLCHAIN: 1.99.1
       CARGO_TERM_COLOR: always
       CARGO_PROFILE_DEV_DEBUG: 0
       CARGO_PROFILE_TEST_DEBUG: 0
@@ -31,7 +31,7 @@ jobs:
         with:
           persist-credentials: false
       - name: 安装固定工具链
-        run: rustup toolchain install 1.91.1 --profile minimal --component rustfmt,clippy
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: rust-ci-v1

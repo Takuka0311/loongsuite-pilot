@@ -1470,7 +1470,7 @@ mod tests {
             error_code: None,
             body: None,
         };
-        let network = SendError::Chain(super::super::sls_transport::OwnedError {
+        let network = SendError::Chain(Box::new(super::super::sls_transport::OwnedError {
             name: "TypeError".to_string(),
             message: "fetch failed".to_string(),
             cause: Some(Box::new(cause)),
@@ -1479,7 +1479,7 @@ mod tests {
             error_code: None,
             code: None,
             body: None,
-        });
+        }));
         for _ in 0..3 {
             http.results.lock().unwrap().push_back(Err(network.clone()));
         }

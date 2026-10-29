@@ -8,7 +8,7 @@ Use this guide to install, verify, uninstall, or run LoongSuite Pilot from sourc
 
 - Linux/macOS: a system shell, `curl` or `wget`, and `tar`. Windows: PowerShell 5.1 or later.
 - Pilot packages ship a Rust binary; installation configuration, collection, updating, CLI, and standalone hook processing need no Node.js, npm, Python, or Rust toolchain.
-- Source builds use Rust 1.91.1 pinned in `rust-toolchain.toml`, a C/C++ compiler for bundled SQLite, and Swift for the macOS UI.
+- Source builds use Rust 1.99.1 pinned in `rust-toolchain.toml`, a C/C++ compiler for bundled SQLite, and Swift for the macOS UI.
 - In-process JS plugins, preload/runtime wrappers, and the Hermes Python plugin use the Agent's own runtime.
 
 ## Rust Packages And Platforms

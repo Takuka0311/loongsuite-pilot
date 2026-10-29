@@ -2667,8 +2667,7 @@ mod tests {
         );
         let last_request = events
             .iter()
-            .filter(|event| event["event.name"] == "llm.request")
-            .next_back()
+            .rfind(|event| event["event.name"] == "llm.request")
             .unwrap();
         assert_eq!(last_request["gen_ai.provider.name"], "gcp.gemini");
         assert_eq!(last_request["gen_ai.request.model"], "gemini-2");

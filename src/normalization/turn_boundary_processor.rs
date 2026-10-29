@@ -184,7 +184,7 @@ impl TurnBoundaryProcessor {
         }
 
         let mut ranked = self.turns.snapshot();
-        ranked.sort_by(|left, right| left.1.cmp(&right.1));
+        ranked.sort_by_key(|entry| entry.1);
         let overflow = self.turns.len() - MAX_TRACKED_TURNS;
         for (key, _) in ranked.into_iter().take(overflow) {
             self.turns.remove(&key);
