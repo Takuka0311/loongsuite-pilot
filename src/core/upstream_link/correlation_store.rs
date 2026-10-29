@@ -7,23 +7,33 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::Serialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::utils::content_hash;
 
 use super::super::{fields, logger};
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TurnRecord {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
     content_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     content_prefix: Option<String>,
     traceparent: String,
 }
 
 struct SessionState {
-    mtime_ms: u128,
+    modified: Option<SystemTime>,
+    file_len: u64,
     turns: Vec<TurnRecord>,
     sessions: Vec<String>,
     consumed_turns: HashSet<usize>,
+    resolved_turns: HashMap<String, usize>,
     session_consumed: bool,
     hash_index: HashMap<String, Vec<usize>>,
     hash_cursor: HashMap<String, usize>,
@@ -44,23 +54,44 @@ impl CorrelationStore {
     }
 
     pub fn resolve_turn(&self, session_id: &str, collected_text: &str) -> Option<String> {
+        self.resolve_turn_with_identity(session_id, collected_text, None, None)
+    }
+
+    /// Persistent consume-once records can be replayed by their native turn.
+    /// A producer hash identifies the full UTF-8 input before display truncation.
+    pub fn resolve_turn_with_identity(
+        &self,
+        session_id: &str,
+        collected_text: &str,
+        turn_id: Option<&str>,
+        collected_hash: Option<&str>,
+    ) -> Option<String> {
         let dir = self.dir.clone();
         let mut states = self.states.lock().expect("states");
         let state = load_state(&mut states, &dir, session_id)?;
-        if state.turns.is_empty() {
-            return None;
+        let turn_id = turn_id.filter(|id| !id.is_empty());
+        if let Some(index) = turn_id.and_then(|id| state.resolved_turns.get(id)) {
+            return state
+                .turns
+                .get(*index)
+                .map(|record| record.traceparent.clone());
         }
-        let hash = content_hash(collected_text);
+        let hash = collected_hash
+            .filter(|hash| valid_content_hash(hash))
+            .map(str::to_owned)
+            .unwrap_or_else(|| content_hash(collected_text));
         if let Some(bucket) = state.hash_index.get(&hash).cloned() {
             let mut cursor = state.hash_cursor.get(&hash).copied().unwrap_or(0);
-            while cursor < bucket.len() && state.consumed_turns.contains(&bucket[cursor]) {
-                cursor += 1;
-            }
-            if cursor < bucket.len() {
+            while cursor < bucket.len() {
                 let index = bucket[cursor];
-                state.consumed_turns.insert(index);
-                state.hash_cursor.insert(hash, cursor + 1);
-                return Some(state.turns[index].traceparent.clone());
+                cursor += 1;
+                if state.consumed_turns.contains(&index) {
+                    continue;
+                }
+                if let Some(traceparent) = consume_turn(&dir, session_id, state, index, turn_id) {
+                    state.hash_cursor.insert(hash, cursor);
+                    return Some(traceparent);
+                }
             }
             state.hash_cursor.insert(hash, cursor);
         }
@@ -68,10 +99,13 @@ impl CorrelationStore {
             if state.consumed_turns.contains(&index) {
                 continue;
             }
-            if let Some(prefix) = state.turns[index].content_prefix.clone() {
-                if !prefix.is_empty() && collected_text.starts_with(&prefix) {
-                    state.consumed_turns.insert(index);
-                    return Some(state.turns[index].traceparent.clone());
+            if state.turns[index]
+                .content_prefix
+                .as_ref()
+                .is_some_and(|prefix| !prefix.is_empty() && collected_text.starts_with(prefix))
+            {
+                if let Some(traceparent) = consume_turn(&dir, session_id, state, index, turn_id) {
+                    return Some(traceparent);
                 }
             }
         }
@@ -132,15 +166,25 @@ fn load_state<'a>(
 ) -> Option<&'a mut SessionState> {
     let path = dir.join(format!("{}.jsonl", safe_name(session_id)));
     let meta = std::fs::metadata(&path).ok()?;
-    let mtime = mtime_ms(&meta);
-    if states
-        .get(session_id)
-        .is_some_and(|existing| existing.mtime_ms == mtime)
-    {
+    let modified = meta.modified().ok();
+    if states.get(session_id).is_some_and(|existing| {
+        modified.is_some() && existing.modified == modified && existing.file_len == meta.len()
+    }) {
         states.get_mut(session_id).expect("state").last_access_ms = now_ms();
         return states.get_mut(session_id);
     }
-    let raw = std::fs::read_to_string(&path).unwrap_or_default();
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(err) => {
+            logger("correlation-store").warn(
+                "failed to read correlation file",
+                Some(&fields(
+                    serde_json::json!({ "sessionId": session_id, "error": err.kind().to_string() }),
+                )),
+            );
+            return states.get_mut(session_id);
+        }
+    };
     let mut turns = Vec::new();
     let mut sessions = Vec::new();
     for line in raw.lines() {
@@ -159,6 +203,7 @@ fn load_state<'a>(
         };
         match value.get("type").and_then(Value::as_str) {
             Some("turn") => turns.push(TurnRecord {
+                kind: "turn",
                 content_hash: value
                     .get("contentHash")
                     .and_then(Value::as_str)
@@ -186,12 +231,17 @@ fn load_state<'a>(
     states.insert(
         session_id.to_string(),
         SessionState {
-            mtime_ms: mtime,
+            modified,
+            file_len: meta.len(),
             turns,
             sessions,
             consumed_turns: previous
                 .as_ref()
                 .map(|state| state.consumed_turns.clone())
+                .unwrap_or_default(),
+            resolved_turns: previous
+                .as_ref()
+                .map(|state| state.resolved_turns.clone())
                 .unwrap_or_default(),
             session_consumed: previous
                 .as_ref()
@@ -273,12 +323,85 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-fn mtime_ms(meta: &std::fs::Metadata) -> u128 {
-    meta.modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0)
+pub(super) fn valid_content_hash(hash: &str) -> bool {
+    hash.len() == 16
+        && hash
+            .bytes()
+            .all(|ch| ch.is_ascii_digit() || (b'a'..=b'f').contains(&ch))
+}
+
+fn consume_turn(
+    dir: &Path,
+    session_id: &str,
+    state: &mut SessionState,
+    index: usize,
+    turn_id: Option<&str>,
+) -> Option<String> {
+    state.consumed_turns.insert(index);
+    let record = &state.turns[index];
+    let (claimed, owner) = claim_turn(dir, session_id, index, record, turn_id);
+    if let Some(owner) = owner {
+        state.resolved_turns.insert(owner, index);
+    }
+    claimed.then(|| record.traceparent.clone())
+}
+
+fn claim_turn(
+    dir: &Path,
+    session_id: &str,
+    index: usize,
+    record: &TurnRecord,
+    turn_id: Option<&str>,
+) -> (bool, Option<String>) {
+    // Serialize only normalized fields in the same order as upstream Node's
+    // JSON.stringify(record), preserving claim ownership through the migration.
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(record).expect("turn record"))
+    );
+    let marker = dir.join(format!(
+        "{}.turn-context-{index}-{digest}.done",
+        safe_name(session_id)
+    ));
+    let temporary = dir.join(format!(".turn-claim-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> std::io::Result<()> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        let owner = turn_id
+            .map(|id| serde_json::json!({ "turnId": id }))
+            .unwrap_or_else(|| serde_json::json!({}));
+        file.write_all(owner.to_string().as_bytes())?;
+        drop(file);
+        std::fs::hard_link(&temporary, &marker)
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    match result {
+        Ok(()) => (true, turn_id.map(str::to_owned)),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            let owner = std::fs::read(&marker)
+                .ok()
+                .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+                .and_then(|value| {
+                    value
+                        .get("turnId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .filter(|owner| !owner.is_empty());
+            (turn_id.is_some() && owner.as_deref() == turn_id, owner)
+        }
+        Err(err) => {
+            logger("correlation-store").warn("failed to persist turn context consumption",
+                Some(&fields(serde_json::json!({ "sessionId": session_id, "index": index, "error": err.kind().to_string() }))));
+            (true, turn_id.map(str::to_owned))
+        }
+    }
 }
 
 #[cfg(test)]

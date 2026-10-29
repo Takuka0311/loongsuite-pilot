@@ -8,7 +8,9 @@
 
 ## 2026-10-29 开发收口进展（尚未发布）
 
-- 内部心跳补齐为可配置的 WebTracking 发送路径：仅 proprietary 构建读取实际 dataDir 下的 `configs/inner/telemetry_config.json`（schema 1，alarm/status 各有 url），公开版即便存在该文件也不连接。目标来自私有安装配置，不写入公开仓库或业务输出配置；缺失/损坏/超出 64 KiB 时保持关闭。真实 HTTP 回归覆盖告警/状态 JSON、中文、400 不重试、503 重试、整体超时；独立进程从 load_config 到生产 sender 验证 dataDir 生效及公开版不发送。网络日志只保留错误类别/状态码，不记录 URL、请求体或响应体。严格 clippy 及隔离 HOME 的默认 1,447 项、all-features 1,449 项回归通过，原有两个 doc-test 仍 ignored。实际远端接收结果另行核对，不以单元测试代替 SLS 验收。
+- main 的 4e019d0（#508）已由 Rust 承接逐轮上游关联：原子发布完整 owner 标记，保留 Node JSON 字段顺序与摘要兼容；native turn 可重放自己的上下文，其他轮次/进程不可重复消费。输入优先关联但保留源顺序，空元数据不消耗 session 回退，原生 subagent 父关系优先；producer UTF-8 全文 hash 支持展示截断，claim 随有效来源保留。OpenClaw 丢弃 before_model_resolve 元数据，Hermes 原生宿主插件同步上游暂存/重试逻辑。回归包括 8 进程竞争、重启/淘汰重放、精确 mtime 下追加、归属文件兼容、四类真实插件重放 × 单批/逐条的 Rust InputManager→converter 链路及 token/父子树断言；不将这些回放当作真实 Agent 注入验收。宿主测试仍用原语言，在独立 Python 3.12 下验证并加入现有 CI；Rust 回放使用校验 producer/source 摘要的生成 fixture，Cargo 测试和安装运行不依赖 Python。宿主 73 项、原生关联/链路 8 项通过；严格 clippy 和默认 1,455 项、all-features 1,457 项全量通过，原有两个 doc-test 仍 ignored。Windows/macOS 的现有发布任务加入 upstream_context，不增加 runner；该新分组的跨平台实跑仍待执行。
+
+- 内部心跳补齐为可配置的 WebTracking 发送路径：仅 proprietary 构建读取实际 dataDir 下的 `configs/inner/telemetry_config.json`（schema 1，alarm/status 各有 url），公开版即便存在该文件也不连接。目标来自私有安装配置，不写入公开仓库或业务输出配置；缺失/损坏/超出 64 KiB 时保持关闭。真实 HTTP 回归覆盖告警/状态 JSON、中文、400 不重试、503 重试、整体超时；独立进程从 load_config 到生产 sender 验证 dataDir 生效及公开版不发送。网络日志只保留错误类别/状态码，不记录 URL、请求体或响应体。严格 clippy 及隔离 HOME 的默认 1,447 项、all-features 1,449 项回归通过，原有两个 doc-test 仍 ignored。52c0dad 内部候选已替换远端安装并启动，业务配置 mtime 未变；2026-10-29 10:27:23Z 的真实接收端已接受 pilot_pipeline 批次，Dashboard 为 HTTP 200、四类本地指标持续刷新。这里只确认 HTTP 接受，尚未直接查询 SLS 索引可见性。
 
 - 远端 e111237 本地候选实际升级在 Cursor/Qoder Hook 部署阶段失败并回滚，旧采集进程恢复。新增回归重现其配置 home 指向 SSD 缓存目录的符号链接被事务锁拒绝；现只在 Unix 配置事务中固定父目录的真实路径，保留配置文件本身及运行资源路径的链接拒绝规则。Cursor/Qoder/Codex/Kiro 的目录链接安装、重复安装、状态及卸载保留用户内容通过；最终配置文件链接拒绝用例和原有外部缓存/配置链接保护通过。HookStrategy 19 项、旧配置清理 4 项、严格 clippy、默认/all-features 各 1,445 项通过；aad955c 已实际升级远端为 2.0.0，Dashboard/拦截正常，L1/L2 指标连续刷新。该候选仍是公开版，不把本地指标更新当作 SLS 心跳送达；内部 sender 修复见上条。
 

@@ -84,24 +84,20 @@ impl std::ops::Deref for OpenClawPluginInput {
 
 fn openclaw_transform() -> TransformFn {
     let shared = shared_hook_transform(ClientType::OpenClaw, "openclaw");
-    Arc::new(move |mut record: Map<String, Value>| {
+    Arc::new(move |record: Map<String, Value>| {
         let shared = Arc::clone(&shared);
         Box::pin(async move {
             let hook = record
                 .get("agent.openclaw.hook")
                 .and_then(Value::as_str)
                 .map(str::to_string);
-            if hook
-                .as_deref()
-                .is_some_and(|name| name == "session_start" || name == "session_end")
-            {
+            if hook.as_deref().is_some_and(|name| {
+                matches!(
+                    name,
+                    "session_start" | "session_end" | "before_model_resolve"
+                )
+            }) {
                 return Ok(None);
-            }
-            if hook.as_deref() == Some("before_model_resolve") {
-                record.remove("gen_ai.input.messages");
-                record.remove("gen_ai.input.messages_delta");
-                record.remove("input.messages");
-                record.remove("input.messages_delta");
             }
             shared(record).await
         }) as BoxFuture<_>
@@ -327,19 +323,13 @@ mod tests {
         input.start().await;
         input.stop().await;
         let entries = seen.lock().unwrap();
-        assert_eq!(entries.len(), 2);
-        let model = entries
-            .iter()
-            .find(|entry| {
-                entry_json(entry)
-                    .get("agent.openclaw.hook")
-                    .and_then(|v| v.as_str())
-                    == Some("before_model_resolve")
-            })
-            .expect("model");
-        let model_json = entry_json(model);
-        assert!(model_json.get("gen_ai.input.messages").is_none());
-        assert!(model_json.get("gen_ai.input.messages_delta").is_none());
+        assert_eq!(entries.len(), 1);
+        assert!(entries.iter().all(|entry| {
+            entry_json(entry)
+                .get("agent.openclaw.hook")
+                .and_then(Value::as_str)
+                != Some("before_model_resolve")
+        }));
         let agent = entries
             .iter()
             .find(|entry| {

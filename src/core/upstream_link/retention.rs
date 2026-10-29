@@ -99,6 +99,29 @@ impl AcpCorrelateRetentionService {
             if mtime >= cutoff {
                 continue;
             }
+            if let Some(session) = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(claim_session)
+            {
+                match std::fs::metadata(self.dir.join(format!("{session}.jsonl"))) {
+                    Ok(source) => {
+                        if source
+                            .modified()
+                            .ok()
+                            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                            .is_some_and(|duration| duration.as_millis() >= cutoff)
+                        {
+                            continue;
+                        }
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => {
+                        errors += 1;
+                        continue;
+                    }
+                }
+            }
             match std::fs::remove_file(&path) {
                 Ok(()) => deleted += 1,
                 Err(err) => {
@@ -117,6 +140,21 @@ impl AcpCorrelateRetentionService {
         }
         (deleted, errors)
     }
+}
+
+fn claim_session(name: &str) -> Option<&str> {
+    if let Some(session) = name.strip_suffix(".session-context.done") {
+        return Some(session);
+    }
+    let (session, suffix) = name.strip_suffix(".done")?.rsplit_once(".turn-context-")?;
+    let (index, hash) = suffix.split_once('-')?;
+    (!index.is_empty()
+        && index.bytes().all(|ch| ch.is_ascii_digit())
+        && hash.len() == 64
+        && hash
+            .bytes()
+            .all(|ch| ch.is_ascii_digit() || (b'a'..=b'f').contains(&ch)))
+    .then_some(session)
 }
 
 #[cfg(test)]

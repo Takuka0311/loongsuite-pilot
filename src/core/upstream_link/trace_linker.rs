@@ -9,9 +9,9 @@ use serde_json::Value;
 use crate::types::{AgentActivityEntry, AgentEventName};
 
 use super::super::{fields, logger};
-use super::correlation_store::CorrelationStore;
+use super::correlation_store::{valid_content_hash, CorrelationStore};
 
-const TRACEPARENT_RE: &str = r"^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$";
+const TRACEPARENT_RE: &str = r"(?i)^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$";
 
 struct ResolveState {
     resolved: bool,
@@ -49,13 +49,43 @@ impl TraceLinker {
     }
 
     pub async fn stamp(&self, entries: &mut [AgentActivityEntry]) {
-        for entry in entries {
-            if let Err(err) = self.stamp_entry(entry).await {
-                logger("trace-linker").warn(
-                    "stamp entry failed (skipped)",
-                    Some(&fields(serde_json::json!({ "error": err }))),
-                );
+        // Establish first-turn eligibility in source order before resolving
+        // input-bearing events, then stamp the original batch without reordering.
+        for entry in entries.iter() {
+            if entry.session_id.is_empty() || has_delegated_parent(entry) {
+                continue;
             }
+            let Some(turn_id) = entry.turn_id.as_ref().filter(|id| !id.is_empty()) else {
+                continue;
+            };
+            self.last_access
+                .lock()
+                .expect("access")
+                .insert(entry.session_id.clone(), now_ms());
+            self.first_turn
+                .lock()
+                .expect("first")
+                .entry(entry.session_id.clone())
+                .or_insert_with(|| turn_id.clone());
+        }
+        for entry in entries.iter_mut() {
+            if entry.event_name == Some(AgentEventName::Other)
+                && (!extract_user_text(entry).is_empty() || extract_input_hash(entry).is_some())
+            {
+                self.try_stamp_entry(entry).await;
+            }
+        }
+        for entry in entries {
+            self.try_stamp_entry(entry).await;
+        }
+    }
+
+    async fn try_stamp_entry(&self, entry: &mut AgentActivityEntry) {
+        if let Err(err) = self.stamp_entry(entry).await {
+            logger("trace-linker").warn(
+                "stamp entry failed (skipped)",
+                Some(&fields(serde_json::json!({ "error": err }))),
+            );
         }
     }
 
@@ -81,22 +111,13 @@ impl TraceLinker {
     }
 
     async fn stamp_entry(&self, entry: &mut AgentActivityEntry) -> Result<(), String> {
-        if entry.session_id.is_empty() {
+        if entry.session_id.is_empty() || has_delegated_parent(entry) {
             return Ok(());
         }
         let Some(turn_id) = entry.turn_id.clone().filter(|value| !value.is_empty()) else {
             return Ok(());
         };
         let session_id = entry.session_id.clone();
-        self.last_access
-            .lock()
-            .expect("access")
-            .insert(session_id.clone(), now_ms());
-        self.first_turn
-            .lock()
-            .expect("first")
-            .entry(session_id.clone())
-            .or_insert_with(|| turn_id.clone());
         let key = format!("{session_id}|{turn_id}");
         if let Some(cached) = self.cache.lock().expect("cache").get(&key) {
             if cached.resolved {
@@ -112,6 +133,12 @@ impl TraceLinker {
             return Ok(());
         }
         let text = extract_user_text(entry);
+        let hash = extract_input_hash(entry);
+        // Empty metadata is not evidence of input and must not cache a miss
+        // or consume a first-turn session fallback before a later batch arrives.
+        if text.is_empty() && hash.is_none() {
+            return Ok(());
+        }
         let is_first = self
             .first_turn
             .lock()
@@ -119,7 +146,9 @@ impl TraceLinker {
             .get(&session_id)
             .map(|value| value == &turn_id)
             .unwrap_or(false);
-        let traceparent = self.resolve_with_retry(&session_id, &text, is_first).await;
+        let traceparent = self
+            .resolve_with_retry(&session_id, &text, is_first, &turn_id, hash)
+            .await;
         let Some(traceparent) = traceparent else {
             self.cache.lock().expect("cache").insert(
                 key,
@@ -159,13 +188,18 @@ impl TraceLinker {
         session_id: &str,
         text: &str,
         is_first_turn: bool,
+        turn_id: &str,
+        hash: Option<&str>,
     ) -> Option<String> {
         if !self.store.has_session(session_id) {
             return None;
         }
-        if !text.is_empty() {
+        if !text.is_empty() || hash.is_some() {
             for attempt in 0..=self.retries {
-                if let Some(traceparent) = self.store.resolve_turn(session_id, text) {
+                if let Some(traceparent) =
+                    self.store
+                        .resolve_turn_with_identity(session_id, text, Some(turn_id), hash)
+                {
                     if is_first_turn {
                         self.store.mark_session_consumed(session_id);
                     }
@@ -216,6 +250,33 @@ fn extract_user_text(entry: &AgentActivityEntry) -> String {
         }
     }
     text
+}
+
+fn extract_input_hash(entry: &AgentActivityEntry) -> Option<&str> {
+    entry
+        .extra
+        .get("agent.pilot.correlation.content_hash")
+        .and_then(Value::as_str)
+        .filter(|hash| valid_content_hash(hash))
+}
+
+fn has_delegated_parent(entry: &AgentActivityEntry) -> bool {
+    fn valid(value: Option<&str>, length: usize) -> bool {
+        value.is_some_and(|value| {
+            value.len() == length
+                && value
+                    .bytes()
+                    .all(|ch| ch.is_ascii_digit() || (b'a'..=b'f').contains(&ch))
+                && value.bytes().any(|ch| ch != b'0')
+        })
+    }
+    entry
+        .extra
+        .get("gen_ai.agent.scope")
+        .and_then(Value::as_str)
+        == Some("subagent")
+        && valid(entry.trace_id.as_deref(), 32)
+        && valid(entry.parent_span_id.as_deref(), 16)
 }
 
 fn parse_traceparent(value: &str) -> Option<(String, String)> {
