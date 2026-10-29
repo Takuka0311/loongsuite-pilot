@@ -812,7 +812,7 @@ mod tests {
 
     #[cfg(windows)]
     #[tokio::test]
-    async fn marker_cleanup_handles_delete_pending_but_rejects_a_protected_file() {
+    async fn marker_cleanup_is_idempotent_after_delete_and_bounds_real_sharing_conflicts() {
         use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
         use windows_sys::Win32::Storage::FileSystem::{
             DeleteFileW, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -834,8 +834,12 @@ mod tests {
         assert_ne!(unsafe { DeleteFileW(wide.as_ptr()) }, 0);
         let denied = std::fs::File::open(&marker).unwrap_err();
         assert!(
-            matches!(denied.raw_os_error(), Some(5 | 303)),
-            "expected a real delete-pending file: {denied}"
+            matches!(denied.raw_os_error(), Some(2 | 5 | 303)),
+            "a successfully deleted name must be absent or delete-pending: {denied}"
+        );
+        assert!(
+            handle.metadata().unwrap().len() > 0,
+            "the original deleted file handle remains open"
         );
         let release = tokio::task::spawn_blocking(move || {
             std::thread::sleep(Duration::from_millis(50));
@@ -844,16 +848,38 @@ mod tests {
         remove_enabled_marker(cfg).await.unwrap();
         release.await.unwrap();
         assert!(!Path::new(&marker).exists());
-        // A real access restriction is still an error after bounded retries.
+        // Force the actual retry path with a handle that denies delete sharing,
+        // then release it while cleanup is waiting.
         std::fs::write(&marker, "enabled").unwrap();
-        let mut permissions = std::fs::metadata(&marker).unwrap().permissions();
-        permissions.set_readonly(true);
-        std::fs::set_permissions(&marker, permissions).unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&marker)
+            .unwrap();
+        let conflict = std::fs::remove_file(&marker).unwrap_err();
+        assert_eq!(conflict.raw_os_error(), Some(32));
+        let release = tokio::task::spawn_blocking(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            drop(held);
+        });
+        remove_enabled_marker(cfg).await.unwrap();
+        release.await.unwrap();
+        assert!(!Path::new(&marker).exists());
+
+        // Rust 1.91 intentionally ignores the readonly attribute when deleting.
+        // Hold a real handle without FILE_SHARE_DELETE to exercise a genuine
+        // sharing restriction, rather than treating an attribute as an ACL.
+        std::fs::write(&marker, "enabled").unwrap();
+        let blocker = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&marker)
+            .unwrap();
         assert!(remove_enabled_marker(cfg).await.is_err());
         assert!(Path::new(&marker).is_file());
-        let mut permissions = std::fs::metadata(&marker).unwrap().permissions();
-        permissions.set_readonly(false);
-        std::fs::set_permissions(&marker, permissions).unwrap();
+        drop(blocker);
+        remove_enabled_marker(cfg).await.unwrap();
+        assert!(!Path::new(&marker).exists());
     }
 
     #[tokio::test]
