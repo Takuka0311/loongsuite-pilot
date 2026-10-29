@@ -1443,6 +1443,8 @@ $DataDir = $env:TEST_DATA
 $script:UserId = $env:TEST_VALUE
 $CmsLicenseKey = $env:TEST_VALUE
 $script:PROBE_RESULT = '[]'
+$env:TEMP = $env:TEST_NATIVE_TEMP
+$env:TMP = $env:TEST_NATIVE_TEMP
 Write-Output 'PILOT_BRIDGE_STAGE:check-deps'
 Check-Deps
 Write-Output 'PILOT_BRIDGE_STAGE:probe-agents'
@@ -1495,8 +1497,9 @@ foreach ($previous in @($null, 'previous 研发 🚀')) {
                 .env("TEST_CANDIDATE", &fixture.candidate)
                 .env("TEST_DATA", &fixture.data)
                 .env("TEST_VALUE", value)
-                .env("TEMP", &temp)
-                .env("TMP", &temp);
+                // Set Unicode TEMP inside the started shell before every native
+                // helper call; keep shell bootstrap separate from that contract.
+                .env("TEST_NATIVE_TEMP", &temp);
             let output = bounded(command);
             assert!(
                 output.status.success(),
