@@ -840,7 +840,14 @@ fn installation_applies_agent_selection_before_real_hook_injection() {
     let name = String::from_utf8(staged.stdout).unwrap().trim().to_owned();
     options["sourceDir"] = json!(fixture.root.path().join("cache/versions").join(name));
     options["deployHooks"] = json!(true);
-    success(&fixture.helper("publish-package", &options, true));
+    let published = fixture.helper("publish-package", &options, true);
+    assert!(
+        published.status.success(),
+        "isolated first Hook publication failed: {} | report={}",
+        String::from_utf8_lossy(&published.stderr),
+        fs::read_to_string(fixture.data.join("last-hook-install.json"))
+            .unwrap_or_else(|_| "missing controlled fixture report".into())
+    );
     let first = fs::read(&cursor).unwrap();
     let value: Value = serde_json::from_slice(&first).unwrap();
     let hooks = value["hooks"]["stop"].as_array().unwrap();

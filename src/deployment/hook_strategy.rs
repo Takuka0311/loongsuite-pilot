@@ -144,7 +144,11 @@ fn legacy_hook_commands(
     if !cfg!(windows) {
         return Vec::new();
     }
+    let current = format_hook_command(hook_command, event, style, agent_id);
     windows_compatible_hook_commands(hook_command, event, style)
+        .into_iter()
+        .filter(|command| command != &current)
+        .collect()
 }
 
 // Only enumerate known command forms. Arguments remain byte-exact so an
@@ -223,6 +227,9 @@ fn windows_hook_spelling_aliases(definition: &HookDefinition, data: &Value) -> H
         .try_fold(data, |value, key| value.get(key))
         .and_then(Value::as_array);
     let mut aliases = definition.replace_hook_commands.take().unwrap_or_default();
+    // The requested command must not also be considered retired: edit/status
+    // correctly reject any retired command still present after installation.
+    aliases.retain(|command| command != &definition.hook_command);
     if let Some(entries) = entries {
         for entry in entries {
             // Same direct/nested command shapes as HookManager; no recursive
@@ -237,7 +244,8 @@ fn windows_hook_spelling_aliases(definition: &HookDefinition, data: &Value) -> H
                 let Some(command) = handler.get("command").and_then(Value::as_str) else {
                     continue;
                 };
-                if windows_hook_comparison_key(command).is_some_and(|key| known.contains(&key))
+                if command != definition.hook_command
+                    && windows_hook_comparison_key(command).is_some_and(|key| known.contains(&key))
                     && !aliases.iter().any(|alias| alias == command)
                 {
                     aliases.push(command.into());
@@ -1473,6 +1481,69 @@ mod tests {
             windows_hook_comparison_key(mixed),
             windows_hook_comparison_key(&wrong_arg)
         );
+    }
+
+    #[tokio::test]
+    async fn windows_current_command_is_never_retired_during_install_reinstall_or_status() {
+        let root = tempfile::tempdir().unwrap();
+        let command = r#"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:/Users/研发 🚀/hooks/cursor.ps1""#;
+        for nested in [false, true] {
+            let path = root.path().join(format!("settings-{nested}.json"));
+            let mut definition = HookDefinition {
+                agent_id: "cursor".into(),
+                settings_path: path.to_string_lossy().into_owned(),
+                settings_syntax: None,
+                hook_json_path: vec!["hooks".into(), "stop".into()],
+                hook_command: command.into(),
+                matcher: None,
+                history_dir: None,
+                replace_hook_commands: Some(vec![command.into()]),
+                use_nested_format: Some(nested),
+                shell: None,
+                timeout: None,
+                insert: None,
+            };
+            let initial = serde_json::json!({"hooks":{"stop":[{"command":"user-owned-hook"}]}});
+            let compatible = windows_hook_spelling_aliases(&definition, &initial);
+            assert!(!compatible
+                .replace_hook_commands
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|old| old == command));
+            let first = HookManager::edit_hook(&initial.to_string(), &compatible, false).unwrap();
+            let data: Value = serde_json::from_str(&first).unwrap();
+            let compatible = windows_hook_spelling_aliases(&definition, &data);
+            let second = HookManager::edit_hook(&first, &compatible, false).unwrap();
+            assert_eq!(first, second);
+            std::fs::write(&path, &second).unwrap();
+            assert!(
+                HookManager::new(None, None)
+                    .is_hook_installed(&compatible)
+                    .await
+            );
+            let serialized = serde_json::to_string(&data).unwrap();
+            assert_eq!(serialized.matches("user-owned-hook").count(), 1);
+            assert_eq!(serialized.matches("cursor.ps1").count(), 1);
+            // The producer used by health/status also excludes the current form.
+            definition.replace_hook_commands = Some(legacy_hook_commands(
+                r"C:/Users/研发 🚀/hooks/cursor.ps1",
+                "stop",
+                None,
+                "cursor",
+            ));
+            assert!(!definition
+                .replace_hook_commands
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|old| old == command));
+            assert!(
+                HookManager::new(None, None)
+                    .is_hook_installed(&definition)
+                    .await
+            );
+        }
     }
 
     use crate::types::{
