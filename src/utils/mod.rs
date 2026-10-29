@@ -25,6 +25,7 @@ pub mod record_utils;
 pub mod restart_breadcrumb;
 pub mod runtime_paths;
 pub mod single_instance_lock;
+pub mod sync_file_lock;
 pub mod time_utils;
 pub mod win_archive;
 

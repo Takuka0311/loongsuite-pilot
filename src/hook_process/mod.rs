@@ -21,6 +21,7 @@ use common::{write_empty, Env, HookRequest};
 use std::io::{IsTerminal, Read, Write};
 
 pub fn run_hook_process(agent: &str) -> i32 {
+    let started = std::time::Instant::now();
     crate::utils::redirect_root_logger_to_stderr();
     let terminal = std::io::stdin().is_terminal();
     let mut raw = Vec::new();
@@ -30,7 +31,7 @@ pub fn run_hook_process(agent: &str) -> i32 {
     let args: Vec<String> = std::env::args().skip(3).collect();
     let env = std::env::vars().collect();
     let mut stdout = std::io::stdout();
-    dispatch(agent, terminal, &raw, &args, &env, &mut stdout)
+    dispatch(agent, terminal, &raw, &args, &env, &mut stdout, started)
 }
 
 pub(crate) fn dispatch(
@@ -40,6 +41,7 @@ pub(crate) fn dispatch(
     args: &[String],
     env: &Env,
     stdout: &mut dyn Write,
+    started: std::time::Instant,
 ) -> i32 {
     if terminal {
         write_empty(stdout);
@@ -51,7 +53,7 @@ pub(crate) fn dispatch(
         env,
         stdout,
     };
-    match agent {
+    let code = match agent {
         "cursor" => cursor::run(&mut request),
         "claude-code" => claude_code::run(&mut request),
         "codex" => codex::run(&mut request),
@@ -66,7 +68,17 @@ pub(crate) fn dispatch(
             write_empty(request.stdout);
             0
         }
+    };
+    if agent == "codex" {
+        let duration_ms = started.elapsed().as_secs_f64() * 1000.0;
+        crate::metrics::record_hook_timing(
+            &common::data_dir(env),
+            "codex",
+            args.first().map(|s| s.trim()).unwrap_or(""),
+            duration_ms,
+        );
     }
+    code
 }
 
 #[cfg(test)]
@@ -111,7 +123,15 @@ mod tests {
         }
         let args: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
         let mut stdout = Vec::new();
-        let code = dispatch(agent, false, stdin.as_bytes(), &args, &env, &mut stdout);
+        let code = dispatch(
+            agent,
+            false,
+            stdin.as_bytes(),
+            &args,
+            &env,
+            &mut stdout,
+            std::time::Instant::now(),
+        );
         (code, String::from_utf8(stdout).expect("utf8 stdout"))
     }
 
@@ -158,7 +178,15 @@ mod tests {
     #[test]
     fn terminal_stdin_prints_empty_object() {
         let mut stdout = Vec::new();
-        let code = dispatch("cursor", true, b"not-json", &[], &Env::new(), &mut stdout);
+        let code = dispatch(
+            "cursor",
+            true,
+            b"not-json",
+            &[],
+            &Env::new(),
+            &mut stdout,
+            std::time::Instant::now(),
+        );
         assert_eq!(code, 0);
         assert_eq!(String::from_utf8(stdout).unwrap(), "{}\n");
     }
@@ -1515,5 +1543,55 @@ mod tests {
         assert_eq!(record["schemaVersion"], 1);
         assert_eq!(record["cwd"], "/tmp/kiro-project");
         assert_eq!(record["assistantResponse"], "done");
+    }
+
+    #[test]
+    fn codex_records_timing_only_after_flushing_the_hook_response() {
+        struct Response<'a> {
+            root: &'a Path,
+            bytes: Vec<u8>,
+            flushed: bool,
+        }
+        impl Write for Response<'_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                assert!(!self.root.join("state/hook-metrics/codex.jsonl").exists());
+                self.flushed = true;
+                Ok(())
+            }
+        }
+        let root = tempfile::tempdir().unwrap();
+        let mut env = Env::new();
+        env.insert(
+            "LOONGSUITE_PILOT_DATA_DIR".into(),
+            root.path().to_string_lossy().into_owned(),
+        );
+        let mut response = Response {
+            root: root.path(),
+            bytes: Vec::new(),
+            flushed: false,
+        };
+        let args = vec!["stop".to_string()];
+        assert_eq!(
+            dispatch(
+                "codex",
+                false,
+                b"{}",
+                &args,
+                &env,
+                &mut response,
+                std::time::Instant::now()
+            ),
+            0
+        );
+        assert!(response.flushed);
+        assert_eq!(response.bytes, b"{}\n");
+        let rows = crate::metrics::HookMetricsSpool::new(root.path()).drain();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].calls, 1);
+        assert_eq!(rows[0].hook_event, "stop");
     }
 }

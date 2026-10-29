@@ -242,11 +242,25 @@ pub struct FlusherFlowMetrics {
     pub start_time: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct HookFlowMetrics {
+    #[serde(rename = "type")]
+    pub row_type: String,
+    #[serde(flatten)]
+    pub identity: L2Identity,
+    pub agent: String,
+    pub hook_event: String,
+    pub calls: String,
+    pub total_duration_ms: String,
+    pub max_duration_ms: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct L2Metrics {
     pub agents: Vec<AgentFlowMetrics>,
     pub inputs: Vec<InputFlowMetrics>,
     pub flushers: Vec<FlusherFlowMetrics>,
+    pub hooks: Vec<HookFlowMetrics>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -524,6 +538,14 @@ impl MetricsCollector {
     }
 
     pub fn collect_l2(&mut self, snapshot: &DataflowSnapshot) -> Option<L2Metrics> {
+        self.collect_l2_with_hook_timings(snapshot, &[])
+    }
+
+    pub fn collect_l2_with_hook_timings(
+        &mut self,
+        snapshot: &DataflowSnapshot,
+        timings: &[super::HookTimingStats],
+    ) -> Option<L2Metrics> {
         let now = (self.now_ms)();
         let window_ms = (now
             - if self.l2_last_collect_time == 0 {
@@ -544,14 +566,27 @@ impl MetricsCollector {
         let agents = self.collect_agent_rows(snapshot, &identity);
         let inputs = self.collect_input_rows(snapshot, &identity);
         let flushers = self.collect_flusher_rows(snapshot, &identity);
+        let hooks: Vec<_> = timings
+            .iter()
+            .map(|row| HookFlowMetrics {
+                row_type: "hook".into(),
+                identity: identity.clone(),
+                agent: row.agent.clone(),
+                hook_event: row.hook_event.clone(),
+                calls: row.calls.to_string(),
+                total_duration_ms: row.total_duration_ms.to_string(),
+                max_duration_ms: row.max_duration_ms.to_string(),
+            })
+            .collect();
         self.l2_last_collect_time = now;
-        if agents.is_empty() && inputs.is_empty() && flushers.is_empty() {
+        if agents.is_empty() && inputs.is_empty() && flushers.is_empty() && hooks.is_empty() {
             None
         } else {
             Some(L2Metrics {
                 agents,
                 inputs,
                 flushers,
+                hooks,
             })
         }
     }
@@ -997,6 +1032,39 @@ mod tests {
 
     fn collector(dir: &std::path::Path) -> MetricsCollector {
         MetricsCollector::new("1.0.0", "test-user", dir.to_string_lossy())
+    }
+
+    #[test]
+    fn hook_rows_use_shared_identity_without_baseline_subtraction_or_empty_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut collector = collector(dir.path());
+        let snapshot = DataflowSnapshot::default();
+        assert!(collector.collect_l2(&snapshot).is_none());
+        let timing = super::super::HookTimingStats {
+            agent: "codex".into(),
+            hook_event: "stop".into(),
+            calls: 2,
+            total_duration_ms: 0.0,
+            max_duration_ms: 0.0,
+        };
+        for _ in 0..2 {
+            let rows = collector
+                .collect_l2_with_hook_timings(&snapshot, std::slice::from_ref(&timing))
+                .unwrap();
+            assert!(rows.agents.is_empty() && rows.inputs.is_empty() && rows.flushers.is_empty());
+            let row = &rows.hooks[0];
+            let json = serde_json::to_value(row).unwrap();
+            assert_eq!(json["type"], "hook");
+            assert_eq!(json["agent"], "codex");
+            assert_eq!(json["hook_event"], "stop");
+            assert_eq!(json["calls"], "2");
+            assert_eq!(json["total_duration_ms"], "0");
+            assert_eq!(json["max_duration_ms"], "0");
+            assert_eq!(json["user_id"], "test-user");
+            assert!(!row.identity.run_id.is_empty());
+            assert!(json["__time__"].as_i64().unwrap() > 1_700_000_000);
+        }
+        assert!(collector.collect_l2(&snapshot).is_none());
     }
 
     #[test]

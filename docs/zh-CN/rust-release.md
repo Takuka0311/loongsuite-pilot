@@ -8,6 +8,9 @@
 
 ## 2026-10-29 开发收口进展（尚未发布）
 
+- main 2e98f30（#502）的 Codex Hook 耗时已迁入 Rust：响应刷新后固定单调时钟耗时，空文件锁、1 MiB 活动文件、50 ms 写锁等待、.draining 恢复及每周期 64 个维度与上游协议兼容；耗时超过一天被拒绝，不误称为样本年龄限制。L2 新增 type=hook，沿用 pilot_pipeline、自监控身份和独立本地镜像，日志保留策略覆盖新流。默认 1,473 项、all-features 1,475 项全量通过，另有两个原有 doc-tests ignored；严格 clippy 通过。真实原生 Codex 子进程、collector、本地镜像和私有 HTTP 接收端在隔离测试中连通，公开构建同一配置不联网。Windows/macOS 的现有发布任务加入该实际链路用例；仍不视为真实 Agent 注入或 SLS 查询验收。
+
+
 - d68b532 dry-run 的两处平台差异已修订，仍等待新的跨平台实跑：Windows 账号测试夹具不再把含正斜杠的多段字符串直接 join 到反斜杠路径，创建的缓存先由真实身份读取器校验；不放宽生产的账号来源或指纹匹配。macOS 模拟崩溃的低层入口此前绕过正式入口的父目录规范化，导致 journal 目标集合不同；新增 HookConfigTargets 明确准备阶段，正式锁与 journal 使用同一组提前固定的路径，模拟崩溃也必须经过同一步骤，锁内不重新解析父目录。新增 Unix 目录别名下的真实进程退出/重试回归在 Linux 先重现同一目标集合错误，修订后通过；文件链接拒绝、不同目标拒绝与恢复材料保护保留。HookStrategy 20 项、Qoder 20 项专项通过；fmt、严格 clippy、默认 1,460 项及 all-features 1,462 项通过，两个原有 doc-test ignored。b9cd5e9 已替换远端（PID 49717），本地指标和 Dashboard 正常，11:10:18Z 的新进程 pilot_pipeline 批次获真实接收端接受。
 
 - main ca54c11（#475）的 OpenCode V1/V2 兼容已移植：原生安装事务携带 index.js/package.json/plugin.mjs/v2.mjs，以目录 URI 为统一入口；同时清理 plugin/plugins 中本安装的旧文件、包名、tuple 和 package 对象引用，保留其他安装、用户对象及注释。健康检查可发现重引入旧项，迁移/重装/卸载及包内真实资产修复回归通过。Rust 输入把 V1 序列化工具 JSON 与 V2 原生 JSON 归一，保留普通/截断文本；V2 仅 execution 的 turn.end 关闭输出缓冲，步骤结束与可重试错误不提前截断，V1 finish reason 行为保留。50 项原语言宿主测试通过并加入既有 CI；严格 clippy、默认 1,459 项及 all-features 1,461 项通过，两个原有 doc-test ignored。真实 CLI/模型兼容脚本已同步但未执行，仍受已同意暂缓真实 Agent 注入矩阵的范围限制。

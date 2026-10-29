@@ -69,6 +69,7 @@ struct WriterInner {
 
 pub struct MetricsWriter {
     logs_dir: PathBuf,
+    hook_spool: Arc<Mutex<super::HookMetricsSpool>>,
     inner: Arc<Mutex<WriterInner>>,
     sampler: Arc<DiskUsageSampler>,
     get_snapshot: Arc<dyn Fn() -> Result<DataflowSnapshot, String> + Send + Sync>,
@@ -165,6 +166,9 @@ impl MetricsWriter {
         ));
         Self {
             logs_dir: Path::new(&opts.data_dir).join("logs").join("metric_alarm"),
+            hook_spool: Arc::new(Mutex::new(super::HookMetricsSpool::new(Path::new(
+                &opts.data_dir,
+            )))),
             inner,
             sampler,
             get_snapshot: opts.get_snapshot,
@@ -217,6 +221,7 @@ impl MetricsWriter {
     fn share(&self) -> Arc<Shared> {
         Arc::new(Shared {
             logs_dir: self.logs_dir.clone(),
+            hook_spool: Arc::clone(&self.hook_spool),
             inner: Arc::clone(&self.inner),
             sampler: Arc::clone(&self.sampler),
             get_snapshot: Arc::clone(&self.get_snapshot),
@@ -258,6 +263,7 @@ impl MetricsWriter {
 
 struct Shared {
     logs_dir: PathBuf,
+    hook_spool: Arc<Mutex<super::HookMetricsSpool>>,
     inner: Arc<Mutex<WriterInner>>,
     sampler: Arc<DiskUsageSampler>,
     get_snapshot: Arc<dyn Fn() -> Result<DataflowSnapshot, String> + Send + Sync>,
@@ -367,12 +373,13 @@ impl Shared {
             Some(snapshot) => snapshot.clone(),
             None => (self.get_snapshot)()?,
         };
+        let timings = self.hook_spool.lock().expect("hook spool").drain();
         let Some(l2) = self
             .inner
             .lock()
             .expect("writer")
             .collector
-            .collect_l2(&snapshot)
+            .collect_l2_with_hook_timings(&snapshot, &timings)
         else {
             return Ok(());
         };
@@ -385,7 +392,20 @@ impl Shared {
         for row in &l2.flushers {
             dispatch_status("pilot_pipeline", &flatten_to_strings(&as_map(row)))?;
         }
+        for row in &l2.hooks {
+            dispatch_status("pilot_pipeline", &flatten_to_strings(&as_map(row)))?;
+        }
         let date = get_today_date_string();
+        for row in &l2.hooks {
+            append_line(
+                &self
+                    .logs_dir
+                    .join(format!("pilot-hook-metrics-{date}.jsonl"))
+                    .to_string_lossy(),
+                &serde_json::to_string(row).unwrap_or_else(|_| "{}".into()),
+            )
+            .await;
+        }
         for row in &l2.agents {
             append_line(
                 &self
@@ -844,6 +864,55 @@ mod tests {
             MetricsWriterOptions::new(dir.to_string_lossy().into_owned(), "2.0.0", "u1", snapshot);
         opts.alarm_manager = alarm;
         MetricsWriter::new(opts)
+    }
+
+    #[tokio::test]
+    async fn hook_spool_drains_into_pipeline_and_its_own_mirror_once() {
+        clear_sends();
+        let dir = tempfile::tempdir().unwrap();
+        super::super::record_hook_timing(dir.path(), "codex", "stop", 40.0);
+        super::super::record_hook_timing(dir.path(), "codex", "stop", 120.0);
+        let writer = make_writer(dir.path(), None);
+        writer.write_l2().await;
+        writer.write_l2().await;
+        let rows: Vec<_> = recorded_sends()
+            .into_iter()
+            .filter(|send| {
+                send.topic == "pilot_pipeline"
+                    && send.fields.get("type").is_some_and(|kind| kind == "hook")
+            })
+            .collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].fields["calls"], "2");
+        assert_eq!(rows[0].fields["total_duration_ms"], "160");
+        assert_eq!(rows[0].fields["max_duration_ms"], "120");
+        let path = dir.path().join("logs/metric_alarm").join(format!(
+            "pilot-hook-metrics-{}.jsonl",
+            get_today_date_string()
+        ));
+        let text = std::fs::read_to_string(path).unwrap();
+        assert_eq!(text.lines().count(), 1);
+        let local: Value = serde_json::from_str(text.trim()).unwrap();
+        for key in [
+            "type",
+            "agent",
+            "hook_event",
+            "calls",
+            "total_duration_ms",
+            "max_duration_ms",
+            "user_id",
+            "window_ms",
+            "run_id",
+            "instance_id",
+            "hostname",
+            "ip",
+        ] {
+            assert_eq!(local[key].as_str().unwrap(), rows[0].fields[key]);
+        }
+        assert_eq!(local["__time__"].to_string(), rows[0].fields["__time__"]);
+        assert!(super::super::HookMetricsSpool::new(dir.path())
+            .drain()
+            .is_empty());
     }
 
     #[tokio::test]

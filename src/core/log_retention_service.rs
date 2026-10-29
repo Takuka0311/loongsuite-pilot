@@ -30,6 +30,7 @@ const METRIC_ALARM_STREAMS: &[&str] = &[
     "pilot-agent-metrics",
     "pilot-flusher-metrics",
     "pilot-input-metrics",
+    "pilot-hook-metrics",
     "pilot-alarm-metrics",
     "pilot-alarms",
     "pilot-updater-events",
@@ -577,5 +578,27 @@ mod tests {
         assert!(output
             .join(format!("events-{}.jsonl", local_date_string(Local::now())))
             .exists());
+    }
+
+    #[tokio::test]
+    async fn hook_metric_mirror_obeys_metric_alarm_retention() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs/metric_alarm");
+        std::fs::create_dir_all(&logs).unwrap();
+        let old = logs.join("pilot-hook-metrics-2020-01-02.jsonl");
+        let today = logs.join(format!(
+            "pilot-hook-metrics-{}.jsonl",
+            local_date_string(Local::now())
+        ));
+        let unrelated = logs.join("user-hook-metrics-2020-01-02.jsonl");
+        for path in [&old, &today, &unrelated] {
+            std::fs::write(path, b"fixture").unwrap();
+        }
+        let (deleted, errors) = LogRetentionService::new(dir.path(), config(7))
+            .run_cleanup()
+            .await;
+        assert_eq!((deleted, errors), (1, 0));
+        assert!(!old.exists());
+        assert!(today.exists() && unrelated.exists());
     }
 }

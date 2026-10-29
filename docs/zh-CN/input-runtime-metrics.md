@@ -85,3 +85,18 @@ Qoder Trace 使用同一字段契约，但一期只统计产生事件的主 Hook
 - 已显式覆盖 `codex-transcript`：正常消费计入 `raw_in_*`，边界查找、恢复和元数据回读只计入实际发生的 `raw_read_*`；
 - `dsh-log`、`qoder-work-log`、`qoder-work-trace` 等重写了公共读取流程的 Input 暂不误报原始读取量，后续需要分别接入；
 - 不新增或修改 `pilot_trace_runtime`，不负责 session/turn 缓存、生命周期、异常或释放明细。
+
+## Codex Hook 调用耗时（`type=hook`）
+
+Rust 的 Codex Hook 在写出并刷新 `{}` 响应后，用单调时钟固定本次原生处理耗时，再将无正文的样本追加到 `<dataDir>/state/hook-metrics/codex.jsonl`。时间从进入原生 Hook 处理函数开始，包括 stdin 读取、上下文和唤醒标记处理；不包含进程启动、包装脚本、指标落盘及退出时间，也不是异步 transcript 采集耗时。与 main 的 Node 指标协议兼容，但耗时度量的是 Rust 处理阶段。
+
+collector 在启动、每 10 分钟和正常退出的 L2 周期消费样本，按 `agent + hook_event` 汇总，发送到既有 `pilot_pipeline`，并镜像到 `logs/metric_alarm/pilot-hook-metrics-YYYY-MM-DD.jsonl`。行使用 `type=hook`，沿用 `hostname`、`ip`、`instance_id`、`run_id`、`user_id`、`window_ms` 和 `__time__`。开源版只保留本地镜像；集团版沿用已配置的内部自监控 sender。
+
+- `calls`：本次消费的有效调用样本数；忽略事件和处理失败的调用运行到采样点时也计入，不表示采集成功。
+- `total_duration_ms`：有效调用耗时总和，毫秒；平均耗时用总耗时除以总调用数。
+- `max_duration_ms`：最慢一次调用的毫秒数。
+- 没有样本的事件不产生空行；有效的零毫秒调用仍计数。
+
+生产者最多等待文件锁 50 毫秒，活动文件最多 1 MiB；写入失败、锁竞争或文件满只丢弃指标样本。这个等待预算不是文件系统调用或整个 Hook 的硬超时。消费使用同一空文件锁，将活动文件移到 `.draining`；先恢复已有待处理文件，读取或删除失败时保留重试，禁止覆盖未消费样本。每轮最多 64 个 Agent/事件组合，非法样本和超过一天的耗时被丢弃；样本协议没有时间戳，一天不是样本年龄限制。
+
+该指标是 best-effort 自监控，进程崩溃或远端发送失败不保证重放。积压样本归入下一次消费窗口，`window_ms` 是 collector 上报间隔，不能用启动短窗口推算积压调用发生速率。本地文件沿用 `metricAlarmDays` 和指标日志容量清理策略。

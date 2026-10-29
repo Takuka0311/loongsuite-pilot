@@ -107,6 +107,7 @@ jobs:
           cargo test --locked -p loongsuite-pilot --test hooks_native
           cargo test --locked -p loongsuite-pilot --test interceptor_native
           cargo test --locked -p loongsuite-pilot --test upstream_context
+          cargo test --locked -p loongsuite-pilot --test hook_timing
           cargo test --locked -p loongsuite-pilot --lib utils::single_instance_lock::tests
           pilot_platform_failures=0
           cargo test --locked -p loongsuite-pilot --lib deployment::hook_strategy::tests || pilot_platform_failures=1
