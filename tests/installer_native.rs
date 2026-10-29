@@ -1627,3 +1627,366 @@ foreach ($previous in @($null, 'previous 研发 🚀')) {
         }
     }
 }
+
+#[test]
+fn native_uninstall_preflight_and_repeat_cleanup_preserve_user_hooks_and_configuration() {
+    let fixture = Fixture::new();
+    fixture.package_with(&[(
+        "agents.d/cursor.json",
+        include_str!("../agents.d/cursor.json"),
+    )]);
+    let path = fixture.root.path().join(".cursor/hooks.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let hook = fixture.data.join(if cfg!(windows) {
+        "hooks/cursor-loongsuite-pilot-hook.ps1"
+    } else {
+        "hooks/cursor-loongsuite-pilot-hook.sh"
+    });
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(&hook, "owned hook asset").unwrap();
+    fs::write(
+        fixture.data.join("pilot-bin"),
+        "owned shared runtime binding",
+    )
+    .unwrap();
+    let user = json!({"command":"keep-user-hook", "timeout":17, "metadata":{"keep":true}});
+    let command = if cfg!(windows) {
+        format!(
+            "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{}\"",
+            hook.display()
+        )
+    } else {
+        loongsuite_pilot::hooks::quote_claude_hook_path(&hook.to_string_lossy())
+    };
+    let original = json!({"private":"synthetic-private-config", "hooks":{
+        "afterAgentResponse":[user.clone(),{"command":command}]
+    }})
+    .to_string();
+    fs::write(&path, &original).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+    }
+    let config = fs::read(fixture.data.join("config.json")).unwrap();
+    let mut options = json!({"dataDir":fixture.data,"pilotDir":fixture.candidate,"checkOnly":true});
+    success(&fixture.helper("cleanup-agents", &options, true));
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert!(!fixture.data.join(".hook-install").exists());
+    options["checkOnly"] = json!(false);
+    for _ in 0..2 {
+        let output = fixture.helper("cleanup-agents", &options, true);
+        success(&output);
+        for stream in [&output.stdout, &output.stderr] {
+            assert!(!String::from_utf8_lossy(stream).contains("synthetic-private-config"));
+        }
+        let result: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(result["hooks"]["afterAgentResponse"], json!([user.clone()]));
+        assert_eq!(result["private"], "synthetic-private-config");
+        assert_eq!(fs::read_to_string(&hook).unwrap(), "owned hook asset");
+        assert_eq!(
+            fs::read_to_string(fixture.data.join("pilot-bin")).unwrap(),
+            "owned shared runtime binding"
+        );
+        assert_eq!(fs::read(fixture.data.join("config.json")).unwrap(), config);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+        }
+    }
+}
+
+#[test]
+fn native_uninstall_rejects_invalid_or_unknown_deployment_state_before_config_changes() {
+    for state in [
+        "private-invalid-state",
+        r#"{"removed-agent":{"deployMode":"hook","deployedAt":"old"}}"#,
+    ] {
+        let fixture = Fixture::new();
+        fixture.package_with(&[(
+            "agents.d/cursor.json",
+            include_str!("../agents.d/cursor.json"),
+        )]);
+        let path = fixture.root.path().join(".cursor/hooks.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"hooks":{"afterAgentResponse":[{"command":"keep-user-hook"}]}}"#,
+        )
+        .unwrap();
+        let before = fs::read(&path).unwrap();
+        let state_path = fixture.data.join("deployed-agents.json");
+        fs::write(&state_path, state).unwrap();
+        let result = fixture.helper(
+            "cleanup-agents",
+            &json!({"dataDir":fixture.data,"pilotDir":fixture.candidate}),
+            true,
+        );
+        assert!(!result.status.success());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(fs::read_to_string(&state_path).unwrap(), state);
+        assert!(!fixture.data.join(".hook-install").exists());
+        assert!(!String::from_utf8_lossy(&result.stderr).contains("private-invalid-state"));
+    }
+}
+
+#[test]
+fn native_uninstall_uses_persisted_dsh_path_and_preserves_assets_on_conflict() {
+    let fixture = Fixture::new();
+    fixture.package_with(&[("agents.d/dsh.json", include_str!("../agents.d/dsh.json"))]);
+    let plugin = fixture.data.join("plugins/dsh/plugin.mjs");
+    fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+    fs::write(&plugin, "fixture host plugin").unwrap();
+    fs::write(
+        plugin.parent().unwrap().join(".collection-enabled"),
+        "enabled",
+    )
+    .unwrap();
+    let patch = fixture
+        .root
+        .path()
+        .join("persisted DSH 研发/cordis.patch.yml");
+    fs::create_dir_all(patch.parent().unwrap()).unwrap();
+    fs::write(
+        &patch,
+        "# BEGIN PILOT-OBSERVABILITY-MANAGED\n# entryId=loongsuite-pilot-observability\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.data.join("deployed-agents.json"),
+        json!({"dsh":{
+            "deployMode":"dsh-yaml-patch","deployedAt":"old","dshPatchPath":patch
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let options = json!({"dataDir":fixture.data,"pilotDir":fixture.candidate});
+    let before = fs::read(&patch).unwrap();
+    let result = fixture.helper("cleanup-agents", &options, true);
+    assert!(!result.status.success());
+    assert_eq!(fs::read(&patch).unwrap(), before);
+    assert!(plugin.is_file());
+    let source = reqwest::Url::from_file_path(&plugin).unwrap();
+    let hash = loongsuite_pilot::utils::runtime_paths::sha256_file(&plugin).unwrap();
+    fs::write(&patch, format!("user: keep\r\n# BEGIN PILOT-OBSERVABILITY-MANAGED (created-file: false)\r\n# entryId=loongsuite-pilot-observability\r\n# pluginSource={source}\r\n# pluginHash={hash}\r\ninjected: true\r\n# END PILOT-OBSERVABILITY-MANAGED\r\nother: keep\r\n")).unwrap();
+    success(&fixture.helper("cleanup-agents", &options, true));
+    assert_eq!(
+        fs::read_to_string(&patch).unwrap(),
+        "user: keep\r\nother: keep\r\n"
+    );
+    assert!(plugin.is_file());
+    success(&fixture.helper("cleanup-agents", &options, true));
+}
+
+#[test]
+fn native_uninstall_refuses_unrecognized_owned_commands_without_dropping_state_or_assets() {
+    let fixture = Fixture::new();
+    fixture.package_with(&[(
+        "agents.d/cursor.json",
+        include_str!("../agents.d/cursor.json"),
+    )]);
+    let config = fixture.root.path().join(".cursor/hooks.json");
+    fs::create_dir_all(config.parent().unwrap()).unwrap();
+    let hook = fixture.data.join(if cfg!(windows) {
+        "hooks/cursor-loongsuite-pilot-hook.ps1"
+    } else {
+        "hooks/cursor-loongsuite-pilot-hook.sh"
+    });
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(&hook, "owned-hook-asset").unwrap();
+    fs::write(fixture.data.join("pilot-bin"), "shared-runtime").unwrap();
+    let before = json!({"hooks":{"afterAgentResponse":[{
+        "command":format!("\\\"{}\\\" unexpected-custom-argument",hook.display())
+    }]}})
+    .to_string();
+    fs::write(&config, &before).unwrap();
+    let state_path = fixture.data.join("deployed-agents.json");
+    let state =
+        json!({"cursor":{"deployMode":"hook","deployedAt":"old","hookSettingsPath":config}})
+            .to_string();
+    fs::write(&state_path, &state).unwrap();
+    let output = fixture.helper(
+        "cleanup-agents",
+        &json!({"dataDir":fixture.data,"pilotDir":fixture.candidate}),
+        true,
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Unrecognized Pilot Hook reference"));
+    assert_eq!(fs::read_to_string(&config).unwrap(), before);
+    assert_eq!(fs::read_to_string(&state_path).unwrap(), state);
+    assert_eq!(fs::read_to_string(&hook).unwrap(), "owned-hook-asset");
+    assert_eq!(
+        fs::read_to_string(fixture.data.join("pilot-bin")).unwrap(),
+        "shared-runtime"
+    );
+}
+
+#[test]
+fn native_uninstall_keeps_foreign_plugin_specs_and_jsonc_bytes_for_all_flat_hosts() {
+    for (id, source, relative, key) in [
+        (
+            "opencode",
+            include_str!("../agents.d/opencode.json"),
+            "plugins/opencode/plugin.mjs",
+            "plugin",
+        ),
+        (
+            "mimo-code",
+            include_str!("../agents.d/mimo-code.json"),
+            "plugins/mimo-code/plugin.mjs",
+            "plugin",
+        ),
+        (
+            "pi-coding-agent",
+            include_str!("../agents.d/pi-coding-agent.json"),
+            "plugins/pi-coding-agent/index.mjs",
+            "extensions",
+        ),
+    ] {
+        let fixture = Fixture::new();
+        let config = fixture.root.path().join("配置 host/settings.jsonc");
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        let mut definition: Value = serde_json::from_str(source).unwrap();
+        definition["pluginInject"]["configPaths"] = json!([config]);
+        let file = format!("agents.d/{id}.json");
+        let contents = definition.to_string();
+        fixture.package_with(&[(&file, &contents)]);
+        let own = fixture.data.join(relative);
+        let foreign = fixture.root.path().join("another install").join(relative);
+        let spec = |path: &Path| {
+            if id == "pi-coding-agent" {
+                path.to_string_lossy().into_owned()
+            } else {
+                reqwest::Url::from_file_path(path).unwrap().to_string()
+            }
+        };
+        let foreign = spec(&foreign);
+        fs::write(
+            &config,
+            format!(
+                "// keep-heading\n{{\n  \"setting\": 1.0,\n  \"{key}\": {}\n}}\n",
+                json!(["user-package@1", spec(&own), foreign.clone()])
+            ),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            success(&fixture.helper(
+                "cleanup-agents",
+                &json!({"dataDir":fixture.data,"pilotDir":fixture.candidate}),
+                true,
+            ));
+            let text = fs::read_to_string(&config).unwrap();
+            assert!(text.contains("// keep-heading") && text.contains("\"setting\": 1.0"));
+            let data = loongsuite_pilot::utils::parse_json_document(
+                &text,
+                loongsuite_pilot::utils::JsonSyntax::Jsonc,
+            )
+            .unwrap();
+            assert_eq!(
+                data[key],
+                json!(["user-package@1", foreign.clone()]),
+                "{id}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn native_uninstall_removes_only_directory_plugins_owned_by_the_current_install() {
+    use loongsuite_pilot::types::{AgentDefinition, DeployStrategy};
+    for other_owner in [false, true] {
+        let fixture = Fixture::new();
+        let source = fixture.root.path().join("插件来源");
+        let target = fixture
+            .root
+            .path()
+            .join("Hermes home/plugins/loongsuite-pilot");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("__init__.py"), "fixture = True\n").unwrap();
+        let mut definition: Value =
+            serde_json::from_str(include_str!("../agents.d/hermes-agent.json")).unwrap();
+        definition["directoryPlugin"]["sourceDir"] = json!(source);
+        definition["directoryPlugin"]["targetDir"] = json!(target);
+        definition["directoryPlugin"]["activation"] = Value::Null;
+        let text = definition.to_string();
+        fixture.package_with(&[("agents.d/hermes-agent.json", &text)]);
+        let owner = if other_owner {
+            fixture.root.path().join("other-data")
+        } else {
+            fixture.data.clone()
+        };
+        let definition: AgentDefinition = serde_json::from_value(definition).unwrap();
+        let strategy = loongsuite_pilot::deployment::DirectoryPluginStrategy::new(Some(
+            owner.to_string_lossy().into_owned(),
+        ));
+        let deployed = strategy.deploy(&definition).await;
+        assert!(deployed.success, "{:?}", deployed.error);
+        let marker = target.join(".loongsuite-pilot-managed.json");
+        let before = fs::read(&marker).unwrap();
+        let options = json!({"dataDir":fixture.data,"pilotDir":fixture.candidate});
+        let output = fixture.helper("cleanup-agents", &options, true);
+        assert_eq!(output.status.success(), !other_owner);
+        assert_eq!(target.exists(), other_owner);
+        if other_owner {
+            assert_eq!(fs::read(&marker).unwrap(), before);
+            assert_eq!(
+                fs::read_to_string(target.join("__init__.py")).unwrap(),
+                "fixture = True\n"
+            );
+        } else {
+            success(&fixture.helper("cleanup-agents", &options, true));
+        }
+        assert_eq!(
+            fs::read_to_string(source.join("__init__.py")).unwrap(),
+            "fixture = True\n"
+        );
+    }
+}
+
+#[test]
+fn native_uninstall_openclaw_preserves_other_install_paths_and_shared_entries() {
+    let fixture = Fixture::new();
+    let config = fixture.root.path().join("OpenClaw home/openclaw.jsonc");
+    fs::create_dir_all(config.parent().unwrap()).unwrap();
+    let mut definition: Value =
+        serde_json::from_str(include_str!("../agents.d/openclaw.json")).unwrap();
+    definition["pluginInject"]["configPaths"] = json!([config]);
+    let text = definition.to_string();
+    fixture.package_with(&[("agents.d/openclaw.json", &text)]);
+    let own = reqwest::Url::from_file_path(fixture.data.join("plugins/openclaw"))
+        .unwrap()
+        .to_string();
+    let foreign =
+        reqwest::Url::from_file_path(fixture.root.path().join("other-data/plugins/openclaw"))
+            .unwrap()
+            .to_string();
+    let entry = json!({"enabled":true,"config":{"keep":"user-option"}});
+    fs::write(
+        &config,
+        json!({"user":"keep","plugins":{
+            "load":{"paths":[own,foreign.clone()]},
+            "entries":{"loongsuite-pilot-openclaw":entry.clone(),"user-plugin":{"enabled":true}}
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    for _ in 0..2 {
+        success(&fixture.helper(
+            "cleanup-agents",
+            &json!({"dataDir":fixture.data,"pilotDir":fixture.candidate}),
+            true,
+        ));
+        let result: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        assert_eq!(result["plugins"]["load"]["paths"], json!([foreign.clone()]));
+        assert_eq!(
+            result["plugins"]["entries"]["loongsuite-pilot-openclaw"],
+            entry
+        );
+        assert_eq!(result["plugins"]["entries"]["user-plugin"]["enabled"], true);
+        assert_eq!(result["user"], "keep");
+    }
+}

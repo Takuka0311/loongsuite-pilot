@@ -27,6 +27,7 @@ mod inject_command;
 mod installer_config;
 pub(crate) mod installer_helper;
 pub(crate) mod native_install;
+mod native_uninstall;
 mod openclaw_compat;
 mod openclaw_version_resolver;
 mod paths;

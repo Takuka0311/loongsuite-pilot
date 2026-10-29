@@ -121,6 +121,11 @@ impl DeploymentManager {
         self.loader.pilot_dir()
     }
 
+    pub(crate) fn preserving_runtime_assets(mut self) -> Self {
+        self.hook = self.hook.preserving_runtime_assets();
+        self
+    }
+
     pub async fn deploy_all(
         &self,
         enabled: Option<&dyn Fn(&AgentDefinition) -> bool>,
@@ -389,6 +394,10 @@ impl DeploymentManager {
             Some(config) => self.inject.resolve_existing_config_path(config).await,
             None => Ok(None),
         }
+    }
+
+    pub(crate) fn recorded_agent_ids(&self) -> Vec<String> {
+        self.state.lock().unwrap().keys().cloned().collect()
     }
 
     pub fn has_record(&self, agent_id: &str) -> bool {

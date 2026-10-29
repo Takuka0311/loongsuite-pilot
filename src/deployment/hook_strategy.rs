@@ -294,10 +294,43 @@ fn kiro_cli_settings(agent_settings_path: &str) -> String {
         .into_owned()
 }
 
+fn normalize_hook_reference(value: &str) -> String {
+    let normalized = value.replace('\\', "/");
+    if cfg!(windows) {
+        normalized.to_lowercase()
+    } else {
+        normalized
+    }
+}
+
+fn remaining_hook_reference(value: &Value, needles: &[String]) -> bool {
+    match value {
+        Value::Array(values) => values
+            .iter()
+            .any(|value| remaining_hook_reference(value, needles)),
+        Value::Object(values) => {
+            values
+                .get("command")
+                .and_then(Value::as_str)
+                .is_some_and(|command| {
+                    let command = normalize_hook_reference(command);
+                    needles
+                        .iter()
+                        .any(|needle| !needle.is_empty() && command.contains(needle))
+                })
+                || values
+                    .values()
+                    .any(|value| remaining_hook_reference(value, needles))
+        }
+        _ => false,
+    }
+}
+
 pub struct HookStrategy {
     hook_manager: HookManager,
     resource_roots: Option<(PathBuf, PathBuf)>,
     deployment_state: Option<(PathBuf, Option<crate::types::InstalledBy>)>,
+    preserve_runtime_assets: bool,
 }
 
 impl HookStrategy {
@@ -306,7 +339,13 @@ impl HookStrategy {
             hook_manager,
             resource_roots: None,
             deployment_state: None,
+            preserve_runtime_assets: false,
         }
+    }
+
+    pub(crate) fn preserving_runtime_assets(mut self) -> Self {
+        self.preserve_runtime_assets = true;
+        self
     }
 
     pub(crate) fn with_resource_roots(mut self, pilot: &Path, data: &Path) -> Self {
@@ -538,7 +577,11 @@ impl HookStrategy {
         let settings = configs["config"].to_string_lossy().into_owned();
         let root = self.transaction_root(def)?;
         let assets = if uninstall {
-            HookAssets::cleanup(def, &root, self.resource_roots.is_some())
+            HookAssets::cleanup(
+                def,
+                &root,
+                self.resource_roots.is_some() && !self.preserve_runtime_assets,
+            )
         } else {
             HookAssets::load(
                 def,
@@ -687,6 +730,20 @@ impl HookStrategy {
                 if let Some(next) = next {
                     edits.insert("trust".into(), next);
                 }
+            }
+        }
+        if uninstall && self.preserve_runtime_assets {
+            let path = resolve_home(&hook.hook_command);
+            let needles = [path.clone(), quote_claude_hook_path(&path)]
+                .into_iter()
+                .map(|path| normalize_hook_reference(&path))
+                .collect::<Vec<_>>();
+            if document
+                .data
+                .get("hooks")
+                .is_some_and(|hooks| remaining_hook_reference(hooks, &needles))
+            {
+                return Err("Unrecognized Pilot Hook reference; configuration and runtime assets were preserved".into());
             }
         }
         if document.changed() && (!uninstall || document.raw != initial_raw) {

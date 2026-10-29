@@ -40,7 +40,7 @@ pub(crate) fn command() -> Command {
                 )
             }),
         )
-        .subcommands(["probe-count", "probe-detected"].map(input_command))
+        .subcommands(["probe-count", "probe-detected", "cleanup-agents"].map(input_command))
         .subcommands(
             ["stage-package", "sync-service", "publish-package"].map(|name| {
                 let command = input_command(name).arg(
@@ -139,6 +139,7 @@ fn options(args: &ArgMatches) -> Result<Options> {
 pub(crate) async fn run(args: &ArgMatches) -> Result<i32> {
     let (name, args) = args.subcommand().context("缺少安装辅助操作")?;
     let output = match name {
+        "cleanup-agents" => super::native_uninstall::run(input(args)?).await?,
         "stage-package" | "sync-service" | "publish-package" => {
             let mut value = if args.get_flag("from-env") {
                 let mut values = serde_json::Map::new();
