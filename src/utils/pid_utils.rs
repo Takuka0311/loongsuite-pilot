@@ -159,20 +159,11 @@ pub fn is_process_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(unix, windows))]
     {
-        match std::fs::metadata(format!("/proc/{pid}")) {
-            Ok(_) => true,
-            Err(err)
-                if err.kind() == io::ErrorKind::PermissionDenied
-                    || err.raw_os_error() == Some(1) =>
-            {
-                true
-            }
-            Err(_) => false,
-        }
+        process_alive_from_kill(process_zero_probe(pid))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(unix, windows)))]
     {
         let key = sysinfo::Pid::from_u32(pid);
         let mut system = sysinfo::System::new();
@@ -185,7 +176,50 @@ pub fn is_process_alive(pid: u32) -> bool {
     }
 }
 
-/// `kill(pid, 0)` result. `Ok` means the signal was delivered. `Err(1)` is EPERM
+#[cfg(unix)]
+fn process_zero_probe(pid: u32) -> Result<(), i32> {
+    // Never cast an oversized PID into a negative process-group selector.
+    let pid = libc::pid_t::try_from(pid).map_err(|_| libc::ESRCH)?;
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or(libc::ESRCH))
+    }
+}
+
+#[cfg(windows)]
+fn process_zero_probe(pid: u32) -> Result<(), i32> {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+
+    // Normalize Windows access refusal to the same EPERM contract as kill(0).
+    // Waiting on the process handle distinguishes termination even while a
+    // parent still owns a handle to the exited process (or it exits with 259).
+    let refused = || {
+        if io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied {
+            1
+        } else {
+            3
+        }
+    };
+    let raw = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    if raw.is_null() {
+        return Err(refused());
+    }
+    let handle = unsafe { OwnedHandle::from_raw_handle(raw) };
+    match unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } {
+        WAIT_TIMEOUT => Ok(()),
+        WAIT_FAILED => Err(refused()),
+        _ => Err(3),
+    }
+}
+
+/// Zero-signal probe result (normalized on Windows). `Ok` means alive; `Err(1)` is EPERM
 /// and still means the process is alive. Any other errno means it is not.
 pub fn process_alive_from_kill(result: Result<(), i32>) -> bool {
     match result {
@@ -1010,5 +1044,96 @@ mod tests {
         write_pid_file_sync(bad.to_str().unwrap());
         remove_own_pid_file_sync(bad.to_str().unwrap());
         assert!(!bad.exists());
+    }
+    #[test]
+    fn liveness_probe_native_fixture() {
+        if let Ok(code) = std::env::var("PILOT_LIVENESS_EXIT_CODE") {
+            std::process::exit(code.parse().unwrap());
+        }
+        #[cfg(unix)]
+        if let Ok(pid) = std::env::var("PILOT_LIVENESS_DENIED_PID") {
+            let pid = pid.parse::<u32>().unwrap();
+            assert_eq!(process_zero_probe(pid), Err(libc::EPERM));
+            assert!(is_process_alive(pid));
+            println!("native EPERM preserved");
+            return;
+        }
+        let Some(root) = std::env::var_os("PILOT_LIVENESS_FIXTURE_ROOT") else {
+            return;
+        };
+        std::fs::write(
+            Path::new(&root).join("ready"),
+            std::process::id().to_string(),
+        )
+        .unwrap();
+        loop {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn production_liveness_probe_distinguishes_running_and_reaped_children_and_invalid_pids() {
+        struct OwnedChild(std::process::Child);
+        impl Drop for OwnedChild {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let root = tempfile::tempdir().unwrap();
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "utils::pid_utils::tests::liveness_probe_native_fixture",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("PILOT_LIVENESS_FIXTURE_ROOT", root.path())
+            .env("HOME", root.path())
+            .env("USERPROFILE", root.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        for key in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+        }
+        let mut child = OwnedChild(command.spawn().unwrap());
+        let start = Instant::now();
+        while !root.path().join("ready").is_file() {
+            assert!(
+                child.0.try_wait().unwrap().is_none(),
+                "native liveness fixture exited before readiness"
+            );
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "native liveness fixture did not become ready"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let pid = child.0.id();
+        assert!(is_process_alive(pid));
+        child.0.kill().unwrap();
+        child.0.wait().unwrap();
+        // Windows still owns the exited process handle here: waiting must
+        // identify termination rather than merely finding its process object.
+        assert!(!is_process_alive(pid));
+        assert!(is_process_alive(std::process::id()));
+        assert!(!is_process_alive(0));
+        assert!(!is_process_alive(u32::MAX));
+        #[cfg(windows)]
+        {
+            command.env("PILOT_LIVENESS_EXIT_CODE", "259");
+            let mut exited = OwnedChild(command.spawn().unwrap());
+            assert_eq!(exited.0.wait().unwrap().code(), Some(259));
+            assert!(!is_process_alive(exited.0.id()));
+        }
     }
 }

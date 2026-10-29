@@ -135,6 +135,25 @@ impl Fixture {
     fn config(&self) -> Value {
         serde_json::from_slice(&fs::read(self.data.join("config.json")).unwrap()).unwrap()
     }
+    fn assert_only_config_and_released_empty_lock(&self) {
+        let mut names: Vec<_> = fs::read_dir(&self.data)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["config.json", "config.json.lock"]);
+        let path = self.data.join("config.json.lock");
+        assert!(fs::read(&path).unwrap().is_empty());
+        // The persistent inode is intentional. Removing it on release would
+        // allow separate writers to hold locks on different filesystem objects.
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        fs2::FileExt::try_lock_exclusive(&lock)
+            .expect("installer helper left the config lock held");
+    }
 }
 
 fn bounded(command: Command) -> Output {
@@ -305,6 +324,7 @@ fn official_helper_handles_bom_stdin_environment_secrets_and_invalid_config() {
         success(&result);
         assert!(result.stdout.is_empty());
         assert!(result.stderr.is_empty());
+        fixture.assert_only_config_and_released_empty_lock();
         assert_eq!(fixture.config()["userId"], "研发 O'Brien 🚀");
         assert_eq!(
             fixture.config()["cms"]["licenseKey"],
@@ -1602,7 +1622,7 @@ foreach ($previous in @($null, 'previous 研发 🚀')) {
                 assert!(!String::from_utf8_lossy(stream).contains("bridge-payload-secret"));
             }
             assert_eq!(fs::read_dir(&temp).unwrap().count(), 0);
-            assert_eq!(fs::read_dir(&fixture.data).unwrap().count(), 1);
+            fixture.assert_only_config_and_released_empty_lock();
             assert!(!fixture.data.join("logs").exists());
             assert!(!fixture.root.path().join("cache").exists());
             assert_eq!(fixture.config()["userId"], value);
