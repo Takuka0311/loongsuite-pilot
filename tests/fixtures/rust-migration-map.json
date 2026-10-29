@@ -5661,6 +5661,487 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/multimodal/agent-gate.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/multimodal/agent_gate.rs",
+          "test": "lists_only_agents_with_extraction_implemented"
+        },
+        {
+          "file": "src/multimodal/agent_gate.rs",
+          "test": "requires_supported_agent_and_non_none_mode"
+        },
+        {
+          "file": "src/multimodal/agent_gate.rs",
+          "test": "any_agent_scans_the_map"
+        }
+      ],
+      "note": "逐项核对固定基线的准入、缓存或重试断言；无符号类型排除的输入及语言专属监听器机制在每条行为/去向中说明，不伪造运行时覆盖。",
+      "source_hash": "35b88cce99eec7f7faf49d144910fa91ba5c6336e3b4f27faae0ca5465696168",
+      "cases": [
+        {
+          "source": {
+            "id": "L10:C3",
+            "title": "lists only agents with multimodal extraction implemented",
+            "suites": [
+              "agent multimodal gate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "能力名单包含 Codex/Qoder，未实现提取的 Cursor 被拒绝。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/agent_gate.rs",
+                "test": "lists_only_agents_with_extraction_implemented"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L19:C3",
+            "title": "requires a supported agent id and non-none uploadMode",
+            "suites": [
+              "agent multimodal gate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "必须具备 Agent 能力且 uploadMode 非 none；captureMessageContent=false 不关闭独立多模态开关，缺配置默认禁用。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/agent_gate.rs",
+                "test": "requires_supported_agent_and_non_none_mode"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": "anyAgentMultimodalEnabled scans agents map with id capability check",
+            "suites": [
+              "agent multimodal gate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "按 Agent ID 能力和 uploadMode 扫描 map；仅 Cursor、空 map、Codex none 均不启用。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/agent_gate.rs",
+                "test": "any_agent_scans_the_map"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/multimodal/lru-set.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/multimodal/uploader/lru_set.rs",
+          "test": "evicts_the_least_recently_used_entry"
+        },
+        {
+          "file": "src/multimodal/uploader/lru_set.rs",
+          "test": "works_as_a_membership_set"
+        },
+        {
+          "file": "src/multimodal/uploader/lru_set.rs",
+          "test": "rejects_non_positive_capacity"
+        },
+        {
+          "file": "src/multimodal/uploader/lru_set.rs",
+          "test": "overwrites_the_same_key_without_growing"
+        },
+        {
+          "file": "src/multimodal/uploader/lru_set.rs",
+          "test": "clear_removes_all_entries"
+        }
+      ],
+      "note": "逐项核对固定基线的准入、缓存或重试断言；无符号类型排除的输入及语言专属监听器机制在每条行为/去向中说明，不伪造运行时覆盖。",
+      "source_hash": "c9c5728460b9ca23da1b108e6efcac5a805b9848b4eb06628e7e8fa4739fc05c",
+      "cases": [
+        {
+          "source": {
+            "id": "L5:C3",
+            "title": "evicts the least recently used entry",
+            "suites": [
+              "LruMap"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "读取刷新使用顺序，超过容量删除最久未用项，其他值和大小保持正确。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/lru_set.rs",
+                "test": "evicts_the_least_recently_used_entry"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L17:C3",
+            "title": "works as a membership set with true values",
+            "suites": [
+              "LruMap"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "布尔成员集合的 has 同样刷新顺序并正确淘汰。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/lru_set.rs",
+                "test": "works_as_a_membership_set"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L28:C3",
+            "title": "rejects non-positive capacity",
+            "suites": [
+              "LruMap"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "运行时零容量返回原错误约束；Rust 入口使用 usize，负容量在类型边界不可表示，不使用强制转换冒充旧负数输入。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/lru_set.rs",
+                "test": "rejects_non_positive_capacity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L33:C3",
+            "title": "overwrites the same key without growing size",
+            "suites": [
+              "LruMap"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "同 key 更新值且不增加大小。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/lru_set.rs",
+                "test": "overwrites_the_same_key_without_growing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L41:C3",
+            "title": "clear removes all entries",
+            "suites": [
+              "LruMap"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "清空全部索引/值，len=0 且旧 key 不存在。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/lru_set.rs",
+                "test": "clear_removes_all_entries"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/multimodal/retry.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/multimodal/uploader/retry.rs",
+          "test": "retry_delay_stays_within_jitter_bounds"
+        },
+        {
+          "file": "src/multimodal/uploader/retry.rs",
+          "test": "returns_success_on_first_ok_attempt"
+        },
+        {
+          "file": "src/multimodal/uploader/retry.rs",
+          "test": "stops_immediately_on_non_retryable_failure"
+        },
+        {
+          "file": "src/multimodal/uploader/retry.rs",
+          "test": "retries_until_max_attempts"
+        },
+        {
+          "file": "src/multimodal/uploader/retry.rs",
+          "test": "returns_value_after_a_later_success"
+        },
+        {
+          "file": "src/multimodal/uploader/retry.rs",
+          "test": "completed_and_cancelled_sleep_release_the_abort_signal"
+        },
+        {
+          "file": "src/multimodal/uploader/retry.rs",
+          "test": "stops_without_another_attempt_after_abort"
+        }
+      ],
+      "note": "逐项核对固定基线的准入、缓存或重试断言；无符号类型排除的输入及语言专属监听器机制在每条行为/去向中说明，不伪造运行时覆盖。",
+      "source_hash": "1c43489edf12dadfe36e59f31675f6e1e619c0f3fdd667531b158ef4798942ba",
+      "cases": [
+        {
+          "source": {
+            "id": "L6:C3",
+            "title": "retryDelayMs stays within jitter bounds",
+            "suites": [
+              "multimodal upload retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "20 次随机退避均小于 base=100；Rust 无符号毫秒类型同时保证非负。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/retry.rs",
+                "test": "retry_delay_stays_within_jitter_bounds"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L15:C3",
+            "title": "returns success on first ok attempt",
+            "suites": [
+              "multimodal upload retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "首次成功保留值且仅调用一次。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/retry.rs",
+                "test": "returns_success_on_first_ok_attempt"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L22:C3",
+            "title": "stops immediately on non-retryable failure",
+            "suites": [
+              "multimodal upload retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "403 不可重试失败立即返回 error/status、无 requestId，仅调用一次。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/retry.rs",
+                "test": "stops_immediately_on_non_retryable_failure"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L34:C3",
+            "title": "retries retryable failures until maxAttempts",
+            "suites": [
+              "multimodal upload retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "503 可重试失败恰好调用三次，返回最后一次 requestId 和错误/status。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/retry.rs",
+                "test": "retries_until_max_attempts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L53:C3",
+            "title": "returns value after a later successful retry",
+            "suites": [
+              "multimodal upload retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "第二次成功即返回原值，不继续尝试。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/retry.rs",
+                "test": "returns_value_after_a_later_success"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L67:C3",
+            "title": "removes the abort listener when sleep finishes normally",
+            "suites": [
+              "multimodal upload retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "完成/取消 sleep 不保留 abort 状态；正常完成后信号可复用，取消能中断 60 秒等待，结束后 Weak 无法升级。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "Rust sleep 使用可取消 Future 与原子标记，没有 Node AbortSignal EventTarget listener；旧监听器数量检查随该机制退役，保留定时等待/取消及状态释放的真实替代验证。",
+            "replacement": [
+              {
+                "file": "src/multimodal/uploader/retry.rs",
+                "test": "completed_and_cancelled_sleep_release_the_abort_signal"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L73:C3",
+            "title": "stops without another attempt after abort",
+            "suites": [
+              "multimodal upload retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "首次调用设为 abort 后不再重试，只返回 aborted，不保留上一次 status/requestId。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/retry.rs",
+                "test": "stops_without_another_attempt_after_abort"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

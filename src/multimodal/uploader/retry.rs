@@ -267,6 +267,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn completed_and_cancelled_sleep_release_the_abort_signal() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let weak = Arc::downgrade(&flag);
+        sleep_ms(5, Some(&flag)).await;
+        assert!(!flag.load(Ordering::SeqCst));
+        assert_eq!(Arc::strong_count(&flag), 1);
+        let abort = tokio::spawn({
+            let flag = flag.clone();
+            async move {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                flag.store(true, Ordering::SeqCst);
+            }
+        });
+        tokio::time::timeout(Duration::from_millis(500), sleep_ms(60_000, Some(&flag)))
+            .await
+            .expect("sleep must stop after abort");
+        abort.await.unwrap();
+        assert_eq!(Arc::strong_count(&flag), 1);
+        drop(flag);
+        assert!(
+            weak.upgrade().is_none(),
+            "sleep must not retain abort state"
+        );
+    }
+
+    #[tokio::test]
     async fn stops_without_another_attempt_after_abort() {
         let flag = Arc::new(AtomicBool::new(false));
         let seen = flag.clone();
@@ -292,7 +318,15 @@ mod tests {
         )
         .await;
         match result {
-            RetryOutcome::Err { error, .. } => assert_eq!(error.as_deref(), Some("aborted")),
+            RetryOutcome::Err {
+                error,
+                status_code,
+                request_id,
+            } => {
+                assert_eq!(error.as_deref(), Some("aborted"));
+                assert_eq!(status_code, None);
+                assert_eq!(request_id, None);
+            }
             RetryOutcome::Ok(_) => panic!("expected abort"),
         }
         assert_eq!(calls, 1);
