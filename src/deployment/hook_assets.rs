@@ -278,6 +278,18 @@ impl HookAssets {
         build: impl FnOnce(&ActivationTransaction) -> Result<BTreeMap<String, String>> + Send,
     ) -> Result<()> {
         private_directory(&self.root)?;
+        #[cfg(unix)]
+        let configs = configs
+            .into_iter()
+            .map(|(key, path)| {
+                let path = if key == "state" {
+                    path
+                } else {
+                    pin_configuration_parent(&path)?
+                };
+                Ok((key, path))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
         let lock = self.root.join(".hook-assets.lock");
         super::with_deployed_state_lock(
             lock.to_str().context("Hook 锁路径编码无效")?,
@@ -379,6 +391,39 @@ pub(super) fn private_directory(path: &Path) -> Result<()> {
         Err(err) => return Err(err.into()),
     }
     Ok(())
+}
+
+/// Agent homes may be directory links (for example ~/.cursor on another
+/// disk). Pin the resolved parent while leaving the file itself unresolved:
+/// snapshot/write still reject a linked config file and all runtime assets
+/// retain their stricter path validation.
+#[cfg(unix)]
+fn pin_configuration_parent(path: &Path) -> Result<PathBuf> {
+    let file = path.file_name().context("Hook 配置缺少文件名")?;
+    let mut parent = path.parent().context("Hook 配置缺少父目录")?;
+    let mut missing = Vec::new();
+    loop {
+        match std::fs::canonicalize(parent) {
+            Ok(mut resolved) => {
+                ensure!(resolved.is_dir(), "Hook 配置父路径不是目录");
+                for name in missing.iter().rev() {
+                    resolved.push(name);
+                }
+                resolved.push(file);
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(
+                    parent
+                        .file_name()
+                        .context("Hook 配置父路径不存在")?
+                        .to_os_string(),
+                );
+                parent = parent.parent().context("Hook 配置缺少已存在的祖先目录")?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 async fn with_config_locks<T, Fut>(

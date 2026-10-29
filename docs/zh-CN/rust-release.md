@@ -8,6 +8,8 @@
 
 ## 2026-10-29 开发收口进展（尚未发布）
 
+- 远端 e111237 本地候选实际升级在 Cursor/Qoder Hook 部署阶段失败并回滚，旧采集进程恢复。新增回归重现其配置 home 指向 SSD 缓存目录的符号链接被事务锁拒绝；现只在 Unix 配置事务中固定父目录的真实路径，保留配置文件本身及运行资源路径的链接拒绝规则。Cursor/Qoder/Codex/Kiro 的目录链接安装、重复安装、状态及卸载保留用户内容通过；最终配置文件链接拒绝用例和原有外部缓存/配置链接保护通过。HookStrategy 19 项、旧配置清理 4 项、严格 clippy 通过；正在重新打包验证真实升级。系统 L1/L2 与告警网络 sender 仍为空实现，不把本地指标更新当作 SLS 心跳送达。
+
 - 上游 2b516fb（Qoder CN 经 sh 启动）与 51886a2（Qoder Desktop/CN 账号元数据）已移植至原生路径：入口与生成器一起引导 Bash/退出 POSIX 模式；账号快照只限明确 app 调用，16 KiB 有界读取，验证来源/登录/时间并逐 Stop 刷新，不混入独立 CLI 账号，重试沿用已观测身份。Qoder 20 项、原生 Hook 入口 4 项和生成器 2 项通过；非 Linux 发布回归加入同一账号与真实脚本组。main 的其他新增能力仍待对齐。
 
 - [PR #510](https://github.com/alibaba/loongsuite-pilot/pull/510) 的目标已改为 `dev/v2.0.0`；按 [#511 的主版本建议](https://github.com/alibaba/loongsuite-pilot/issues/511#issuecomment-6462162155)，产品版本从 1.2.0 调整到 2.0.0。Rust 编译器继续固定 1.99.1，1.x 仍由 main 维护。已获取相同提交 `04d0de4` 的最新 main 与 dev/v2.0.0；相对原迁移基线新增 11 个提交、203 个文件变化，正在按功能移植，尚不能宣称 main 行为已全部对齐。原工作区五处改动已经补丁、stash 与独立安全引用备份，并逐字节恢复。2.0.0 元数据下 fmt、严格 clippy、默认/all-features 各 1,436 项 Rust 测试通过，两个原有 doc-test ignored；Cargo.lock 仅修改自身包版本。上游能力对齐仍在进行，不创建 tag、正式 Release 或更新渠道。

@@ -1959,6 +1959,52 @@ mod tests {
         (strategy, def)
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn hook_transactions_support_agent_home_directory_symlinks_and_preserve_user_files() {
+        for id in ["cursor", "qoder", "codex", "kiro-cli"] {
+            let root = tempfile::tempdir().unwrap();
+            let (strategy, def) = seed_transaction_fixture(root.path(), id);
+            let original_home = root.path().join("agent");
+            let physical_home = root.path().join("SSD agent home");
+            std::fs::rename(&original_home, &physical_home).unwrap();
+            std::os::unix::fs::symlink(&physical_home, &original_home).unwrap();
+            let settings = strategy.config_targets(&def).unwrap()["config"].clone();
+            let original = std::fs::read(&settings).unwrap();
+            let result = strategy.deploy(&def).await;
+            assert!(result.success, "{id}: {:?}", result.error);
+            assert_eq!(std::fs::read_link(&original_home).unwrap(), physical_home);
+            assert!(!strategy.needs_deploy(&def, None).await, "{id}");
+            let installed = std::fs::read(&settings).unwrap();
+            assert!(String::from_utf8_lossy(&installed).contains("用户注释"));
+            assert!(String::from_utf8_lossy(&installed).contains("dark"));
+            assert!(strategy.deploy(&def).await.success);
+            assert_eq!(std::fs::read(&settings).unwrap(), installed);
+            assert!(strategy.undeploy_hooks(&def).await);
+            assert_eq!(std::fs::read_link(&original_home).unwrap(), physical_home);
+            let after = std::fs::read_to_string(&settings).unwrap();
+            assert!(after.contains("用户注释") && after.contains("dark"));
+            assert!(!original.is_empty());
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn hook_transactions_still_reject_linked_config_files_without_changing_their_targets() {
+        let root = tempfile::tempdir().unwrap();
+        let (strategy, def) = seed_transaction_fixture(root.path(), "cursor");
+        let settings = strategy.config_targets(&def).unwrap()["config"].clone();
+        let original = std::fs::read(&settings).unwrap();
+        let target = root.path().join("unrelated-settings.json");
+        std::fs::rename(&settings, &target).unwrap();
+        std::os::unix::fs::symlink(&target, &settings).unwrap();
+        let result = strategy.deploy(&def).await;
+        assert!(!result.success);
+        assert_eq!(std::fs::read(&target).unwrap(), original);
+        assert_eq!(std::fs::read_link(&settings).unwrap(), target);
+        assert!(!strategy.recovery_pending(&def));
+    }
+
     #[tokio::test]
     async fn hook_transaction_rolls_back_resources_config_and_backup_on_companion_failure() {
         for id in ["codex", "kiro-cli"] {
