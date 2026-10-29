@@ -173,6 +173,74 @@ fn windows_compatible_hook_commands(
     out
 }
 
+// Normalize only a known PowerShell script path. Shell flags, quotes and all
+// arguments remain exact; normalizing the entire command could change an
+// argument containing a literal backslash.
+fn windows_hook_comparison_key(command: &str) -> Option<String> {
+    let (prefix, body) = match command.split_once(" -File ") {
+        Some((prefix, body)) => (format!("{prefix} -File "), body),
+        None => (String::new(), command),
+    };
+    let (path, suffix, quoted) = if let Some(body) = body.strip_prefix('"') {
+        let end = body.find('"')?;
+        (&body[..end], &body[end + 1..], true)
+    } else {
+        let lower = body.to_ascii_lowercase();
+        let (end, _) = lower.match_indices(".ps1").find(|(index, _)| {
+            body.as_bytes()
+                .get(index + 4)
+                .is_none_or(u8::is_ascii_whitespace)
+        })?;
+        (&body[..end + 4], &body[end + 4..], false)
+    };
+    if !path.to_ascii_lowercase().ends_with(".ps1") || path.contains(['"', '\r', '\n']) {
+        return None;
+    }
+    let quote = if quoted { "\"" } else { "" };
+    Some(format!(
+        "{prefix}{quote}{}{quote}{suffix}",
+        path.replace('\\', "/")
+    ))
+}
+
+fn windows_hook_spelling_aliases(definition: &HookDefinition, data: &Value) -> HookDefinition {
+    let mut definition = definition.clone();
+    let known: HashSet<_> = std::iter::once(&definition.hook_command)
+        .chain(definition.replace_hook_commands.iter().flatten())
+        .filter_map(|command| windows_hook_comparison_key(command))
+        .collect();
+    let entries = definition
+        .hook_json_path
+        .iter()
+        .try_fold(data, |value, key| value.get(key))
+        .and_then(Value::as_array);
+    let mut aliases = definition.replace_hook_commands.take().unwrap_or_default();
+    if let Some(entries) = entries {
+        for entry in entries {
+            // Same direct/nested command shapes as HookManager; no recursive
+            // removal from unknown host structures.
+            for handler in std::iter::once(entry).chain(
+                entry
+                    .get("hooks")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten(),
+            ) {
+                let Some(command) = handler.get("command").and_then(Value::as_str) else {
+                    continue;
+                };
+                if windows_hook_comparison_key(command).is_some_and(|key| known.contains(&key))
+                    && !aliases.iter().any(|alias| alias == command)
+                {
+                    aliases.push(command.into());
+                }
+            }
+        }
+    }
+    definition.replace_hook_commands = Some(aliases);
+    definition
+}
+
 struct SettingsDocument {
     data: Value,
     raw: String,
@@ -209,6 +277,13 @@ impl SettingsDocument {
     }
 
     fn apply_hook(&mut self, definition: &HookDefinition, remove: bool) -> Result<(), String> {
+        let compatible;
+        let definition = if cfg!(windows) {
+            compatible = windows_hook_spelling_aliases(definition, &self.data);
+            &compatible
+        } else {
+            definition
+        };
         self.raw = HookManager::edit_hook(&self.raw, definition, remove)?;
         self.data = parse_json_document(&self.raw, self.syntax).map_err(|err| err.message)?;
         Ok(())
@@ -1343,6 +1418,53 @@ mod tests {
         assert!(!commands
             .iter()
             .any(|command| command.contains("other-install")));
+    }
+
+    #[test]
+    fn windows_cleanup_matches_mixed_script_separators_without_normalizing_arguments() {
+        let command = r#"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:/Users/研发 🚀/data/hooks/cursor.ps1" --value "\keep""#;
+        let mixed = r#"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\Users\研发 🚀\data\hooks/cursor.ps1" --value "\keep""#;
+        let wrong_arg = mixed.replace(r"\keep", "/keep");
+        let unknown_arg = format!("{mixed} --unknown");
+        let foreign = mixed.replace("data", "other-install");
+        let raw = serde_json::json!({"hooks":{"stop":[
+            {"command":mixed},
+            {"hooks":[{"type":"command","command":mixed}]},
+            {"command":wrong_arg},{"command":unknown_arg},{"command":foreign}
+        ]}})
+        .to_string();
+        let definition = HookDefinition {
+            agent_id: "cursor".into(),
+            settings_path: "unused".into(),
+            settings_syntax: None,
+            hook_json_path: vec!["hooks".into(), "stop".into()],
+            hook_command: command.into(),
+            matcher: None,
+            history_dir: None,
+            replace_hook_commands: None,
+            use_nested_format: None,
+            shell: None,
+            timeout: None,
+            insert: None,
+        };
+        let data: Value = serde_json::from_str(&raw).unwrap();
+        let compatible = windows_hook_spelling_aliases(&definition, &data);
+        let next = HookManager::edit_hook(&raw, &compatible, true).unwrap();
+        let data: Value = serde_json::from_str(&next).unwrap();
+        assert_eq!(
+            data["hooks"]["stop"],
+            serde_json::json!([
+                {"command":wrong_arg},{"command":unknown_arg},{"command":foreign}
+            ])
+        );
+        assert_eq!(
+            windows_hook_comparison_key(mixed),
+            windows_hook_comparison_key(command)
+        );
+        assert_ne!(
+            windows_hook_comparison_key(mixed),
+            windows_hook_comparison_key(&wrong_arg)
+        );
     }
 
     use crate::types::{

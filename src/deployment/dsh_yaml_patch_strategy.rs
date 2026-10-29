@@ -791,40 +791,43 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_stale_lock_cleanup_serializes_and_removes_both_lock_files() {
-        let (root, def, plugin, patch) = cleanup_fixture();
-        std::fs::create_dir_all(patch.parent().unwrap()).unwrap();
-        let block = historical_cleanup_block(false);
-        let before = "# user-before\n";
-        let after = "# user-after\n";
-        std::fs::write(&patch, format!("{before}{block}{after}")).unwrap();
-        let lock = format!("{}{}", patch.display(), LOCK_SUFFIX);
-        std::fs::write(&lock, "abandoned").unwrap();
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&lock)
-            .unwrap()
-            .set_times(
-                std::fs::FileTimes::new().set_modified(SystemTime::now() - Duration::from_secs(60)),
-            )
-            .unwrap();
-        let strategy =
-            DshYamlPatchStrategy::new(root.path().join("data").to_string_lossy().into_owned());
-        let (a, b) = tokio::join!(
-            strategy.undeploy_recorded(&def, None),
-            strategy.undeploy_recorded(&def, None)
-        );
-        assert!(
-            a && b,
-            "cleanup results a={a} b={b}, lock={} reclaim={}",
-            Path::new(&lock).exists(),
-            Path::new(&format!("{lock}{LOCK_GATE_SUFFIX}")).exists()
-        );
-        assert_eq!(
-            std::fs::read_to_string(&patch).unwrap(),
-            format!("{before}{after}")
-        );
-        assert!(!Path::new(&lock).exists());
-        assert!(!Path::new(&format!("{lock}{LOCK_GATE_SUFFIX}")).exists());
-        assert!(!plugin.parent().unwrap().join(DSH_ENABLED_MARKER).exists());
+        for _round in 0..8 {
+            let (root, def, plugin, patch) = cleanup_fixture();
+            std::fs::create_dir_all(patch.parent().unwrap()).unwrap();
+            let block = historical_cleanup_block(false);
+            let before = "# user-before\n";
+            let after = "# user-after\n";
+            std::fs::write(&patch, format!("{before}{block}{after}")).unwrap();
+            let lock = format!("{}{}", patch.display(), LOCK_SUFFIX);
+            std::fs::write(&lock, "abandoned").unwrap();
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&lock)
+                .unwrap()
+                .set_times(
+                    std::fs::FileTimes::new()
+                        .set_modified(SystemTime::now() - Duration::from_secs(60)),
+                )
+                .unwrap();
+            let strategy =
+                DshYamlPatchStrategy::new(root.path().join("data").to_string_lossy().into_owned());
+            let (a, b) = tokio::join!(
+                strategy.undeploy_recorded(&def, None),
+                strategy.undeploy_recorded(&def, None)
+            );
+            assert!(
+                a && b,
+                "cleanup results a={a} b={b}, lock={} reclaim={}",
+                Path::new(&lock).exists(),
+                Path::new(&format!("{lock}{LOCK_GATE_SUFFIX}")).exists()
+            );
+            assert_eq!(
+                std::fs::read_to_string(&patch).unwrap(),
+                format!("{before}{after}")
+            );
+            assert!(!Path::new(&lock).exists());
+            assert!(!Path::new(&format!("{lock}{LOCK_GATE_SUFFIX}")).exists());
+            assert!(!plugin.parent().unwrap().join(DSH_ENABLED_MARKER).exists());
+        }
     }
 }

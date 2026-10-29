@@ -103,6 +103,7 @@ jobs:
           cargo test --locked -p loongsuite-pilot --lib cli::dashboard_shortcut::tests
           cargo test --locked -p loongsuite-pilot --lib utils::process_discovery::tests
           cargo test --locked -p loongsuite-pilot --lib interceptor::cli::qoder_surface::tests
+          cargo test --locked -p loongsuite-pilot --test interceptor_native
           cargo test --locked -p loongsuite-pilot --lib utils::single_instance_lock::tests
           pilot_platform_failures=0
           cargo test --locked -p loongsuite-pilot --lib deployment::dsh_yaml_patch_strategy::tests || pilot_platform_failures=1
@@ -111,8 +112,7 @@ jobs:
           cargo test --locked -p loongsuite-pilot --test cli_native native_span_attributes_preserve_types_strings_and_never_launch_a_runtime -- --exact
           if [[ "$TARGET" == *windows* ]]; then
             cargo test --locked -p loongsuite-pilot --test cli_native dashboard_shortcut_rejects_other_platforms_without_loading_config_or_runtimes -- --exact
-            cargo test --locked -p loongsuite-pilot --test installer_native windows_installer_config_bridge_preserves_unicode_and_environment_in_both_shells -- --exact || pilot_platform_failures=1
-            cargo test --locked -p loongsuite-pilot --test installer_native native_uninstall || pilot_platform_failures=1
+            cargo test --locked -p loongsuite-pilot --test installer_native || pilot_platform_failures=1
             cargo test --locked -p loongsuite-pilot --lib deployment::legacy_uninstall::tests || pilot_platform_failures=1
           fi
           test "$pilot_platform_failures" -eq 0
