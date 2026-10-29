@@ -5403,6 +5403,222 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/daemon-server.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/daemon/server.rs",
+          "test": "serves_health_and_writes_access_logs"
+        },
+        {
+          "file": "src/interceptor/daemon/server.rs",
+          "test": "serves_qwenwork_http_hooks"
+        },
+        {
+          "file": "src/interceptor/daemon/server.rs",
+          "test": "does_not_store_a_verdict_when_a_rule_throws"
+        },
+        {
+          "file": "src/interceptor/daemon/server.rs",
+          "test": "emits_an_llm_request_only_for_a_denied_qoder_user_prompt"
+        },
+        {
+          "file": "src/interceptor/daemon/server.rs",
+          "test": "sink_error_still_blocks_the_host_and_qwen_does_not_emit"
+        },
+        {
+          "file": "src/interceptor/daemon/server.rs",
+          "test": "fail_opens_an_oversized_evaluate_body"
+        }
+      ],
+      "note": "逐项核对 7 处历史 HTTP 合同，用 6 个真实 loopback 服务测试承接；补齐原 Rust 移植中缺失的日志、verdict key、synthetic 字段、fail-open 回调及完整 JSON/status 断言。",
+      "source_hash": "f7995ca2b6ba3f38b0c10935df26295d080c39990ca970415926dc5e131a26e6",
+      "cases": [
+        {
+          "source": {
+            "id": "L24:C3",
+            "title": "serves health and writes access logs for allow and block",
+            "suites": [
+              "interceptor daemon HTTP API"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际 HTTP health/evaluate 请求验证 service/version/端口、allow/block reason/ruleId、完整访问日志字段与精确 session/toolUseId/phase verdict 记录。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/server.rs",
+                "test": "serves_health_and_writes_access_logs"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L151:C3",
+            "title": "serves QwenWork HTTP hooks as 200 control JSON and fail-opens with {}",
+            "suites": [
+              "interceptor daemon HTTP API"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "办公 HTTP prompt/工具阻断返回完整控制 JSON；坏 JSON/allow/不支持事件均保持 HTTP 200 空对象，保留错误日志和完整工具 verdict key。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/server.rs",
+                "test": "serves_qwenwork_http_hooks"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L257:C3",
+            "title": "does not store a verdict when a rule throws and still fail-opens the host",
+            "suites": [
+              "interceptor daemon HTTP API"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实请求中的规则错误 fail-open 且不写工具判定。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/server.rs",
+                "test": "does_not_store_a_verdict_when_a_rule_throws"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L301:C3",
+            "title": "emits an llm.request only for a denied Qoder user prompt",
+            "suites": [
+              "interceptor daemon HTTP API"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Desktop/CLI prompt 两种阻断才产生 llm.request，检查 agent/session/workspace/source/guardrail 字段；allow/tool/OpenClaw 不产生事件，并断言全部响应动作。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/server.rs",
+                "test": "emits_an_llm_request_only_for_a_denied_qoder_user_prompt"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L391:C3",
+            "title": "does not emit when evaluation fail-opens, and a sink error still blocks the host",
+            "suites": [
+              "interceptor daemon HTTP API"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "规则错误时真实 HTTP allow/failOpen 且回调零次；sink panic 后仍 HTTP 200 block、保留 ruleId。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/server.rs",
+                "test": "sink_error_still_blocks_the_host_and_qwen_does_not_emit"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L460:C3",
+            "title": "does not emit a blocked QwenWork user prompt",
+            "suites": [
+              "interceptor daemon HTTP API"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "办公 prompt 阻断保持 HTTP 200 decision=block，synthetic 请求回调零次。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/server.rs",
+                "test": "sink_error_still_blocks_the_host_and_qwen_does_not_emit"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L493:C3",
+            "title": "fail-opens an oversized evaluate body and keeps qwen on HTTP 200",
+            "suites": [
+              "interceptor daemon HTTP API"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际发送超 5MiB body，普通 evaluate 返回 allow/failOpen，办公端点返回 HTTP 200 且 body 精确空对象。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/server.rs",
+                "test": "fail_opens_an_oversized_evaluate_body"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

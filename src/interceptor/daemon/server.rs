@@ -779,6 +779,37 @@ mod tests {
             "raw": {"openclaw_hook": "before_tool_call"}
         })).await;
         assert_eq!(openclaw["action"], "block");
+        assert_eq!(openclaw["reason"], "blocked by demo");
+        assert_eq!(openclaw["ruleId"], "demo");
+        {
+            let logs = access.lock().unwrap();
+            assert_eq!(logs.len(), 3);
+            assert_eq!(logs[0]["event"], "PostToolUse");
+            assert_eq!(logs[0]["input"]["prompt"], "hello");
+            assert_eq!(logs[0]["input"]["toolName"], "Bash");
+            assert_eq!(
+                logs[0]["input"]["toolResponse"],
+                serde_json::json!({"stdout":"ok"})
+            );
+            assert_eq!(logs[0]["result"]["action"], "allow");
+            assert_eq!(logs[1]["event"], "UserPromptSubmit");
+            assert_eq!(logs[1]["input"]["prompt"], "secret");
+            assert_eq!(logs[1]["result"]["action"], "block");
+            assert_eq!(logs[1]["result"]["reason"], "blocked by demo");
+            assert_eq!(logs[1]["result"]["ruleId"], "demo");
+            assert_eq!(logs[2]["event"], "PreToolUse");
+            assert_eq!(logs[2]["agent"], "openclaw");
+            assert_eq!(logs[2]["result"]["action"], "block");
+            assert_eq!(logs[2]["result"]["reason"], "blocked by demo");
+            assert_eq!(logs[2]["result"]["ruleId"], "demo");
+        }
+        assert_eq!(
+            *verdicts.lock().unwrap(),
+            vec![
+                serde_json::json!({"sessionId":"qoder-session","toolUseId":"qoder-post-1","phase":"PostToolUse","result":"allow"}),
+                serde_json::json!({"sessionId":"open-session","toolUseId":"open-pre-1","phase":"PreToolUse","result":"block"})
+            ]
+        );
         assert_eq!(access.lock().unwrap().len(), 3);
         assert_eq!(verdicts.lock().unwrap().len(), 2);
         assert_eq!(verdicts.lock().unwrap()[0]["result"], "allow");
@@ -803,7 +834,19 @@ mod tests {
             "tool_input": {"command": "id"}, "tool_use_id": "qwen-pre-1", "session_id": "qwen-session"
         })).await;
         assert_eq!(status, 200);
-        assert_eq!(pre["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert_eq!(
+            blocked,
+            serde_json::json!({
+                "decision":"block","reason":wrap_host_reason(HookEventName::UserPromptSubmit,Some("[APIKEY_MASKED]"))
+            })
+        );
+        assert_eq!(
+            pre,
+            serde_json::json!({"hookSpecificOutput":{
+                "hookEventName":"PreToolUse","permissionDecision":"deny",
+                "permissionDecisionReason":wrap_host_reason(HookEventName::PreToolUse,Some("[APIKEY_MASKED]"))
+            }})
+        );
         let client = reqwest::Client::new();
         let malformed = client
             .post(format!("http://127.0.0.1:{port}/v1/hooks/qwenwork"))
@@ -814,19 +857,21 @@ mod tests {
             .unwrap();
         assert_eq!(malformed.status(), 200);
         assert_eq!(malformed.text().await.unwrap().trim(), "{}");
-        let (_, allowed) = post(
+        let (allowed_status, allowed) = post(
             port,
             "/v1/hooks/qwenwork",
             serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": "hello"}),
         )
         .await;
+        assert_eq!(allowed_status, 200);
         assert_eq!(allowed, serde_json::json!({}));
-        let (_, skipped) = post(
+        let (skipped_status, skipped) = post(
             port,
             "/v1/hooks/qwenwork",
             serde_json::json!({"hook_event_name": "Stop"}),
         )
         .await;
+        assert_eq!(skipped_status, 200);
         assert_eq!(skipped, serde_json::json!({}));
         let logged = access.lock().unwrap().clone();
         assert_eq!(
@@ -837,7 +882,9 @@ mod tests {
             .lock()
             .unwrap()
             .iter()
-            .any(|item| item["toolUseId"] == "qwen-pre-1" && item["result"] == "block"));
+            .any(|item| item==&serde_json::json!({
+                "sessionId":"qwen-session","toolUseId":"qwen-pre-1","phase":"PreToolUse","result":"block"
+            })));
         server.close().await;
     }
 
@@ -870,18 +917,25 @@ mod tests {
             })),
         });
         let port = server.listen(0).await.unwrap();
-        let _ = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "qoder", "event": "UserPromptSubmit", "prompt": "secret", "sessionId": "s-desktop", "cwd": "/tmp/desktop", "raw": {}})).await;
-        let _ = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "qodercli", "event": "UserPromptSubmit", "prompt": "secret", "sessionId": "s-cli", "raw": {}})).await;
+        let (_, desktop_verdict) = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "qoder", "event": "UserPromptSubmit", "prompt": "secret", "sessionId": "s-desktop", "cwd": "/tmp/desktop", "raw": {}})).await;
+        let (_, cli_verdict) = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "qodercli", "event": "UserPromptSubmit", "prompt": "secret", "sessionId": "s-cli", "raw": {}})).await;
         let (_, allow) = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "qoder", "event": "UserPromptSubmit", "prompt": "hello", "raw": {}})).await;
         assert_eq!(allow["action"], "allow");
-        let _ = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "qoder", "event": "PreToolUse", "prompt": "secret", "toolName": "Bash", "toolUseId": "tool-1", "raw": {}})).await;
-        let _ = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "openclaw", "event": "UserPromptSubmit", "prompt": "secret", "raw": {}})).await;
+        let (_, tool_verdict) = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "qoder", "event": "PreToolUse", "prompt": "secret", "toolName": "Bash", "toolUseId": "tool-1", "raw": {}})).await;
+        let (_, open_verdict) = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "openclaw", "event": "UserPromptSubmit", "prompt": "secret", "raw": {}})).await;
+        for verdict in [desktop_verdict, cli_verdict, tool_verdict, open_verdict] {
+            assert_eq!(verdict["action"], "block");
+        }
         let rows = emitted.lock().unwrap().clone();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["event.name"], "llm.request");
         assert_eq!(rows[0]["gen_ai.session.id"], "s-desktop");
         assert_eq!(rows[0]["workspace.path"], "/tmp/desktop");
         assert_eq!(rows[0]["agent.source"], "interceptor");
+        assert_eq!(rows[0]["gen_ai.agent.type"], "qoder-cli");
+        assert_eq!(rows[0]["gen_ai.guardrail.action"], "block");
+        assert_eq!(rows[1]["gen_ai.agent.type"], "qoder-cli");
+        assert_eq!(rows[1]["gen_ai.guardrail.triggered"], true);
         assert_eq!(rows[1]["gen_ai.session.id"], "s-cli");
         assert!(rows[1].get("workspace.path").is_none());
         server.close().await;
@@ -889,6 +943,30 @@ mod tests {
 
     #[tokio::test]
     async fn sink_error_still_blocks_the_host_and_qwen_does_not_emit() {
+        let fail_open_emitted = Arc::new(Mutex::new(0));
+        let fail_open = create_interceptor_server(InterceptorServerOptions {
+            version: "1.2.3".into(),
+            engine: engine(Arc::new(Demo { throws: true })),
+            write_access_log: Some(Arc::new(|_| {})),
+            write_tool_verdict: None,
+            emit_blocked_prompt: Some(Arc::new({
+                let emitted = fail_open_emitted.clone();
+                move |_| *emitted.lock().unwrap() += 1
+            })),
+        });
+        let port = fail_open.listen(0).await.unwrap();
+        let (_, verdict) = post(
+            port,
+            "/v1/hooks/evaluate",
+            serde_json::json!({
+                "agent":"qodercli","event":"UserPromptSubmit","prompt":"secret","raw":{}
+            }),
+        )
+        .await;
+        assert_eq!(verdict["action"], "allow");
+        assert_eq!(verdict["failOpen"], true);
+        assert_eq!(*fail_open_emitted.lock().unwrap(), 0);
+        fail_open.close().await;
         let server = create_interceptor_server(InterceptorServerOptions {
             version: "1.2.3".into(),
             engine: engine(Arc::new(AlwaysBlock)),
@@ -900,6 +978,7 @@ mod tests {
         let (status, body) = post(port, "/v1/hooks/evaluate", serde_json::json!({"agent": "qoder", "event": "UserPromptSubmit", "prompt": "secret", "raw": {}})).await;
         assert_eq!(status, 200);
         assert_eq!(body["action"], "block");
+        assert_eq!(body["ruleId"], "demo");
         server.close().await;
 
         let emitted = Arc::new(Mutex::new(0u32));
@@ -950,6 +1029,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(qwen.status(), 200);
+        assert_eq!(qwen.json::<Value>().await.unwrap(), serde_json::json!({}));
         server.close().await;
     }
 }
