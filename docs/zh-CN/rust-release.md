@@ -171,3 +171,5 @@ cargo run -p xtask -- migration-audit --require-complete
 快捷方式的参数、配置、图标摘要、响应输出、有界进程树及超时锁清理由 Rust CLI 承接，JXA 系统桥接内嵌于二进制；Shell 入口只转发原生 dashboard shortcut 子命令。status/uninstall 不读取配置内容或图标，非 macOS 在读取配置前拒绝。修复 collector 将 1.5 端口截为 1 的历史迁移差异，三处入口统一按整数 1–65535 校验，并与真实配置组装器交叉测试。\n
 Linux all-features 全量 1,392 项通过，另有 2 个原有 doc-tests ignored；严格 clippy、Shell 语法和普通映射审计通过。快捷方式命令的 11 处历史声明已逐项登记，审计为 37 个完整文件、23 个部分文件、331 个未映射文件；Rust 348、退役 7、未登记 4,339，另有 2 条部分覆盖。JXA 策略及真实 macOS adapter 测试仍保留原语言，尚未登记，不沿用为本批平台通过证据。新原生专项加入既有发布任务，不增加 runner；macOS/Windows 实跑待记录。\n
 继续扫描卸载的实际调用链发现 Unix 安装器也仍有活跃 Node 清理函数，DSH 分支甚至在未部署 DSH 时先解析 Node。后续卸载迁移应覆盖两端全部清理调用，不能只替换 Windows 的 Python helper。\n
+\n第二轮发布 40806841286 仍在 Windows PowerShell 5.1 执行首条脚本前超时（stage=shell-startup），两架构的原生进程/锁回归均通过。对照已有 CREATE_NO_WINDOW 进程探针可正常启动 PowerShell，而安装夹具未设置该标志；本轮使隔离安装命令明确不创建控制台，避免无人值守的控制台/终端启动路径，保持原 30 秒上界和双 Shell / CLM 断言。实际结果待下一轮验证。\n
+JXA 策略的 13 处声明已登记为 retained，实际 Linux Vitest 参数展开 20 项通过，命令为 npm run test:host:shortcut。带保留报告的审计现为 38 个完整文件、23 个部分文件、330 个未映射文件；Rust 348、原语言保留 13、退役 7、未登记 4,326，另有 2 条部分覆盖。审计需传 --retained-report target/migration-audit/shortcut-host-linux.json，缺少报告时保留项继续标为未收集；不会把原语言保留项计作 Rust 迁移。\n

@@ -2106,6 +2106,390 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "note": "系统 JXA 策略保留原语言，以真实 Vitest 收集的二十个参数展开名称承接十三处历史声明；资源为 Rust 内嵌的原脚本。当前实际执行平台 Linux，macOS 原生 Foundation/AppKit 另列。",
+      "source_hash": "e30454cc921afce024217f5dac8c3bc701e9fd9ef85fa791527c3c1b00a72502",
+      "cases": [
+        {
+          "source": {
+            "id": "L38:C3",
+            "title": "creates a config-bound webloc and adds exactly one Dock entry",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：creates a config-bound webloc and adds exactly one Dock entry",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > creates a config-bound webloc and adds exactly one Dock entry"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L45:C3",
+            "title": "is idempotent, keeps position, and updates changed ports/icons in place",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：is idempotent, keeps position, and updates changed ports/icons in place",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > is idempotent, keeps position, and updates changed ports/icons in place"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L56:C3",
+            "title": "status shows the stored URL and never writes, even for a locked Dock",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：status shows the stored URL and never writes, even for a locked Dock",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > status shows the stored URL and never writes, even for a locked Dock"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L63:C3",
+            "title": "status on an absent shortcut creates no directories",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：status on an absent shortcut creates no directories",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > status on an absent shortcut creates no directories"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L67:C3",
+            "title": "removes only the matching managed file and Dock item; repeat uninstall is a no-op",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：removes only the matching managed file and Dock item; repeat uninstall is a no-op",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > removes only the matching managed file and Dock item; repeat uninstall is a no-op"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L78:C3",
+            "title": "preserves unmanaged/invalid files %j",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": [
+              "it.each([{ kind: 'other' }, { kind: 'directory' }, { kind: 'file', value: null }, { kind: 'file', value: { URL: 'https://example.test/' } }])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：preserves unmanaged/invalid files %j",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > preserves unmanaged/invalid files {\"kind\":\"other\"}",
+              "explicit macOS shortcut policy > preserves unmanaged/invalid files {\"kind\":\"directory\"}",
+              "explicit macOS shortcut policy > preserves unmanaged/invalid files {\"kind\":\"file\",\"value\":null}",
+              "explicit macOS shortcut policy > preserves unmanaged/invalid files {\"kind\":\"file\",\"value\":{\"URL\":\"https://example.test/\"}}"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L84:C3",
+            "title": "preserves another configuration and does not expose its URL in status",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：preserves another configuration and does not expose its URL in status",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > preserves another configuration and does not expose its URL in status"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L90:C3",
+            "title": "reports missing files without deleting unowned orphaned Dock entries",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：reports missing files without deleting unowned orphaned Dock entries",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > reports missing files without deleting unowned orphaned Dock entries"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L96:C3",
+            "title": "refuses duplicate, locked, or concurrently replaced state",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：refuses duplicate, locked, or concurrently replaced state",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > refuses duplicate, locked, or concurrently replaced state"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L107:C3",
+            "title": "validates the icon before replacing a shortcut",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：validates the icon before replacing a shortcut",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > validates the icon before replacing a shortcut"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L113:C3",
+            "title": "reports icon and Dock refresh failures and retries icon application",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：reports icon and Dock refresh failures and retries icon application",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > reports icon and Dock refresh failures and retries icon application"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L120:C3",
+            "title": "rejects unsafe URL %s",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": [
+              "it.each(['https://example.test/', 'http://127.0.0.1:0/', 'http://127.0.0.1:65536/', 'http://localhost:9000/', 'http://127.0.0.1:9000/;bad'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：rejects unsafe URL %s",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > rejects unsafe URL https://example.test/",
+              "explicit macOS shortcut policy > rejects unsafe URL http://127.0.0.1:0/",
+              "explicit macOS shortcut policy > rejects unsafe URL http://127.0.0.1:65536/",
+              "explicit macOS shortcut policy > rejects unsafe URL http://localhost:9000/",
+              "explicit macOS shortcut policy > rejects unsafe URL http://127.0.0.1:9000/;bad"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        },
+        {
+          "source": {
+            "id": "L124:C3",
+            "title": "rejects root, relative config paths and unknown commands",
+            "suites": [
+              "explicit macOS shortcut policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留 JXA 宿主策略原断言及全部参数展开场景：rejects root, relative config paths and unknown commands",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retained",
+            "file": "tests/unit/scripts/dashboard-shortcut.test.mjs",
+            "names": [
+              "explicit macOS shortcut policy > rejects root, relative config paths and unknown commands"
+            ],
+            "resources": [
+              "scripts/manage-dashboard-shortcut.js"
+            ],
+            "npm_script": "test:host:shortcut"
+          }
+        }
+      ]
     }
   ]
 }

@@ -47,3 +47,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-home"
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
           HOME="$RUNNER_TEMP/pilot-home" USERPROFILE="$RUNNER_TEMP/pilot-home" cargo test --workspace --locked --all-features
+      - name: 现有 JXA 宿主策略测试（开发依赖不进入运行包）
+        env:
+          PILOT_MIGRATION_REPORT: target/migration-audit/shortcut-host-linux.json
+        run: |
+          npm ci --ignore-scripts
+          npm run test:host:shortcut -- --reporter=default --reporter=./scripts/testing/migration-reporter.mjs
