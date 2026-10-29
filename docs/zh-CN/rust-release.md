@@ -164,3 +164,5 @@ cargo run -p xtask -- migration-audit --require-complete
 单 PID 命令读取同时改用 sysinfo 原生进程信息，避免身份修复后在命令匹配处再次进入 CIM。Windows 启动身份改为直接读取 `GetProcessTimes` 的创建 FILETIME，不再为身份查询启动 PowerShell/WMI。新 token 使用 `win32-filetime-v1`，旧 `win32-cim-v1` 与新格式之间不直接判为 PID 复用；旧锁持有 PID 仍存活时保持锁，待其正常退出后接任。同格式继续精确比较，权限失败仍保守处理。安装桥接专项补充受控阶段名，超时只报告阶段，不输出输入 JSON、环境或凭据。
 
 本批第一次全 feature 全量回归 1,383 项通过，另有 2 个原有 doc-tests ignored；随后单 PID 原生命令读取补丁通过严格 clippy，pid-utils 12 项及单实例锁 14 项专项通过。当前提交树的 GitHub 全量回归及 Windows 实跑结果随工作流追加。已有工作区的 E2E 修改、四个历史测试删除和 Python 缓存未纳入本批。未创建正式 tag 或 Release。
+
+\n首轮修复提交为 34a7066，日常 CI 40805082691 已通过。发布 dry-run 40805083175 中 Windows 两架构均已越过进程身份、命令匹配、锁、归档和同版本激活回归；两者仍在安装桥接处超时，第一版依赖 Set-Content 的阶段文件未生成。后续将阶段记录改为核心输出命令，超时仅提取受控阶段名，并保留 ComSpec、ProgramFiles 和 PATHEXT 等系统启动环境；PATH、HOME、用户配置与运行时仍隔离，Windows 结果待下一轮实跑。

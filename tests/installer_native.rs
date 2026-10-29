@@ -54,7 +54,17 @@ impl Fixture {
             )
             .env("PATH", self.root.path().join("no-runtimes"))
             .stdin(Stdio::null());
-        for key in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+        for key in [
+            "SystemRoot",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+            "ComSpec",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramW6432",
+            "PATHEXT",
+        ] {
             if let Some(value) = std::env::var_os(key) {
                 cmd.env(key, value);
             }
@@ -139,13 +149,24 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
         if start.elapsed() > timeout {
             child.kill().unwrap();
             child.wait().unwrap();
-            let stage = command
-                .get_envs()
-                .find(|(key, _)| *key == "TEST_STAGE")
-                .and_then(|(_, value)| value)
-                .and_then(|path| fs::read_to_string(path).ok())
-                .unwrap_or_else(|| "not-reported".into());
-            panic!("安装辅助入口超时 (stage={})", stage.trim());
+            stdout.seek(SeekFrom::Start(0)).unwrap();
+            let mut diagnostic = String::new();
+            (&mut stdout)
+                .take(1024 * 1024)
+                .read_to_string(&mut diagnostic)
+                .unwrap();
+            let stage = diagnostic
+                .lines()
+                .filter_map(|line| line.trim().strip_prefix("PILOT_BRIDGE_STAGE:"))
+                .filter(|name| {
+                    name.len() <= 64 && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+                })
+                .next_back()
+                .unwrap_or("shell-startup");
+            panic!(
+                "安装辅助入口超时 (stage={stage}, shell={})",
+                command.get_program().to_string_lossy()
+            );
         }
         std::thread::sleep(Duration::from_millis(10));
     };
@@ -161,6 +182,23 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
         stderr: read(&mut stderr),
     }
 }
+#[cfg(unix)]
+#[test]
+fn timeout_reports_only_a_controlled_bridge_stage() {
+    let failure = std::panic::catch_unwind(|| {
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "printf 'synthetic-private-input\\nPILOT_BRIDGE_STAGE:probe-agents\\n'; exec sleep 60",
+        ]);
+        bounded_for(command, Duration::from_secs(1))
+    })
+    .unwrap_err();
+    let message = failure.downcast_ref::<String>().unwrap();
+    assert!(message.contains("stage=probe-agents"));
+    assert!(!message.contains("synthetic-private-input"));
+}
+
 fn success(output: &Output) {
     assert!(
         output.status.success(),
@@ -1369,7 +1407,7 @@ fn windows_installer_config_bridge_preserves_unicode_and_environment_in_both_she
             )
             .unwrap();
             let source = include_str!("../deploy/installer-opensource.ps1");
-            let mut script = String::from("\u{feff}$ErrorActionPreference = 'Stop'\n");
+            let mut script = String::from("\u{feff}Write-Output 'PILOT_BRIDGE_STAGE:shell-entry'\n$ErrorActionPreference = 'Stop'\n");
             if constrained {
                 script.push_str(
                     "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n",
@@ -1398,27 +1436,27 @@ $DataDir = $env:TEST_DATA
 $script:UserId = $env:TEST_VALUE
 $CmsLicenseKey = $env:TEST_VALUE
 $script:PROBE_RESULT = '[]'
-Set-Content -LiteralPath $env:TEST_STAGE -Value 'check-deps' -Encoding UTF8
+Write-Output 'PILOT_BRIDGE_STAGE:check-deps'
 Check-Deps
-Set-Content -LiteralPath $env:TEST_STAGE -Value 'probe-agents' -Encoding UTF8
+Write-Output 'PILOT_BRIDGE_STAGE:probe-agents'
 Probe-Agents
 if (@($script:PROBE_RESULT | ConvertFrom-Json).Count -lt 1) { throw 'empty native probe result' }
-Set-Content -LiteralPath $env:TEST_STAGE -Value 'check-config' -Encoding UTF8
+Write-Output 'PILOT_BRIDGE_STAGE:check-config'
 Assert-SingleSlsConfig
 $DATA_DIR = $DataDir
 $CACHE_DIR = $env:LOONGSUITE_PILOT_CACHE_DIR
 $CONFIG_FILE = Join-Path $DataDir 'config.json'
 $binary = Join-Path $script:INSTALL_SRC 'bin\loongsuite-pilot.exe'
-Set-Content -LiteralPath $env:TEST_STAGE -Value 'service-version' -Encoding UTF8
+Write-Output 'PILOT_BRIDGE_STAGE:service-version'
 Invoke-Pilot -Binary $binary -Arguments @('--version') | Out-Null
 if ($script:PilotExitCode -ne 0) { throw 'native success exit code lost' }
 Invoke-Pilot -Binary $binary -Arguments @('--invalid-fixture-option') | Out-Null
 if ($script:PilotExitCode -ne 2) { throw 'native failure exit code lost' }
 foreach ($previous in @($null, 'previous 研发 🚀')) {
     $env:LOONGSUITE_PILOT_INSTALL_INPUT = $previous
-    Set-Content -LiteralPath $env:TEST_STAGE -Value 'validate-config' -Encoding UTF8
+    Write-Output 'PILOT_BRIDGE_STAGE:validate-config'
     Invoke-InstallerHelper -Operation 'validate-config' -Json (Get-InstallConfigJson) | Out-Null
-    Set-Content -LiteralPath $env:TEST_STAGE -Value 'write-config' -Encoding UTF8
+    Write-Output 'PILOT_BRIDGE_STAGE:write-config'
     Write-Config
     if ($env:LOONGSUITE_PILOT_INSTALL_INPUT -ne $previous) { throw 'input environment not restored' }
     try {
@@ -1450,7 +1488,6 @@ foreach ($previous in @($null, 'previous 研发 🚀')) {
                 .env("TEST_CANDIDATE", &fixture.candidate)
                 .env("TEST_DATA", &fixture.data)
                 .env("TEST_VALUE", value)
-                .env("TEST_STAGE", fixture.root.path().join("bridge-stage.txt"))
                 .env("TEMP", &temp)
                 .env("TMP", &temp);
             let output = bounded(command);
