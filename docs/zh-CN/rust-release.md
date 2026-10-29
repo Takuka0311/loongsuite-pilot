@@ -8,6 +8,9 @@
 
 ## 2026-10-29 开发收口进展（尚未发布）
 
+- main 20c702f（#516）与 aae031b（#521）的 SLS insight schema、可复用 SQL、枚举标签及 Skill 路由已同步；三份文件逐字节对照 04d0de4 的 Git blob 通过。这批为文档同步，不代表其中新增 Codex/Copilot 能力已完成 Rust 实现。目前原基线之后的 11 个上游提交已承接 7 个；Codex 子工作/输出确认、Copilot、磁盘治理与依赖修订仍在进行，尚未合入 main 的祖先关系。
+
+
 - main 2e98f30（#502）的 Codex Hook 耗时已迁入 Rust：响应刷新后固定单调时钟耗时，空文件锁、1 MiB 活动文件、50 ms 写锁等待、.draining 恢复及每周期 64 个维度与上游协议兼容；耗时超过一天被拒绝，不误称为样本年龄限制。L2 新增 type=hook，沿用 pilot_pipeline、自监控身份和独立本地镜像，日志保留策略覆盖新流。默认 1,473 项、all-features 1,475 项全量通过，另有两个原有 doc-tests ignored；严格 clippy 通过。真实原生 Codex 子进程、collector、本地镜像和私有 HTTP 接收端在隔离测试中连通，公开构建同一配置不联网。Windows/macOS 的现有发布任务加入该实际链路用例；仍不视为真实 Agent 注入或 SLS 查询验收。
 
 
@@ -183,7 +186,7 @@ cargo run -p xtask -- migration-audit --require-complete
 
 第六轮的非 Linux 实跑范围：每个 Windows 架构通过包测试 6 项、Hook 测试 2 项、候选进程测试 6 项及配置路径测试 1 项；每个 macOS 架构通过包测试 6 项、Hook 测试 2 项、候选进程测试 5 项、配置路径测试 1 项及 Swift 测试 28 项。上述项目包含测试 fixture 入口，不等同于同等数量的独立业务场景。每包还执行真实归档解包后的 `--version`、`probe --build-edition`、`check --json`。完整服务/worker 生命周期、真实 Agent、GUI 与系统签名仍未验收。
 
-## 最终八平台候选证明
+## 历史 1.2.0 八平台候选证明
 
 来源为第六轮的 [release-assets](https://github.com/Takuka0311/loongsuite-pilot/actions/runs/40624834661/artifacts/12789945421)，保留期 90 天。已下载并回读 `release-summary.json`、`latest-rust.json`、`SHA256SUMS`，全部 12 个被校验文件均通过 SHA-256 复核。
 
