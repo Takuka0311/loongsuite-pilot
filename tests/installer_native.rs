@@ -346,6 +346,28 @@ fn official_helper_handles_bom_stdin_environment_secrets_and_invalid_config() {
         );
         assert!(!fixture.data.join("logs").exists());
         assert!(!fixture.root.path().join("cache").exists());
+        for ascii_json in [false, true] {
+            let mut command = fixture.command(&fixture.binary);
+            command
+                .args(["installer-helper", "read-user-id", "--config"])
+                .arg(fixture.data.join("config.json"));
+            if ascii_json {
+                command.arg("--ascii-json");
+            }
+            let read = bounded(command);
+            success(&read);
+            let actual = if ascii_json {
+                assert!(read.stdout.is_ascii());
+                serde_json::from_slice::<String>(&read.stdout).unwrap()
+            } else {
+                String::from_utf8(read.stdout)
+                    .unwrap()
+                    .trim_end_matches(['\r', '\n'])
+                    .to_string()
+            };
+            assert_eq!(actual, "研发 O'Brien 🚀");
+        }
+        fixture.assert_only_config_and_released_empty_lock();
         let original = fs::read(fixture.data.join("config.json")).unwrap();
         success(&fixture.helper("write-config", &opts, use_env));
         assert_eq!(
@@ -844,7 +866,14 @@ fn installation_applies_agent_selection_before_real_hook_injection() {
             "hooks/shared/native.sh"
         })
         .is_file());
-    success(&fixture.helper("publish-package", &options, false));
+    let published = fixture.helper("publish-package", &options, false);
+    assert!(
+        published.status.success(),
+        "isolated Hook publication failed: {} | report={}",
+        String::from_utf8_lossy(&published.stderr),
+        fs::read_to_string(fixture.data.join("last-hook-install.json"))
+            .unwrap_or_else(|_| "missing controlled fixture report".into())
+    );
     assert_eq!(fs::read(cursor).unwrap(), first);
     assert_eq!(fs::read(codex).unwrap(), codex_original);
 }
@@ -1229,12 +1258,10 @@ fn windows_package_root_selection_rejects_legacy_and_ambiguous_roots() {
                 let output = bounded(command);
                 if ["direct", "nested"].contains(&scenario) {
                     success(&output);
+                    let actual = fs::read_to_string(&result).unwrap();
                     assert_eq!(
-                        fs::read_to_string(&result)
-                            .unwrap()
-                            .trim_start_matches('\u{feff}')
-                            .trim(),
-                        selected.to_str().unwrap()
+                        fs::canonicalize(actual.trim_start_matches('\u{feff}').trim()).unwrap(),
+                        fs::canonicalize(&selected).unwrap()
                     );
                 } else {
                     assert!(!output.status.success(), "{scenario}");
@@ -1335,7 +1362,7 @@ fn windows_install_preflight_and_cancel_precede_task_and_service_operations() {
                 fixture.package();
                 let data = fixture.root.path().join("Windows 安装主流程 🚀");
                 let original = match scenario {
-                    "cancel" => Some("{}"),
+                    "cancel" => Some("{\"userId\":\"prior-user\"}"),
                     "legacy-enricher" => Some("{\"spanEnricherPaths\":[\"old.mjs\"]}"),
                     _ => None,
                 };
@@ -1497,7 +1524,7 @@ if ($env:LOONGSUITE_PILOT_INSTALL_INPUT -ne 'prior-input') { throw 'input enviro
                 .unwrap()
                 .0;
             let path = fixture.root.path().join(".local/bin/layout-test.ps1");
-            fs::write(&path, format!("\u{feff}$ErrorActionPreference = 'Stop'\n$DEFAULT_PILOT_DIR ={path_logic}\nWrite-Output $CONFIG_FILE\n")).unwrap();
+            fs::write(&path, format!("{}$env:PILOT_TEST_STAGE = 'layout-parse'\n$DEFAULT_PILOT_DIR ={path_logic}\nWrite-Output $CONFIG_FILE\n",windows_prelude(constrained))).unwrap();
             // 用文件写回 UTF-8，避开 Windows 5.1 原生 stdout 编码差异。
             let path_text = fs::read_to_string(&path).unwrap().replace(
                 "Write-Output $CONFIG_FILE",

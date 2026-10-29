@@ -101,7 +101,13 @@ pub(crate) fn command() -> Command {
                 .arg(Arg::new("selection").long("selection").default_value("")),
         )
         .subcommand(
-            Command::new("read-user-id").arg(Arg::new("config").long("config").required(true)),
+            Command::new("read-user-id")
+                .arg(Arg::new("config").long("config").required(true))
+                .arg(
+                    Arg::new("ascii-json")
+                        .long("ascii-json")
+                        .action(ArgAction::SetTrue),
+                ),
         )
         .subcommand(
             Command::new("json-argv").arg(
@@ -234,12 +240,31 @@ pub(crate) async fn run(args: &ArgMatches) -> Result<i32> {
             let path = Path::new(args.get_one::<String>("config").context("缺少配置路径")?);
             ensure!(path.is_absolute(), "配置路径必须为绝对路径");
             let config = read_config(path)?.1;
-            config
+            let user_id = config
                 .get("userId")
                 .or_else(|| config.get("user.id"))
                 .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_owned()
+                .unwrap_or("");
+            if args.get_flag("ascii-json") {
+                // Windows PowerShell 5.1 decodes native stdout using its console
+                // code page. JSON Unicode escapes survive that boundary in CLM
+                // without changing global console encoding or writing secrets.
+                let json = serde_json::to_string(user_id)?;
+                let mut ascii = String::with_capacity(json.len());
+                for ch in json.chars() {
+                    if ch.is_ascii() {
+                        ascii.push(ch);
+                    } else {
+                        use std::fmt::Write;
+                        for unit in ch.encode_utf16(&mut [0; 2]) {
+                            write!(&mut ascii, "\\u{unit:04x}")?;
+                        }
+                    }
+                }
+                ascii
+            } else {
+                user_id.to_owned()
+            }
         }
         "json-argv" => serde_json::to_string(
             &args

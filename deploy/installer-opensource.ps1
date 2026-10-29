@@ -998,7 +998,8 @@ function Select-Agents {
 function Prompt-UserId {
     if ($UserId) { return }
     $configFile = Join-Path $DataDir "config.json"
-    $existingUid = Invoke-InstallerHelper -Operation 'read-user-id' -ExtraArgs @('--config', $configFile)
+    $existingUidJson = Invoke-InstallerHelper -Operation 'read-user-id' -ExtraArgs @('--config', $configFile, '--ascii-json')
+    $existingUid = $existingUidJson | ConvertFrom-Json
 
     # Reinstall preserves the existing identity without prompting. To change it,
     # callers must pass -UserId explicitly; this keeps scripted installs fully

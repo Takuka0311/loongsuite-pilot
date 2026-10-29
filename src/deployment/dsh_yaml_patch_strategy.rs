@@ -167,7 +167,8 @@ impl DshYamlPatchStrategy {
         let Some(target) = self.resolve_target(def, record).await else {
             return false;
         };
-        if remove_enabled_marker(cfg).await.is_err() {
+        if let Err(err) = remove_enabled_marker(cfg).await {
+            eprintln!("DSH cleanup failed before patch lock: stage=enabled-marker error={err}");
             return false;
         }
         let initial = read_bytes(&target.patch_path).await.unwrap_or_default();
@@ -214,7 +215,13 @@ impl DshYamlPatchStrategy {
         }
         .await;
         release_patch_lock(&target.patch_path, &token).await;
-        result.unwrap_or(false)
+        match result {
+            Ok(result) => result,
+            Err(err) => {
+                eprintln!("DSH cleanup failed after patch lock: stage=patch-edit error={err}");
+                false
+            }
+        }
     }
 }
 
@@ -493,10 +500,24 @@ async fn create_enabled_marker(cfg: &DshYamlPatchConfig) -> Result<(), String> {
 }
 
 async fn remove_enabled_marker(cfg: &DshYamlPatchConfig) -> Result<(), String> {
-    match tokio::fs::remove_file(enabled_marker(cfg)).await {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(err.to_string()),
+    let marker = enabled_marker(cfg);
+    let deadline = Instant::now() + LOCK_TIMEOUT;
+    loop {
+        match tokio::fs::remove_file(&marker).await {
+            Ok(()) => return Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            // A concurrent DeleteFile can temporarily expose delete-pending as
+            // access denied. Retrying the idempotent removal must still be
+            // bounded; a genuinely protected marker remains a cleanup failure.
+            Err(err)
+                if cfg!(windows)
+                    && matches!(err.raw_os_error(), Some(5 | 32 | 33))
+                    && Instant::now() < deadline =>
+            {
+                tokio::time::sleep(LOCK_RETRY).await
+            }
+            Err(err) => return Err(err.to_string()),
+        }
     }
 }
 
