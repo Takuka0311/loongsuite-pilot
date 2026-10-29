@@ -375,6 +375,10 @@ mod tests {
         let auth = header_value(&signed.headers, "Authorization").unwrap();
         assert!(auth.starts_with("OSS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260729/cn-shanghai/oss/aliyun_v4_request, Signature="));
         assert_eq!(auth.len(), "OSS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260729/cn-shanghai/oss/aliyun_v4_request, Signature=".len() + 64);
+        let (_, signature) = auth.rsplit_once("Signature=").unwrap();
+        assert!(signature
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
     }
 
     #[test]
@@ -410,26 +414,27 @@ mod tests {
         assert!(parse_oss_storage_base_path("")
             .unwrap_err()
             .contains("invalid oss storageBasePath"));
-        let err = build_v4_put_request(V4PutArgs {
-            endpoint,
-            bucket: "bucket".into(),
-            object_key: "k.png".into(),
-            access_key_id: String::new(),
-            access_key_secret: "sk".into(),
-            security_token: None,
-            content_type: "image/png".into(),
-            meta: BTreeMap::new(),
-            now: chrono::Utc::now(),
-        })
-        .unwrap_err();
-        assert!(err.contains("access key ID and secret are required"));
+        for (id, secret) in [("", "sk"), ("ak", "")] {
+            let err = build_v4_put_request(V4PutArgs {
+                endpoint: endpoint.clone(),
+                bucket: "bucket".into(),
+                object_key: "k.png".into(),
+                access_key_id: id.into(),
+                access_key_secret: secret.into(),
+                security_token: None,
+                content_type: "image/png".into(),
+                meta: BTreeMap::new(),
+                now: chrono::Utc::now(),
+            })
+            .unwrap_err();
+            assert!(err.contains("access key ID and secret are required"));
+        }
     }
 
-    #[tokio::test]
-    async fn invalid_bucket_and_key_do_not_use_the_network() {
-        let bad = oss_put_object(OssPutObjectParams {
+    fn put_params() -> OssPutObjectParams {
+        OssPutObjectParams {
             endpoint: "https://oss-cn-shanghai.aliyuncs.com".into(),
-            bucket: "Bad_Bucket".into(),
+            bucket: "valid-bucket".into(),
             object_key: "20260101/abc.png".into(),
             access_key_id: "ak".into(),
             access_key_secret: "sk".into(),
@@ -439,44 +444,119 @@ mod tests {
             timeout_ms: 1000,
             meta: BTreeMap::new(),
             signal: None,
-        })
-        .await;
-        assert!(!bad.ok);
-        assert_eq!(bad.retryable, Some(false));
-        assert!(bad.error.unwrap().contains("Invalid OSS bucket name"));
+        }
+    }
 
-        let dot = oss_put_object(OssPutObjectParams {
-            endpoint: "https://oss-cn-shanghai.aliyuncs.com".into(),
-            bucket: "valid-bucket".into(),
-            object_key: "a/../b.png".into(),
-            access_key_id: "ak".into(),
-            access_key_secret: "sk".into(),
-            security_token: None,
-            body: b"x".to_vec(),
-            content_type: "image/png".into(),
-            timeout_ms: 1000,
-            meta: BTreeMap::new(),
-            signal: None,
-        })
-        .await;
-        assert!(!dot.ok && dot.retryable == Some(false));
-        assert!(dot.error.unwrap().contains("must not contain dot segments"));
+    #[tokio::test]
+    async fn invalid_bucket_and_key_do_not_use_the_network() {
+        let no_network: http::HttpHandler = std::sync::Arc::new(|_| {
+            panic!("invalid OSS input must fail before HTTP");
+        });
+        http::HTTP_HANDLER
+            .scope(no_network, async {
+                for (bucket, key, message) in [
+                    ("Bad_Bucket", "20260101/abc.png", "Invalid OSS bucket name"),
+                    (
+                        "valid-bucket",
+                        "a/../b.png",
+                        "must not contain dot segments",
+                    ),
+                    ("valid-bucket", "/", "object key is required"),
+                ] {
+                    let mut params = put_params();
+                    params.bucket = bucket.into();
+                    params.object_key = key.into();
+                    let result = oss_put_object(params).await;
+                    assert!(!result.ok);
+                    assert_eq!(result.retryable, Some(false));
+                    assert_eq!(result.status_code, None);
+                    assert_eq!(result.request_id, None);
+                    assert!(result.error.unwrap().contains(message));
+                }
+            })
+            .await;
+    }
 
-        let empty = oss_put_object(OssPutObjectParams {
-            endpoint: "https://oss-cn-shanghai.aliyuncs.com".into(),
-            bucket: "valid-bucket".into(),
-            object_key: "/".into(),
-            access_key_id: "ak".into(),
-            access_key_secret: "sk".into(),
-            security_token: None,
-            body: b"x".to_vec(),
-            content_type: "image/png".into(),
-            timeout_ms: 1000,
-            meta: BTreeMap::new(),
-            signal: None,
-        })
-        .await;
-        assert!(!empty.ok);
-        assert!(empty.error.unwrap().contains("object key is required"));
+    async fn assert_stalled_put_is_cancelled(by_caller: bool) {
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+
+        let signal = Arc::new(AtomicBool::new(false));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let seen = Arc::new(Mutex::new(None));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let handler: http::HttpHandler = Arc::new({
+            let started = started.clone();
+            let seen = seen.clone();
+            let calls = calls.clone();
+            move |call| {
+                assert_eq!(call.method, "PUT");
+                assert_eq!(call.body, b"x");
+                *seen.lock().unwrap() = Some(call.aborted);
+                calls.fetch_add(1, Ordering::SeqCst);
+                started.notify_one();
+                Box::pin(std::future::pending())
+            }
+        });
+        let mut params = put_params();
+        params.timeout_ms = if by_caller { 5000 } else { 25 };
+        params.signal = Some(signal.clone());
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            http::HTTP_HANDLER.scope(handler.clone(), async {
+                let trigger = async {
+                    if by_caller {
+                        started.notified().await;
+                        signal.store(true, Ordering::SeqCst);
+                    }
+                };
+                tokio::join!(oss_put_object(params), trigger).0
+            }),
+        )
+        .await
+        .expect("the deadline or caller abort must cancel a stalled PUT");
+        assert!(!result.ok);
+        assert_eq!(result.retryable, Some(!by_caller));
+        assert_eq!(result.error.as_deref(), Some("aborted"));
+        assert_eq!(result.status_code, None);
+        assert_eq!(result.request_id, None);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(seen
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .load(Ordering::SeqCst));
+        assert_eq!(
+            Arc::strong_count(&signal),
+            1,
+            "finished PUT must release caller abort state"
+        );
+
+        signal.store(true, Ordering::SeqCst);
+        let mut params = put_params();
+        params.signal = Some(signal);
+        let result = http::HTTP_HANDLER
+            .scope(handler, oss_put_object(params))
+            .await;
+        assert!(!result.ok);
+        assert_eq!(result.retryable, Some(false));
+        assert_eq!(result.error.as_deref(), Some("aborted"));
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "pre-aborted input must not invoke HTTP"
+        );
+    }
+
+    #[tokio::test]
+    async fn deadline_aborts_hung_put_and_returns_a_retryable_failure() {
+        assert_stalled_put_is_cancelled(false).await;
+    }
+
+    #[tokio::test]
+    async fn caller_abort_cancels_hung_put_without_retry_or_retaining_signal() {
+        assert_stalled_put_is_cancelled(true).await;
     }
 }

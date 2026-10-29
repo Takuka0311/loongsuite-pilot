@@ -6712,6 +6712,546 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/multimodal/oss-client.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/multimodal/resolve.rs",
+          "test": "oss_endpoint_region"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_client.rs",
+          "test": "parses_storage_base_and_signs_without_content_md5"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_client.rs",
+          "test": "includes_security_token_and_rejects_bad_inputs"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_client.rs",
+          "test": "invalid_bucket_and_key_do_not_use_the_network"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_client.rs",
+          "test": "deadline_aborts_hung_put_and_returns_a_retryable_failure"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_client.rs",
+          "test": "caller_abort_cancels_hung_put_without_retry_or_retaining_signal"
+        }
+      ],
+      "note": "逐项核对固定基线历史断言，补齐取消、缺失 secret、零网络、上传关闭竞态及真实文件告警。HTTP mock 仅替代 I/O；在途晚成功场景使用已有 PUT 注入边界，不声称真实云上传。",
+      "source_hash": "86823157f9d45b7bda8cab12871a47b227aed47f4eac85a49ee8ce14737874d4",
+      "cases": [
+        {
+          "source": {
+            "id": "L15:C3",
+            "title": "derives region from regional endpoint host",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "标准地域 OSS endpoint 的 scheme/host/region 与无 scheme 的杭州 endpoint 解析保持原断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/resolve.rs",
+                "test": "oss_endpoint_region"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L24:C3",
+            "title": "parses oss:// storage base path",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "oss://bucket/pilot-mm/ 解析保留 bucket，去除 prefix 尾斜线。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_client.rs",
+                "test": "parses_storage_base_and_signs_without_content_md5"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L31:C3",
+            "title": "builds OSS4-HMAC-SHA256 Authorization without Content-MD5",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "固定时间、编码对象路径、UNSIGNED-PAYLOAD、metadata 及 64 位小写十六进制 V4 签名格式；不含 Content-MD5。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_client.rs",
+                "test": "parses_storage_base_and_signs_without_content_md5"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L53:C3",
+            "title": "includes security token header when provided",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "提供 STS token 时出现在 x-oss-security-token，保留 V4 鉴权。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_client.rs",
+                "test": "includes_security_token_and_rejects_bad_inputs"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L69:C3",
+            "title": "rejects invalid storageBasePath",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐个拒绝 s3://、无 scheme 与空 storageBasePath。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_client.rs",
+                "test": "includes_security_token_and_rejects_bad_inputs"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L75:C3",
+            "title": "rejects empty or non-regional endpoints",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐个拒绝空值、带路径、accelerate 和非标准地域 endpoint，并核对诊断。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/resolve.rs",
+                "test": "oss_endpoint_region"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L88:C3",
+            "title": "rejects missing access keys when building the request",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "分别缺失 ID 或 secret 的请求构造均失败，覆盖历史两侧断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_client.rs",
+                "test": "includes_security_token_and_rejects_bad_inputs"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L108:C3",
+            "title": "returns non-retryable failure for invalid bucket or object key (no network)",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "非法 bucket、点路径与空 key 均是不可重试失败；任务内 HTTP 边界设为 panic，证明零网络调用。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_client.rs",
+                "test": "invalid_bucket_and_key_do_not_use_the_network"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L152:C3",
+            "title": "aborts hung PUT after timeoutMs",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 OSS client 的挂起 PUT 在短 deadline 取消；受控 HTTP 仅作 I/O 边界，核对 aborted、可重试结果与状态释放。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_client.rs",
+                "test": "deadline_aborts_hung_put_and_returns_a_retryable_failure"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L182:C3",
+            "title": "does not retry when the caller abort signal fires",
+            "suites": [
+              "oss-client (OSS V4)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际 PUT 已开始后触发调用方取消，返回不可重试 aborted，释放 signal；预取消输入不再请求。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_client.rs",
+                "test": "caller_abort_cancels_hung_put_without_retry_or_retaining_signal"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/multimodal/oss-uploader.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/multimodal/uploader/oss_uploader.rs",
+          "test": "invalid_payload_size_or_missing_bytes_never_reaches_http"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_uploader.rs",
+          "test": "successful_keys_deduplicate_and_shutdown_clears_cache_idempotently"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_uploader.rs",
+          "test": "forbidden_response_fails_once_without_retry_or_success_cache"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_uploader.rs",
+          "test": "repeated_failure_warnings_keep_first_request_id_and_resume_after_one_minute"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_uploader.rs",
+          "test": "constructor_rejects_invalid_storage_base_path"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_uploader.rs",
+          "test": "completed_put_after_close_succeeds_without_repopulating_success_keys"
+        },
+        {
+          "file": "src/multimodal/uploader/oss_uploader.rs",
+          "test": "shutdown_cancels_real_client_put_and_rejects_later_uploads"
+        }
+      ],
+      "note": "逐项核对固定基线历史断言，补齐取消、缺失 secret、零网络、上传关闭竞态及真实文件告警。HTTP mock 仅替代 I/O；在途晚成功场景使用已有 PUT 注入边界，不声称真实云上传。",
+      "source_hash": "a752c4140470db91f75f0af5ba60a9bd964c89210913ccee224231f32a6e7218",
+      "cases": [
+        {
+          "source": {
+            "id": "L35:C3",
+            "title": "rejects invalid payload size without calling put",
+            "suites": [
+              "OssUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "上传数据长度与 expectedSize 不一致或 data 缺失时直接失败，受控 HTTP 设为 panic，成功缓存为空。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_uploader.rs",
+                "test": "invalid_payload_size_or_missing_bytes_never_reaches_http"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L49:C3",
+            "title": "skips put when successKeys already has the object key",
+            "suites": [
+              "OssUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 uploader/client 链路连续上传相同 key 两次，HTTP 仅一次，并验证前缀、原始数据与 metadata。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_uploader.rs",
+                "test": "successful_keys_deduplicate_and_shutdown_clears_cache_idempotently"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L67:C3",
+            "title": "returns false on non-retryable put failure",
+            "suites": [
+              "OssUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实客户端收到 403 后上传失败，不重试、不写成功缓存。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_uploader.rs",
+                "test": "forbidden_response_fails_once_without_retry_or_success_cache"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L85:C3",
+            "title": "warns once per status and error per minute",
+            "suites": [
+              "OssUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 uploader/client 连续五次 403 的不同 requestId 仅写一条文件告警，保留首个 requestId；每实例可控时钟前进 61 秒后第六次重新告警，不等待真实一分钟。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_uploader.rs",
+                "test": "repeated_failure_warnings_keep_first_request_id_and_resume_after_one_minute"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L116:C3",
+            "title": "throws in constructor for invalid storageBasePath",
+            "suites": [
+              "OssUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "不合法 s3:// storageBasePath 在构造时返回原诊断。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_uploader.rs",
+                "test": "constructor_rejects_invalid_storage_base_path"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L120:C3",
+            "title": "rejects uploads after shutdown and clears successKeys",
+            "suites": [
+              "OssUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "成功缓存先实际建立，连续两次 shutdown 清空缓存，关闭后相同 key 仍失败且不请求。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_uploader.rs",
+                "test": "successful_keys_deduplicate_and_shutdown_clears_cache_idempotently"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L141:C3",
+            "title": "returns success but skips successKeys when closed during in-flight put",
+            "suites": [
+              "OssUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "现有 PUT 注入边界复现不响应取消、稍后成功的竞态；关闭后的在途成功返回 true，缓存保持空，后续上传拒绝。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_uploader.rs",
+                "test": "completed_put_after_close_succeeds_without_repopulating_success_keys"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L169:C3",
+            "title": "aborts in-flight put on shutdown",
+            "suites": [
+              "OssUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "通过真实 OSS client 的挂起 HTTP 验证 shutdown 设置取消、在途上传有界结束、后续上传拒绝，不仅检查 mock signal。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/oss_uploader.rs",
+                "test": "shutdown_cancels_real_client_put_and_rejects_later_uploads"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
