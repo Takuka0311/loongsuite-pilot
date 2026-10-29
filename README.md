@@ -12,6 +12,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+This branch develops the unreleased Rust-based Pilot 2.0.0 for `dev/v2.0.0`. The Node.js-based 1.x line remains on `main`; see [the migration discussion](https://github.com/alibaba/loongsuite-pilot/issues/511).
+
 [Overview](#overview) | [Quick Start](#quick-start) | [Documentation](#documentation) | [Community](#community) | [Contributing](#contributing)
 
 ---

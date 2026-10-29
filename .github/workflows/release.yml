@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           sha=$(git rev-parse HEAD)
           trusted=false
-          for ref in refs/remotes/origin/main refs/remotes/origin/master refs/remotes/origin/loongsuite-pilot-rust; do
+          for ref in refs/remotes/origin/main refs/remotes/origin/master refs/remotes/origin/dev/v2.0.0 refs/remotes/origin/loongsuite-pilot-rust; do
             if git show-ref --verify --quiet "$ref" && git merge-base --is-ancestor "$sha" "$ref"; then trusted=true; fi
           done
           test "$trusted" = true

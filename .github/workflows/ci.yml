@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master, main, loongsuite-pilot-rust]
+    branches: [master, main, dev/v2.0.0, loongsuite-pilot-rust]
   pull_request:
-    branches: [master, main, loongsuite-pilot-rust]
+    branches: [master, main, dev/v2.0.0, loongsuite-pilot-rust]
 
   workflow_dispatch:
 

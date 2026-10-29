@@ -12,6 +12,8 @@
 
 [English](README.md) | **简体中文**
 
+本分支开发面向 `dev/v2.0.0` 的 Rust 版 Pilot 2.0.0，尚未正式发布。Node.js 版 1.x 继续在 `main` 维护，背景见[迁移讨论](https://github.com/alibaba/loongsuite-pilot/issues/511)。
+
 [概览](#概览) | [快速开始](#快速开始) | [文档](#文档) | [社区](#社区) | [参与贡献](#参与贡献)
 
 ---

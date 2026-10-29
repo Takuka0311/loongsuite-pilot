@@ -8,7 +8,9 @@
 
 ## 2026-10-29 开发收口进展（尚未发布）
 
-- 工具链升级至 [Rust 1.99.1 稳定版](https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/)（2026-10-15 发布）：rust-toolchain、主程序和 xtask 的最低版本、日常 CI/八平台构建/汇总工具链及开发文档均固定为 1.99.1。依赖锁、edition 2021 与产品版本保持原值。适配新版严格检查：盒装较大的错误返回/错误链、修正两处 Linux read 的 C void 指针签名，并简化等价迭代与排序；不增加 lint 豁免。远端已实际安装并由仓库自动选中 1.99.1，fmt 和严格 clippy 通过；隔离 HOME 的默认与 all-features 各 1,427 项测试通过，原有两个示例 doc-test 仍 ignored。升级前 0aac136 的 dry-run 40838904907 已通过八平台和汇总共九项；该记录仅作旧工具链基线，1.99.1 的八平台 dry-run 待运行。仍不创建 tag/正式 Release。
+- [PR #510](https://github.com/alibaba/loongsuite-pilot/pull/510) 的目标已改为 `dev/v2.0.0`；按 [#511 的主版本建议](https://github.com/alibaba/loongsuite-pilot/issues/511#issuecomment-6462162155)，产品版本从 1.2.0 调整到 2.0.0。Rust 编译器继续固定 1.99.1，1.x 仍由 main 维护。已获取相同提交 `04d0de4` 的最新 main 与 dev/v2.0.0；相对原迁移基线新增 11 个提交、203 个文件变化，正在按功能移植，尚不能宣称 main 行为已全部对齐。原工作区五处改动已经补丁、stash 与独立安全引用备份，并逐字节恢复。2.0.0 元数据下 fmt、严格 clippy、默认/all-features 各 1,436 项 Rust 测试通过，两个原有 doc-test ignored；Cargo.lock 仅修改自身包版本。上游能力对齐仍在进行，不创建 tag、正式 Release 或更新渠道。
+
+- 工具链升级至 [Rust 1.99.1 稳定版](https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/)（2026-10-15 发布）：rust-toolchain、主程序和 xtask 的最低版本、日常 CI/八平台构建/汇总工具链及开发文档均固定为 1.99.1。该工具链升级提交未调整依赖锁、edition 2021 与产品版本；后续 2.0.0 仅变更自身包的版本元数据。适配新版严格检查：盒装较大的错误返回/错误链、修正两处 Linux read 的 C void 指针签名，并简化等价迭代与排序；不增加 lint 豁免。远端已实际安装并由仓库自动选中 1.99.1，fmt 和严格 clippy 通过；隔离 HOME 的默认与 all-features 各 1,427 项测试通过，原有两个示例 doc-test 仍 ignored。升级前 0aac136 的 dry-run 40838904907 已通过八平台和汇总共九项；该记录仅作旧工具链基线，1.99.1 的 dry-run 40842246721 已通过日常 CI 和多个平台包，但 Windows ARM64 的 DSH 32 轮并发清理在第 22 轮再次出现 2 秒锁超时；受控共享句柄、安装器与其他 Windows 回归通过。该不稳定性仍是发布阻塞，不能用旧版全绿代替；本轮上游对齐后继续定位。仍不创建 tag/正式 Release。
 
 - Windows 单 PID 身份已改为 Win32 `OpenProcess` / `GetProcessTimes`，单 PID 命令读取使用原生查询。历史 CIM token 与 FILETIME token 交接时保守保留存活锁；Windows 两架构的身份、控制台、锁、归档与同版本激活回归已实跑通过。全进程扫描仍保留原有 8 秒上限。
 - Dashboard shortcut 的命令、配置、响应校验与失败清理已由 Rust 承接；macOS JXA 保留宿主实现。原语言策略测试实际展开为 20 项，已接入现有 Linux 日常 CI；真实桌面操作仍需 macOS 验收。
@@ -41,7 +43,7 @@
 
 - `.github/workflows/release.yml`：`v*` tag 触发正式发布；手动运行仅 dry-run，不创建 tag、Release，也不更新渠道。
 - 固定八平台：Linux x64/ARM64 的 GNU、musl，macOS Intel/Apple Silicon，Windows x64/ARM64 MSVC。每个平台 1 个构建任务，加 1 个汇总/发布任务，共 9 个 runner 任务，不因失败自动缩小矩阵。
-- Cargo 是版本唯一来源，工具链固定 Rust 1.99.1；tag 必须等于 `v<Cargo version>`，来源提交必须属于 main/master/loongsuite-pilot-rust 中的受信任分支。
+- Cargo 是版本唯一来源，工具链固定 Rust 1.99.1；tag 必须等于 `v<Cargo version>`，来源提交必须属于 main/master/dev/v2.0.0/loongsuite-pilot-rust 中的受信任分支。
 - 公开构建不带 proprietary feature。每包仅包含相应平台二进制、白名单资源及 `runtime-manifest.json`。macOS 必须携带对应架构 Swift UI，Rust、C 依赖与 Swift 的最低系统版本统一为 macOS 13。
 - `xtask package` 在对应 OS/架构执行包内 `--version`、`probe --build-edition`、`check --json`；隔离 HOME 和 PATH，核对执行前后文件未被修改。
 - CI 候选包、汇总输入与发布输出放在 `RUNNER_TEMP` 下，按 run/attempt/target 隔离，不进入 Cargo `target` 缓存；包工具仍拒绝覆盖旧候选。`.sh` / `.ps1` 通过 `.gitattributes` 统一 LF，保持 Hook 模板逐字节校验。非 Linux 构建复用包、Hook、候选进程及 canonical 配置路径回归，不增加 runner。
