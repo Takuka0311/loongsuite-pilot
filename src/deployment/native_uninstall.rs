@@ -19,6 +19,8 @@ struct Options {
     pilot_dir: Option<String>,
     #[serde(default)]
     check_only: bool,
+    #[serde(default)]
+    purge: bool,
 }
 
 fn present(path: &Path) -> Result<bool> {
@@ -112,12 +114,82 @@ async fn selected(manager: &DeploymentManager, def: &mut AgentDefinition) -> Res
     }
 }
 
+// Runtime deployment deliberately follows one selected/recorded target.
+// Whole-product uninstall must also remove owned references from other existing
+// alternatives before their shared resources can disappear.
+async fn expand_uninstall_targets(
+    manager: &DeploymentManager,
+    def: AgentDefinition,
+) -> Result<Vec<AgentDefinition>> {
+    let mut extra = Vec::new();
+    match def.deploy_mode {
+        DeployMode::Hook => {
+            let hook = def.hook.as_ref().context("Hook definition is incomplete")?;
+            let recorded = manager.recorded_settings_paths(&def.id);
+            if !recorded.is_empty()
+                && !recorded.contains(&hook.settings_path)
+                && present(&configured_path(&hook.settings_path))?
+            {
+                extra.push(def.clone());
+            }
+        }
+        DeployMode::PluginInject => {
+            let config = def
+                .plugin_inject
+                .as_ref()
+                .context("Plugin definition is incomplete")?;
+            let current = manager
+                .plugin_config_path(&def)
+                .await
+                .map_err(|_| anyhow::anyhow!("Cannot inspect plugin cleanup targets"))?;
+            let mut paths = Vec::new();
+            if let Some(path) = &current {
+                paths.push(path.clone());
+            }
+            paths.extend(config.config_paths.iter().cloned());
+            let mut seen = HashSet::new();
+            for path in paths {
+                let resolved = configured_path(&path);
+                if !seen.insert(resolved.clone()) || !present(&resolved)? {
+                    continue;
+                }
+                if !manager.has_record(&def.id)
+                    && current
+                        .as_ref()
+                        .is_some_and(|current| configured_path(current) == resolved)
+                {
+                    continue;
+                }
+                let mut target = def.clone();
+                target
+                    .plugin_inject
+                    .as_mut()
+                    .expect("checked plugin config")
+                    .config_paths = vec![resolved.to_string_lossy().into_owned()];
+                extra.push(target);
+            }
+        }
+        _ => {}
+    }
+    let mut targets = vec![def];
+    targets.extend(extra);
+    Ok(targets)
+}
+
 pub(super) async fn run(value: Value) -> Result<String> {
     let options: Options = serde_json::from_value(value)
         .map_err(|_| anyhow::anyhow!("Invalid native uninstall options"))?;
     ensure!(
         Path::new(&options.data_dir).is_absolute(),
         "dataDir must be absolute"
+    );
+    let data = Path::new(&options.data_dir);
+    let checked_data = std::fs::canonicalize(data).unwrap_or_else(|_| data.to_path_buf());
+    let home = PathBuf::from(crate::utils::resolve_home("~"));
+    let checked_home = std::fs::canonicalize(&home).unwrap_or(home);
+    ensure!(
+        checked_data.parent().is_some() && checked_data != checked_home,
+        "Refusing unsafe uninstall dataDir; installation files were preserved"
     );
     if let Some(root) = &options.pilot_dir {
         ensure!(Path::new(root).is_absolute(), "pilotDir must be absolute");
@@ -136,6 +208,7 @@ pub(super) async fn run(value: Value) -> Result<String> {
         )
         .context("Uninstall runtime integrity check failed")?;
     }
+    let data_dir = PathBuf::from(&options.data_dir);
     let manager = DeploymentManager::new(DeploymentManagerOptions {
         data_dir: options.data_dir,
         pilot_dir: root.to_string_lossy().into_owned(),
@@ -164,12 +237,18 @@ pub(super) async fn run(value: Value) -> Result<String> {
     let mut targets = Vec::new();
     for mut def in definitions {
         if selected(&manager, &mut def).await? {
-            targets.push(def);
+            targets.extend(expand_uninstall_targets(&manager, def).await?);
         }
     }
     // Refuse conflicting DSH YAML before removing other Agent configuration.
     targets.sort_by_key(|def| (def.deploy_mode != DeployMode::DshYamlPatch, def.id.clone()));
-    let agents: Vec<_> = targets.iter().map(|def| def.id.clone()).collect();
+    let mut seen_agents = HashSet::new();
+    let agents: Vec<_> = targets
+        .iter()
+        .filter_map(|def| seen_agents.insert(def.id.clone()).then_some(def.id.clone()))
+        .collect();
+    let home = PathBuf::from(crate::utils::resolve_home("~"));
+    super::legacy_uninstall::preflight(&home)?;
     if !options.check_only {
         for target in &targets {
             ensure!(
@@ -178,6 +257,7 @@ pub(super) async fn run(value: Value) -> Result<String> {
                 target.id
             );
         }
+        super::legacy_uninstall::run(&home, &data_dir, options.purge).await?;
     }
     Ok(json!({"agents":agents,"checkOnly":options.check_only,"ok":true}).to_string())
 }

@@ -6,6 +6,19 @@
 
 推送前必须通过 `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`。不降低 lint 等级、不添加全局 allow、不使用 `continue-on-error` 把诊断变成绿色。Git 推送目标为 `origin/loongsuite-pilot-rust`，不推 main，不自动创建 tag 或实际 Release。
 
+## 2026-10-29 开发收口进展（尚未发布）
+
+- Windows 单 PID 身份已改为 Win32 `OpenProcess` / `GetProcessTimes`，单 PID 命令读取使用原生查询。历史 CIM token 与 FILETIME token 交接时保守保留存活锁；Windows 两架构的身份、控制台、锁、归档与同版本激活回归已实跑通过。全进程扫描仍保留原有 8 秒上限。
+- Dashboard shortcut 的命令、配置、响应校验与失败清理已由 Rust 承接；macOS JXA 保留宿主实现。原语言策略测试实际展开为 20 项，已接入现有 Linux 日常 CI；真实桌面操作仍需 macOS 验收。
+- 两端安装器的卸载流程已接原生 `cleanup-agents`，不调用旧 Node/Python 清理函数。停服务前验证候选资源和部署状态；清理冲突时保留共享运行资源供重试。除持久化目标外，继续清理仍存在的默认/备选配置中的本安装引用，保留用户 Hook 和其他安装的插件。
+- Claude 历史清理复用 Hook 配置锁与事务，只删除三个旧日志配置字段；普通卸载保留 `sessions/`，彻底卸载才删除旧缓存。损坏配置、只读文件、标记不完整及外部符号链接均有回归；Unix 自定义缓存目录不再误清默认缓存。
+- 旧安装缺少原生清理入口时，可以通过显式平台 `--package-url` / `-PackageUrl` 提供 Rust 候选；无法取得可靠清理入口时保留安装文件并报错。Unix shell alias 与 macOS/Windows 环境覆盖清理继续使用原生系统脚本。
+- 本批默认与 all-features 各通过 **1,407 项顶层 Rust 测试**（主库 1,269、xtask 43、独立集成 95），另有 2 项 doc-tests ignored。计数按每个顶层测试程序最后的汇总行计算，不重复计入进程 fixture 内部的子测试汇总。全量测试使用隔离 HOME，并采用 CI 相同的 debug=0 配置；此前 debug 二进制下 Unix 多阶段桥接单跑约 28 秒，接近 30 秒上限，保留该失败记录。
+- Windows 安装桥接尚未全绿：`9f27817` 的 x64 原生配置流程成功，随后因测试 TEMP 中残留两个文件失败；正在验证先初始化系统模块、再为全部原生调用设置 Unicode TEMP 的隔离方式。未放宽临时文件、凭据和配置保护断言。Windows 新卸载桥接与旧插件事务回归复用既有平台任务，平台结果单独记录。
+- 历史审计仍为 391 文件、4,694 声明：38 完整、23 部分、330 未映射；Rust 348、原语言保留 13、退役 7、未映射 4,326，其中 2 处登记项仍部分覆盖。新增卸载测试尚未冒充历史映射完成。严格完整映射门禁继续保留缺口。
+
+本节是当前状态，后文旧提交/旧轮次的数据仅为历史证据。本批不创建 tag、Release，不切换开发机的已安装版本，不开启真实自动更新。
+
 ## 自动发布方案
 
 - `.github/workflows/release.yml`：`v*` tag 触发正式发布；手动运行仅 dry-run，不创建 tag、Release，也不更新渠道。

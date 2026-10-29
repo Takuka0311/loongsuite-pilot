@@ -40,7 +40,7 @@ pub(crate) fn command() -> Command {
                 )
             }),
         )
-        .subcommands(["probe-count", "probe-detected", "cleanup-agents"].map(input_command))
+        .subcommands(["probe-count", "probe-detected"].map(input_command))
         .subcommands(
             ["stage-package", "sync-service", "publish-package"].map(|name| {
                 let command = input_command(name).arg(
@@ -66,6 +66,27 @@ pub(crate) fn command() -> Command {
                         )
                 }
             }),
+        )
+        .subcommand(
+            input_command("cleanup-agents")
+                .arg(
+                    Arg::new("data-dir")
+                        .long("data-dir")
+                        .conflicts_with("input-env"),
+                )
+                .arg(Arg::new("pilot-dir").long("pilot-dir").requires("data-dir"))
+                .arg(
+                    Arg::new("purge")
+                        .long("purge")
+                        .action(ArgAction::SetTrue)
+                        .requires("data-dir"),
+                )
+                .arg(
+                    Arg::new("check-only")
+                        .long("check-only")
+                        .action(ArgAction::SetTrue)
+                        .requires("data-dir"),
+                ),
         )
         .subcommand(
             input_command("probe-menu").arg(
@@ -139,7 +160,18 @@ fn options(args: &ArgMatches) -> Result<Options> {
 pub(crate) async fn run(args: &ArgMatches) -> Result<i32> {
     let (name, args) = args.subcommand().context("缺少安装辅助操作")?;
     let output = match name {
-        "cleanup-agents" => super::native_uninstall::run(input(args)?).await?,
+        "cleanup-agents" => {
+            let value = if let Some(data) = args.get_one::<String>("data-dir") {
+                let mut value = json!({"dataDir":data,"purge":args.get_flag("purge"),"checkOnly":args.get_flag("check-only")});
+                if let Some(root) = args.get_one::<String>("pilot-dir") {
+                    value["pilotDir"] = json!(root);
+                }
+                value
+            } else {
+                input(args)?
+            };
+            super::native_uninstall::run(value).await?
+        }
         "stage-package" | "sync-service" | "publish-package" => {
             let mut value = if args.get_flag("from-env") {
                 let mut values = serde_json::Map::new();

@@ -2486,10 +2486,46 @@ NODE
 # ============================================================
 # CMD: uninstall
 # ============================================================
+# Resolve and validate the cleanup runtime before any service or asset removal.
+# Legacy installs can explicitly supply a Rust candidate with --package-url.
+prepare_native_uninstall() {
+    local cache_dir="${LOONGSUITE_PILOT_CACHE_DIR:-$HOME/.loongsuite-pilot}"
+    local checked_cache="$cache_dir" checked_home="$HOME"
+    if [ -d "$cache_dir" ]; then checked_cache="$(cd "$cache_dir" && pwd -P)"; fi
+    if [ -d "$HOME" ]; then checked_home="$(cd "$HOME" && pwd -P)"; fi
+    if [ "$checked_cache" = / ] || [ "$checked_cache" = "$checked_home" ]; then
+        printf '%s\n' '拒绝不安全的卸载缓存目录；安装文件已保留' >&2
+        return 1
+    fi
+    if [ -n "${PACKAGE_URL:-}" ]; then
+        download_and_extract
+    elif [ -z "${INSTALL_SRC:-}" ]; then
+        local version=""
+        if [ -f "$cache_dir/current" ]; then version="$(< "$cache_dir/current")"; fi
+        case "$version" in
+            ""|.|..|*[!a-zA-Z0-9._-]*)
+                printf '%s\n' '找不到原生卸载入口；请通过 --package-url 指定 Rust 候选包，安装文件已保留' >&2
+                return 1
+                ;;
+        esac
+        INSTALL_SRC="$cache_dir/versions/$version"
+    fi
+    cleanup_native_agents --check-only
+}
+
+cleanup_native_agents() {
+    local flags=()
+    if [ "${PURGE:-0}" -eq 1 ]; then flags+=(--purge); fi
+    native_installer_helper cleanup-agents --data-dir "$DATA_DIR" --pilot-dir "$INSTALL_SRC" \
+        ${flags[@]+"${flags[@]}"} "$@" >/dev/null
+}
+
 cmd_uninstall() {
     msg "🗑️  开始卸载 $PACKAGE_NAME ..." \
         "🗑️  Uninstalling $PACKAGE_NAME ..."
     echo ""
+
+    prepare_native_uninstall
 
     # Stop service (also removes autostart)
     msg "==> 停止服务..." "==> Stopping service..."
@@ -2561,53 +2597,17 @@ cmd_uninstall() {
     msg "    ✅ 服务已停止" "    ✅ Service stopped"
     echo ""
 
-    msg "==> 清理 DSH YAML patch..." "==> Cleaning up DSH YAML patch..."
-    if ! remove_dsh_yaml_patch; then
-        return 1
-    fi
-    echo ""
-
-    # Read the persisted target before the data/install directory is removed.
-    msg "==> 清理 Hermes 插件..." "==> Cleaning up Hermes plugin..."
-    remove_hermes_plugin
-    echo ""
-
-    msg "==> 清理 OpenClaw 插件配置..." "==> Cleaning up OpenClaw plugin config..."
-    remove_openclaw_plugin
-    echo ""
-
-    # Remove hook entries from tool configs BEFORE removing install dir
-    msg "==> 清理 hook 配置..." "==> Cleaning up hook configs..."
-    remove_hook_configs
-    remove_grok_build_hook_config
+    msg "==> 原生清理 Agent 与历史插件配置..." "==> Cleaning Agent and legacy plugin configuration..."
+    cleanup_native_agents
     remove_qodercli_token_intercept
     remove_qoderclicn_token_intercept
     retire_qoderwork_runtime_overrides
     remove_claude_code_fetch_intercept
     echo ""
 
-    # Remove OTel Claude plugin
-    msg "==> 清理 Claude 旧插件..." "==> Cleaning up legacy Claude plugin..."
-    remove_otel_plugin
-    echo ""
-
-    # Remove plugin-inject specs (OpenCode)
-    msg "==> 清理 OpenCode 插件配置..." "==> Cleaning up OpenCode plugin config..."
-    remove_opencode_plugin
-    echo ""
-
-    msg "==> 清理 Pi Coding Agent Extension 配置..." "==> Cleaning up Pi Coding Agent extension config..."
-    remove_pi_coding_agent_extension
-    echo ""
-
-    # Remove plugin-inject specs (MiMo Code)
-    msg "==> 清理 MiMo Code 插件配置..." "==> Cleaning up MiMo Code plugin config..."
-    remove_mimocode_plugin
-    echo ""
-
     # Remove installation artifacts
     msg "==> 删除安装目录..." "==> Removing installation..."
-    local _cache_dir="$HOME/.loongsuite-pilot"
+    local _cache_dir="${LOONGSUITE_PILOT_CACHE_DIR:-$HOME/.loongsuite-pilot}"
     rm -rf "${_cache_dir:?}/versions"
     rm -rf "${_cache_dir:?}/bin"
     rm -rf "${_cache_dir:?}/package"

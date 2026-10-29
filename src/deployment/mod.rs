@@ -26,6 +26,7 @@ mod hook_strategy;
 mod inject_command;
 mod installer_config;
 pub(crate) mod installer_helper;
+mod legacy_uninstall;
 pub(crate) mod native_install;
 mod native_uninstall;
 mod openclaw_compat;

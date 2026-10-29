@@ -2987,9 +2987,40 @@ function Remove-DshYamlPatch {
 # ============================================================
 # CMD: uninstall
 # ============================================================
+# Cleanup uses a verified native candidate, including explicit candidates for
+# legacy installs. Resolve it before stopping services or deleting any assets.
+function Resolve-NativeUninstallSource {
+    if ($PackageUrl) {
+        Download-AndExtract
+    } elseif (-not $script:INSTALL_SRC) {
+        $current = Join-Path $CACHE_DIR 'current'
+        $version = if (Test-Path -LiteralPath $current -PathType Leaf) {
+            (Get-Content -LiteralPath $current -Raw).Trim()
+        } else { '' }
+        if ($version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+            throw 'Native uninstall runtime not found; supply a Rust candidate with -PackageUrl. Installation files were preserved'
+        }
+        $script:INSTALL_SRC = Join-Path (Join-Path $CACHE_DIR 'versions') $version
+    }
+}
+
+function Invoke-NativeUninstall {
+    param([switch]$CheckOnly)
+    $options = @{
+        dataDir = $DataDir
+        pilotDir = $script:INSTALL_SRC
+        checkOnly = [bool]$CheckOnly
+        purge = [bool]$Purge
+    } | ConvertTo-Json -Compress
+    Invoke-InstallerHelper -Operation 'cleanup-agents' -Json $options | Out-Null
+}
+
 function Cmd-Uninstall {
     Msg "🗑️  开始卸载 $PACKAGE_NAME ..." "🗑️  Uninstalling $PACKAGE_NAME ..."
     Write-Host ""
+
+    Resolve-NativeUninstallSource
+    Invoke-NativeUninstall -CheckOnly
 
     Msg "==> 停止服务..." "==> Stopping service..."
     Stop-PilotService
@@ -2999,56 +3030,8 @@ function Cmd-Uninstall {
     Remove-PilotScheduledTasks
     Msg "    ✅ 已移除计划任务" "    ✅ Removed scheduled tasks"
 
-    # Resolve the pinned runtime before installation files (including node-bin)
-    # are removed. JSON config cleanup must also work when Node is absent from PATH.
-    if (-not $script:NODE_BIN) {
-        try {
-            $script:NODE_BIN = Resolve-Node
-        } catch {
-            # Non-fatal on purpose. Resolve-Node probes third-party version-manager
-            # directories, and under the file header's $ErrorActionPreference = "Stop"
-            # any unexpected error record in there becomes terminating. Unguarded, that
-            # aborted Cmd-Uninstall right here -- before plugin cleanup, before the
-            # install directory was deleted, and before -Purge -- so config.json
-            # survived on disk with its credentials in it. Every step below that needs
-            # Node already checks $script:NODE_BIN and reports what it skipped.
-            $script:NODE_BIN = ""
-            Msg "    ⚠️  解析 Node 失败: $($_.Exception.Message)" `
-                "    ⚠️  Resolving Node failed: $($_.Exception.Message)"
-        }
-    }
-    if (-not $script:NODE_BIN) {
-        Msg "    ⚠️  未解析到可用的 Node;依赖 Node 的清理步骤会逐项跳过并提示,其余步骤继续" `
-            "    ⚠️  No usable Node resolved; each Node-dependent cleanup step will be skipped with a notice, the rest continues"
-    }
-
-    Msg "==> 清理 DSH YAML patch..." "==> Cleaning up DSH YAML patch..."
-    Remove-DshYamlPatch
-    Write-Host ""
-
-    # Read the persisted target before the default data/install directory is removed.
-    Msg "==> 清理 Hermes 插件..." "==> Cleaning up Hermes plugin..."
-    Remove-HermesPlugin
-    Write-Host ""
-
-    Msg "==> 清理 OpenClaw 插件配置..." "==> Cleaning up OpenClaw plugin config..."
-    Remove-OpenClawPlugin
-    Write-Host ""
-
-    # This cleanup executes Node.js. Run it before installation assets or a
-    # pinned runtime can disappear, matching the POSIX uninstall ordering.
-    Msg "==> 清理 Grok Build hook 配置..." "==> Cleaning up Grok Build hook config..."
-    Remove-GrokBuildHookConfig
-    Write-Host ""
-
-    Msg "==> 清理 hook 配置..." "==> Cleaning up hook configs..."
-    Remove-HookConfigs
-    try {
-        Remove-CodexHookConfig
-    } catch {
-        Msg "    ⚠️  Codex hook 清理失败，继续卸载: $($_.Exception.Message)" `
-            "    ⚠️  Codex hook cleanup failed; continuing uninstall: $($_.Exception.Message)"
-    }
+    Msg "==> 原生清理 Agent 与历史插件配置..." "==> Cleaning Agent and legacy plugin configuration..."
+    Invoke-NativeUninstall
     Write-Host ""
 
     Msg "==> 清理 QoderWork 系列环境变量..." "==> Cleaning up QoderWork-family env vars..."
@@ -3075,27 +3058,11 @@ function Cmd-Uninstall {
     }
     Write-Host ""
 
-    Msg "==> 清理 Claude 旧插件..." "==> Cleaning up legacy Claude plugin..."
-    Remove-OtelPlugin
-    Write-Host ""
-
-    Msg "==> 清理 OpenCode 插件配置..." "==> Cleaning up OpenCode plugin config..."
-    Remove-OpenCodePlugin
-    Write-Host ""
-
-    Msg "==> 清理 Pi Coding Agent Extension 配置..." "==> Cleaning up Pi Coding Agent extension config..."
-    Remove-PiCodingAgentExtension
-    Write-Host ""
-
-    Msg "==> 清理 MiMo Code 插件配置..." "==> Cleaning up MiMo Code plugin config..."
-    Remove-MimoCodePlugin
-    Write-Host ""
-
     if ($runtimeEnvCleanupFailed) {
         throw "Runtime environment cleanup failed; installation files were preserved for retry"
     }
 
-    # Keep the pinned node runtime and deployed helper assets available until
+    # Keep the native runtime and deployed helper assets available until
     # every external config and runtime override has been cleaned. In
     # particular, never leave a User env var pointing at a deleted wrapper.
     Msg "==> 删除安装目录..." "==> Removing installation..."

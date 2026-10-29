@@ -166,6 +166,13 @@ pub(super) struct HookAssets {
 }
 
 impl HookAssets {
+    pub(super) fn configuration_cleanup(root: &Path) -> Self {
+        Self {
+            root: root.into(),
+            files: Vec::new(),
+        }
+    }
+
     pub(super) fn load(def: &AgentDefinition, pilot: Option<&Path>, root: &Path) -> Result<Self> {
         let assets = match pilot {
             Some(pilot) => load_assets(def, pilot, root)?,

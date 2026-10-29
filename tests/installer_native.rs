@@ -1528,10 +1528,12 @@ $DataDir = $env:TEST_DATA
 $script:UserId = $env:TEST_VALUE
 $CmsLicenseKey = $env:TEST_VALUE
 $script:PROBE_RESULT = '[]'
-$env:TEMP = $env:TEST_NATIVE_TEMP
-$env:TMP = $env:TEST_NATIVE_TEMP
 $env:PILOT_TEST_STAGE = 'check-deps'
 Check-Deps
+# Initialize system archive/download modules before isolating native TEMP.
+# Every native Pilot invocation below still uses the Unicode test directory.
+$env:TEMP = $env:TEST_NATIVE_TEMP
+$env:TMP = $env:TEST_NATIVE_TEMP
 $env:PILOT_TEST_STAGE = 'probe-agents'
 Probe-Agents
 if (@($script:PROBE_RESULT | ConvertFrom-Json).Count -lt 1) { throw 'empty native probe result' }
@@ -1971,5 +1973,384 @@ fn native_uninstall_openclaw_preserves_other_install_paths_and_shared_entries() 
         );
         assert_eq!(result["plugins"]["entries"]["user-plugin"]["enabled"], true);
         assert_eq!(result["user"], "keep");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn native_uninstall_shell_preserves_conflicts_and_cleans_custom_cache_without_external_runtimes() {
+    for scenario in [
+        "keep-data",
+        "purge",
+        "invalid-state",
+        "missing-current",
+        "unknown-hook",
+    ] {
+        let fixture = Fixture::new();
+        fixture.package_with(&[(
+            "agents.d/cursor.json",
+            include_str!("../agents.d/cursor.json"),
+        )]);
+        let cache = fixture.root.path().join("cache");
+        let installed = cache.join("versions/1.2.0_test");
+        fs::create_dir_all(installed.parent().unwrap()).unwrap();
+        fs::rename(&fixture.candidate, &installed).unwrap();
+        if scenario != "missing-current" {
+            fs::write(cache.join("current"), "1.2.0_test\n").unwrap();
+        }
+        let default_cache = fixture.root.path().join(".loongsuite-pilot/versions");
+        fs::create_dir_all(&default_cache).unwrap();
+        fs::write(default_cache.join("foreign-install"), "keep").unwrap();
+        let hook = fixture.data.join("hooks/cursor-loongsuite-pilot-hook.sh");
+        fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        fs::write(&hook, "keep until cleanup succeeds").unwrap();
+        let hook_config = fixture.root.path().join(".cursor/hooks.json");
+        fs::create_dir_all(hook_config.parent().unwrap()).unwrap();
+        let own_command = loongsuite_pilot::hooks::quote_claude_hook_path(&hook.to_string_lossy());
+        let command = if scenario == "unknown-hook" {
+            format!("{own_command} --unrecognized-argument")
+        } else {
+            own_command
+        };
+        let original = json!({"private":"keep-private-config","hooks":{"afterAgentResponse":[
+            {"command":"keep-user-hook"},{"command":command}
+        ]}})
+        .to_string();
+        fs::write(&hook_config, &original).unwrap();
+        if scenario == "invalid-state" {
+            fs::write(
+                fixture.data.join("deployed-agents.json"),
+                "private-corrupt-state",
+            )
+            .unwrap();
+        }
+        let config = fs::read(fixture.data.join("config.json")).unwrap();
+        let source = include_str!("../deploy/installer-opensource.sh");
+        let mut script = String::from("set -euo pipefail\n");
+        for name in [
+            "native_installer_helper",
+            "prepare_native_uninstall",
+            "cleanup_native_agents",
+            "cmd_uninstall",
+        ] {
+            script.push_str(&function(source, &format!("{name}() {{")));
+        }
+        script.push_str(
+            r#"
+msg() { :; }
+loongsuite-pilot() { printf 'stopped' > "$HOME/stop-marker"; }
+remove_qodercli_token_intercept() { :; }
+remove_qoderclicn_token_intercept() { :; }
+retire_qoderwork_runtime_overrides() { :; }
+remove_claude_code_fetch_intercept() { :; }
+rm() {
+    for item in "$@"; do
+        case "$item" in
+            -*) ;;
+            "$HOME"/*) ;;
+            /usr/local/bin/loongsuite-pilot) return 0 ;;
+            *) return 88 ;;
+        esac
+    done
+    /bin/rm "$@"
+}
+PACKAGE_NAME=fixture
+INSTALL_SRC=""
+PACKAGE_URL=""
+cmd_uninstall
+"#,
+        );
+        let path = fixture.root.path().join("uninstall.sh");
+        fs::write(&path, script).unwrap();
+        let mut command = fixture.command(Path::new("/bin/bash"));
+        command
+            .arg(path)
+            .env("DATA_DIR", &fixture.data)
+            .env("PURGE", if scenario == "purge" { "1" } else { "0" });
+        let output = bounded(command);
+        let clean = matches!(scenario, "keep-data" | "purge");
+        assert_eq!(
+            output.status.success(),
+            clean,
+            "{scenario}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            fixture.root.path().join("stop-marker").exists(),
+            !matches!(scenario, "invalid-state" | "missing-current")
+        );
+        assert_eq!(installed.exists(), !clean);
+        assert_eq!(
+            cache.join("current").exists(),
+            !clean && scenario != "missing-current"
+        );
+        assert_eq!(
+            fs::read_to_string(default_cache.join("foreign-install")).unwrap(),
+            "keep"
+        );
+        if clean {
+            let data: Value = serde_json::from_slice(&fs::read(&hook_config).unwrap()).unwrap();
+            assert_eq!(
+                data["hooks"]["afterAgentResponse"],
+                json!([{"command":"keep-user-hook"}])
+            );
+            assert_eq!(data["private"], "keep-private-config");
+            if scenario == "purge" {
+                assert!(!fixture.data.exists());
+            } else {
+                assert_eq!(fs::read(fixture.data.join("config.json")).unwrap(), config);
+            }
+        } else {
+            assert_eq!(fs::read_to_string(&hook_config).unwrap(), original);
+            assert_eq!(
+                fs::read_to_string(&hook).unwrap(),
+                "keep until cleanup succeeds"
+            );
+        }
+        for stream in [&output.stdout, &output.stderr] {
+            assert!(!String::from_utf8_lossy(stream).contains("private-corrupt-state"));
+        }
+    }
+}
+
+#[test]
+fn native_uninstall_path_arguments_and_json_protocol_have_the_same_readonly_boundary() {
+    let fixture = Fixture::new();
+    fixture.package();
+    let before = fs::read(fixture.data.join("config.json")).unwrap();
+    let mut command = fixture.command(&fixture.binary);
+    command
+        .args([
+            "installer-helper",
+            "cleanup-agents",
+            "--check-only",
+            "--data-dir",
+        ])
+        .arg(&fixture.data)
+        .arg("--pilot-dir")
+        .arg(&fixture.candidate);
+    success(&bounded(command));
+    assert_eq!(fs::read(fixture.data.join("config.json")).unwrap(), before);
+    assert_eq!(fs::read_dir(&fixture.data).unwrap().count(), 1);
+    for unsafe_data in [
+        fixture.root.path(),
+        fixture.root.path().ancestors().last().unwrap(),
+    ] {
+        let mut command = fixture.command(&fixture.binary);
+        command
+            .args(["installer-helper", "cleanup-agents", "--data-dir"])
+            .arg(unsafe_data)
+            .arg("--pilot-dir")
+            .arg(&fixture.candidate);
+        assert_eq!(bounded(command).status.code(), Some(1));
+        assert_eq!(fs::read(fixture.data.join("config.json")).unwrap(), before);
+    }
+    let mut conflict = fixture.command(&fixture.binary);
+    conflict
+        .args([
+            "installer-helper",
+            "cleanup-agents",
+            "--input-env",
+            "--data-dir",
+        ])
+        .arg(&fixture.data)
+        .env("LOONGSUITE_PILOT_INSTALL_INPUT", "{}");
+    assert_eq!(bounded(conflict).status.code(), Some(2));
+    assert_eq!(fs::read_dir(&fixture.data).unwrap().count(), 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn native_uninstall_windows_bridge_preserves_preflight_failures_and_cleans_without_node_python() {
+    for shell in windows_shells() {
+        for constrained in [false, true] {
+            for scenario in ["keep-data", "purge", "invalid-state"] {
+                let fixture = Fixture::new();
+                fixture.package_with(&[(
+                    "agents.d/cursor.json",
+                    include_str!("../agents.d/cursor.json"),
+                )]);
+                let cache = fixture.root.path().join("cache");
+                let installed = cache.join("versions/1.2.0_test");
+                fs::create_dir_all(installed.parent().unwrap()).unwrap();
+                fs::rename(&fixture.candidate, &installed).unwrap();
+                fs::write(cache.join("current"), "1.2.0_test\n").unwrap();
+                let hook = fixture.data.join("hooks/cursor-loongsuite-pilot-hook.ps1");
+                fs::create_dir_all(hook.parent().unwrap()).unwrap();
+                fs::write(&hook, "keep until cleanup succeeds").unwrap();
+                let hook_config = fixture.root.path().join(".cursor/hooks.json");
+                fs::create_dir_all(hook_config.parent().unwrap()).unwrap();
+                let original=json!({"private":"keep-private-config","hooks":{"afterAgentResponse":[
+                    {"command":"keep-user-hook"},
+                    {"command":format!("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{}\"",hook.display())}
+                ]}}).to_string();
+                fs::write(&hook_config, &original).unwrap();
+                if scenario == "invalid-state" {
+                    fs::write(
+                        fixture.data.join("deployed-agents.json"),
+                        "private-corrupt-state",
+                    )
+                    .unwrap();
+                }
+                let config = fs::read(fixture.data.join("config.json")).unwrap();
+                let mut script = windows_script(
+                    constrained,
+                    &[
+                        "Invoke-InstallerHelper",
+                        "Resolve-NativeUninstallSource",
+                        "Invoke-NativeUninstall",
+                        "ConvertTo-ExtendedLengthPath",
+                        "Assert-SafePilotDirectory",
+                        "Remove-PilotPath",
+                        "Remove-PilotInstallationFiles",
+                        "Cmd-Uninstall",
+                    ],
+                );
+                script.push_str(r#"
+function Msg { param($Chinese,$English) }
+function Stop-PilotService { 'stopped' | Set-Content -LiteralPath (Join-Path $env:USERPROFILE 'stop-marker') }
+function Remove-PilotScheduledTasks { }
+function Get-PilotRuntimeOverride { param($Name); return '' }
+function Remove-PilotRuntimeOverride { throw 'must not remove an unrelated override' }
+$PACKAGE_NAME='fixture'
+$DataDir=$env:TEST_DATA
+$CACHE_DIR=$env:LOONGSUITE_PILOT_CACHE_DIR
+$script:INSTALL_SRC=''
+$PackageUrl=''
+$Purge=$env:TEST_SCENARIO -eq 'purge'
+Cmd-Uninstall
+"#);
+                let mut command = windows_command(&fixture, &shell, &script);
+                command.env("TEST_SCENARIO", scenario);
+                let output = bounded(command);
+                let clean = scenario != "invalid-state";
+                assert_eq!(
+                    output.status.success(),
+                    clean,
+                    "{scenario} constrained={constrained} {}: {}",
+                    shell.display(),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                assert_eq!(fixture.root.path().join("stop-marker").exists(), clean);
+                assert_eq!(installed.exists(), !clean);
+                if clean {
+                    let data: Value =
+                        serde_json::from_slice(&fs::read(&hook_config).unwrap()).unwrap();
+                    assert_eq!(
+                        data["hooks"]["afterAgentResponse"],
+                        json!([{"command":"keep-user-hook"}])
+                    );
+                    assert_eq!(data["private"], "keep-private-config");
+                    if scenario == "purge" {
+                        assert!(!fixture.data.exists());
+                    } else {
+                        assert_eq!(fs::read(fixture.data.join("config.json")).unwrap(), config);
+                    }
+                } else {
+                    assert_eq!(fs::read_to_string(&hook_config).unwrap(), original);
+                    assert_eq!(
+                        fs::read_to_string(&hook).unwrap(),
+                        "keep until cleanup succeeds"
+                    );
+                }
+                for stream in [&output.stdout, &output.stderr] {
+                    assert!(!String::from_utf8_lossy(stream).contains("private-corrupt-state"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn native_uninstall_cleans_recorded_and_all_existing_alternative_configuration_paths() {
+    for mode in ["hook", "plugin"] {
+        let fixture = Fixture::new();
+        let paths: Vec<_> = (0..3)
+            .map(|index| {
+                fixture
+                    .root
+                    .path()
+                    .join(format!("agent-home-{index}/hooks.json"))
+            })
+            .collect();
+        for path in &paths {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+        }
+        let (id, file, source) = if mode == "hook" {
+            (
+                "cursor",
+                "agents.d/cursor.json",
+                include_str!("../agents.d/cursor.json"),
+            )
+        } else {
+            (
+                "opencode",
+                "agents.d/opencode.json",
+                include_str!("../agents.d/opencode.json"),
+            )
+        };
+        let mut definition: Value = serde_json::from_str(source).unwrap();
+        if mode == "hook" {
+            definition["hook"]["settingsPath"] = json!(paths[0]);
+        } else {
+            definition["pluginInject"]["configPaths"] = json!([paths[0], paths[1]]);
+        }
+        let definition = definition.to_string();
+        fixture.package_with(&[(file, &definition)]);
+        let record = if mode == "hook" {
+            json!({"deployMode":"hook","deployedAt":"old","hookSettingsPath":paths[2]})
+        } else {
+            json!({"deployMode":"plugin-inject","deployedAt":"old","pluginInjectConfigPath":paths[2]})
+        };
+        let selected: Vec<_> = if mode == "hook" {
+            vec![&paths[0], &paths[2]]
+        } else {
+            paths.iter().collect()
+        };
+        for path in &selected {
+            let value = if mode == "hook" {
+                let hook = fixture.data.join(if cfg!(windows) {
+                    "hooks/cursor-loongsuite-pilot-hook.ps1"
+                } else {
+                    "hooks/cursor-loongsuite-pilot-hook.sh"
+                });
+                let own = if cfg!(windows) {
+                    format!("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{}\"",hook.display())
+                } else {
+                    loongsuite_pilot::hooks::quote_claude_hook_path(&hook.to_string_lossy())
+                };
+                json!({"private":"keep","hooks":{"afterAgentResponse":[{"command":own},{"command":"keep-user-hook"}]}})
+            } else {
+                let own =
+                    reqwest::Url::from_file_path(fixture.data.join("plugins/opencode/plugin.mjs"))
+                        .unwrap()
+                        .to_string();
+                json!({"private":"keep","plugin":[own,"user-plugin@1"]})
+            };
+            fs::write(path, value.to_string()).unwrap();
+        }
+        fs::write(
+            fixture.data.join("deployed-agents.json"),
+            json!({id:record}).to_string(),
+        )
+        .unwrap();
+        let output = fixture.helper(
+            "cleanup-agents",
+            &json!({"dataDir":fixture.data,"pilotDir":fixture.candidate}),
+            true,
+        );
+        success(&output);
+        for path in selected {
+            let data: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+            assert_eq!(data["private"], "keep");
+            if mode == "hook" {
+                assert_eq!(
+                    data["hooks"]["afterAgentResponse"],
+                    json!([{"command":"keep-user-hook"}])
+                );
+            } else {
+                assert_eq!(data["plugin"], json!(["user-plugin@1"]));
+            }
+        }
     }
 }
