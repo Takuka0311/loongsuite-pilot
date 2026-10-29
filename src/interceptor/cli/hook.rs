@@ -448,6 +448,7 @@ mod tests {
         let entries = access.lock().unwrap().clone();
         assert_eq!(entries[0].event, "UserPromptSubmit");
         assert_eq!(entries[0].input.prompt.as_deref(), Some("hello"));
+        assert_eq!(entries[0].result.action, AccessLogAction::FailOpen);
         assert_eq!(
             entries[0].result.error.as_deref(),
             Some("interceptor runtime missing")
@@ -482,11 +483,15 @@ mod tests {
             access.lock().unwrap()[0].result.error.as_deref(),
             Some("daemon identity mismatch")
         );
+        let entries = access.lock().unwrap();
+        assert_eq!(entries[0].event, "UserPromptSubmit");
+        assert_eq!(entries[0].result.action, AccessLogAction::FailOpen);
     }
 
     #[tokio::test]
     async fn fail_opens_when_the_daemon_request_throws() {
         let path = runtime_file(4242, "1.0.2");
+        let stdout = Arc::new(Mutex::new(Vec::new()));
         let access = Arc::new(Mutex::new(Vec::new()));
         let client = Arc::new(ScriptedClient {
             health: Mutex::new(Err("timeout".into())),
@@ -494,7 +499,7 @@ mod tests {
         });
         let mut hook_deps = deps(
             serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": "hello", "session_id": "s1"}).to_string(),
-            Arc::new(Mutex::new(Vec::new())),
+            stdout.clone(),
             Arc::new(Mutex::new(Vec::new())),
             access.clone(),
             Some(path),
@@ -508,6 +513,10 @@ mod tests {
             access.lock().unwrap()[0].result.error.as_deref(),
             Some("timeout")
         );
+        assert!(stdout.lock().unwrap().is_empty());
+        let entries = access.lock().unwrap();
+        assert_eq!(entries[0].event, "UserPromptSubmit");
+        assert_eq!(entries[0].result.action, AccessLogAction::FailOpen);
     }
 
     #[tokio::test]
@@ -553,6 +562,83 @@ mod tests {
         let lines = stdout.lock().unwrap().clone();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("permissionDecision"));
+    }
+
+    #[tokio::test]
+    async fn tool_hook_missing_runtime_never_evaluates_or_creates_checkpoint() {
+        let root = tempfile::tempdir().unwrap();
+        let stdout = Arc::new(Mutex::new(Vec::new()));
+        let access = Arc::new(Mutex::new(Vec::new()));
+        let mut hook_deps = deps(
+            serde_json::json!({"hook_event_name":"PreToolUse","session_id":"s1","tool_use_id":"call-1","tool_name":"Bash","tool_input":{"command":"id"}}).to_string(),
+            stdout.clone(), Arc::new(Mutex::new(Vec::new())), access.clone(),
+            Some(root.path().join("missing-runtime.json").to_string_lossy().into_owned()), None,
+        );
+        hook_deps.create_client = Some(Box::new(|_| {
+            panic!("missing runtime must not create a client")
+        }));
+        assert_eq!(
+            run_hook(&["--agent".into(), "qodercli".into()], &mut hook_deps).await,
+            0
+        );
+        assert!(stdout.lock().unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+        let entries = access.lock().unwrap();
+        assert_eq!(entries[0].event, "PreToolUse");
+        assert_eq!(entries[0].tool_use_id.as_deref(), Some("call-1"));
+        assert_eq!(entries[0].result.action, AccessLogAction::FailOpen);
+    }
+
+    #[tokio::test]
+    async fn successful_allow_keeps_stdout_and_cli_access_log_empty() {
+        let path = runtime_file(4242, "1.0.2");
+        let stdout = Arc::new(Mutex::new(Vec::new()));
+        let access = Arc::new(Mutex::new(Vec::new()));
+        let client = Arc::new(ScriptedClient {
+            health: Mutex::new(Ok(health_ok())),
+            verdict: EvaluateHookResponse::allow(vec![]),
+        });
+        let mut hook_deps = deps(
+            serde_json::json!({"hook_event_name":"UserPromptSubmit","prompt":"hello","session_id":"s1"}).to_string(),
+            stdout.clone(), Arc::new(Mutex::new(Vec::new())), access.clone(),Some(path),Some(client),
+        );
+        assert_eq!(
+            run_hook(&["--agent".into(), "qoder".into()], &mut hook_deps).await,
+            0
+        );
+        assert!(stdout.lock().unwrap().is_empty());
+        assert!(access.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn qwen_prompt_emit_wraps_reason_exactly_once() {
+        let request = HookRequest {
+            agent: InterceptorAgent::QwenWorkCn,
+            event: HookEventName::UserPromptSubmit,
+            session_id: None,
+            transcript_path: None,
+            cwd: None,
+            tool_name: None,
+            tool_input: None,
+            tool_response: None,
+            tool_use_id: None,
+            prompt: None,
+            raw: Map::new(),
+        };
+        let mut chunks = Vec::new();
+        emit_verdict(&request, "block", Some("[APIKEY_MASKED]"), &mut |text| {
+            chunks.push(text)
+        });
+        assert_eq!(
+            chunks.join(""),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "decision":"block",
+                    "reason":wrap_host_reason(HookEventName::UserPromptSubmit,Some("[APIKEY_MASKED]"))
+                })
+            )
+        );
     }
 
     #[tokio::test]
@@ -612,11 +698,18 @@ mod tests {
             Some("内容非法"),
             &mut |text| chunks.push(text),
         );
-        assert!(chunks[0].contains("permissionDecisionReason"));
-        assert!(chunks[0].contains(&wrap_host_reason(
-            HookEventName::PreToolUse,
-            Some("内容非法")
-        )));
+        assert_eq!(
+            chunks.join(""),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "hookSpecificOutput":{
+                        "hookEventName":"PreToolUse", "permissionDecision":"deny",
+                        "permissionDecisionReason":wrap_host_reason(HookEventName::PreToolUse,Some("内容非法"))
+                    }
+                })
+            )
+        );
         chunks.clear();
         emit_verdict(
             &HookRequest {
@@ -636,7 +729,19 @@ mod tests {
             Some("内容非法"),
             &mut |text| chunks.push(text),
         );
-        assert!(chunks[0].contains("updatedToolOutput"));
+        assert_eq!(
+            chunks.join(""),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "hookSpecificOutput":{
+                        "hookEventName":"PostToolUse",
+                        "updatedToolOutput":wrap_host_reason(HookEventName::PostToolUse,Some("内容非法"))
+                    }
+                })
+            )
+        );
+        chunks.clear();
         emit_verdict(
             &HookRequest {
                 agent: InterceptorAgent::Qoder,
@@ -655,7 +760,7 @@ mod tests {
             Some("x"),
             &mut |text| chunks.push(text),
         );
-        assert_eq!(chunks.len(), 1);
+        assert!(chunks.is_empty());
     }
 
     #[tokio::test]
@@ -684,10 +789,17 @@ mod tests {
             run_hook(&["--agent".into(), "openclaw".into()], &mut openclaw).await,
             0
         );
-        assert!(
-            stdout.lock().unwrap()[0].contains("\"block\":true")
-                || stdout.lock().unwrap()[0].contains("\"block\": true")
+        assert_eq!(
+            stdout.lock().unwrap().join(""),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "block":true,
+                    "blockReason":wrap_host_reason(HookEventName::PreToolUse,Some("[APIKEY_MASKED]"))
+                })
+            )
         );
+        stdout.lock().unwrap().clear();
         let mut qwen = deps(
             serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": "export KEY=sk-test", "session_id": "s1"}).to_string(),
             stdout.clone(),
@@ -700,11 +812,15 @@ mod tests {
             run_hook(&["--agent".into(), "qwen-work-cn".into()], &mut qwen).await,
             0
         );
-        let joined = stdout.lock().unwrap().join("");
-        assert!(joined.contains("decision"));
-        assert!(joined.contains(&wrap_host_reason(
-            HookEventName::UserPromptSubmit,
-            Some("[APIKEY_MASKED]")
-        )));
+        assert_eq!(
+            stdout.lock().unwrap().join(""),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "decision":"block",
+                    "reason":wrap_host_reason(HookEventName::UserPromptSubmit,Some("[APIKEY_MASKED]"))
+                })
+            )
+        );
     }
 }

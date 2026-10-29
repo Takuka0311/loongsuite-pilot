@@ -4756,6 +4756,653 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/hook-cli.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "fail_opens_on_illegal_stdin"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "fail_opens_when_runtime_is_missing"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "tool_hook_missing_runtime_never_evaluates_or_creates_checkpoint"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "fail_opens_when_health_identity_does_not_match"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "fail_opens_when_the_daemon_request_throws"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "emits_host_stdout_for_a_blocking_tool_hook"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "successful_allow_keeps_stdout_and_cli_access_log_empty"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "writes_desktop_block_json_on_a_blocking_verdict"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "wraps_pre_and_post_tool_reasons_for_the_host"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "qwen_prompt_emit_wraps_reason_exactly_once"
+        },
+        {
+          "file": "src/interceptor/cli/hook.rs",
+          "test": "writes_openclaw_and_qwen_block_json"
+        },
+        {
+          "file": "src/interceptor/adapters/reason.rs",
+          "test": "keeps_the_interceptor_string_as_the_detail_slot"
+        },
+        {
+          "file": "src/interceptor/adapters/reason.rs",
+          "test": "omits_the_detail_slot_when_interceptor_reason_is_missing"
+        }
+      ],
+      "note": "核对全部 16 处历史断言，补齐 allow、缺 runtime 工具请求、直接办公 emit 与精确 JSON 行断言。另有正式二进制->真实 loopback HTTP->生产规则与持久化集成测试；不把 client stub 当作实际运行入口验收。",
+      "source_hash": "a3e716292417be2146b15e787b352aa05ea5a4b1d76d93986427fbc2daf7c4a4",
+      "cases": [
+        {
+          "source": {
+            "id": "L35:C3",
+            "title": "fail-opens on illegal stdin",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "非法 JSON 返回 0、不输出 host 协议，日志记录 parse 和完整 fail-open 原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "fail_opens_on_illegal_stdin"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L56:C3",
+            "title": "fail-opens when runtime is missing",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺失 runtime 保持 stdout 为空、保留原 prompt/event 并记录 fail-open。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "fail_opens_when_runtime_is_missing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L75:C3",
+            "title": "fail-opens a tool hook before daemon evaluation without writing a verdict",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实私有目录中缺 runtime 的工具 hook 不创建 client/checkpoint，返回 0 且记录 toolUseId。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "tool_hook_missing_runtime_never_evaluates_or_creates_checkpoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L92:C3",
+            "title": "fail-opens when health identity does not match runtime",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "不匹配 pid/version 时不执行阻断输出，记录身份不匹配的 fail-open。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "fail_opens_when_health_identity_does_not_match"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L121:C3",
+            "title": "fail-opens when the daemon request throws",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "health 请求错误返回 0、stdout 为空，保留 event/timeout fail-open 原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "fail_opens_when_the_daemon_request_throws"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L146:C3",
+            "title": "emits host stdout for successful tool hook evaluations",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "工具 hook 的 allow 无输出、block 生成一次 permissionDecision 输出。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "emits_host_stdout_for_a_blocking_tool_hook"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L199:C3",
+            "title": "keeps stdout empty on allow",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "成功 allow 不写 stdout 或 CLI fail-open 访问日志。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "successful_allow_keeps_stdout_and_cli_access_log_empty"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L225:C3",
+            "title": "writes the Desktop block JSON on a blocking verdict",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Desktop block 输出完整 JSON 行、一次包装原因且不重复写 CLI 访问日志。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "writes_desktop_block_json_on_a_blocking_verdict"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L258:C3",
+            "title": "wraps PreToolUse interceptor reasons for the host",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "PreToolUse 的完整 JSON 行逐字段验证包装后的 permissionDecisionReason。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "wraps_pre_and_post_tool_reasons_for_the_host"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L275:C3",
+            "title": "wraps PostToolUse interceptor reasons for the host",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "PostToolUse 的完整 JSON 行逐字段验证包装后的 updatedToolOutput。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "wraps_pre_and_post_tool_reasons_for_the_host"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L291:C3",
+            "title": "does not emit stdout for unknown actions",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "unknown action 在清空输出缓冲后不写任何 chunk。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "wraps_pre_and_post_tool_reasons_for_the_host"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L297:C3",
+            "title": "writes QwenWork UserPromptSubmit as decision=block without wrapping twice",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "直接 emitVerdict 的办公 prompt 输出 decision=block，敏感标签只包装一次。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "qwen_prompt_emit_wraps_reason_exactly_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L311:C3",
+            "title": "writes OpenClaw before_tool_call block JSON on a blocking verdict",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 run_hook OpenClaw 工具阻断输出精确 block/blockReason JSON 行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "writes_openclaw_and_qwen_block_json"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L347:C3",
+            "title": "writes QwenWork UserPromptSubmit block JSON on a blocking verdict",
+            "suites": [
+              "interceptor hook CLI"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 run_hook 办公 prompt 阻断输出精确 decision/reason JSON 行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/hook.rs",
+                "test": "writes_openclaw_and_qwen_block_json"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L384:C3",
+            "title": "keeps the interceptor string as the xxx slot",
+            "suites": [
+              "CLI host reason wrapping"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "三种事件的中文终止说明逐字保留拦截器原因 detail。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/reason.rs",
+                "test": "keeps_the_interceptor_string_as_the_detail_slot"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L393:C3",
+            "title": "omits the detail slot when interceptor reason is missing",
+            "suites": [
+              "CLI host reason wrapping"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺原因或空白原因时三个事件均省略 detail 槽位。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/reason.rs",
+                "test": "omits_the_detail_slot_when_interceptor_reason_is_missing"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/embedded-service.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/daemon/lifecycle.rs",
+          "test": "listens_writes_runtime_and_releases_the_port"
+        }
+      ],
+      "note": "现有 Rust 生命周期测试已逐字段覆盖旧用例，实际绑定端口并验证 stop 释放。",
+      "source_hash": "c9b790cd7f6f01209f6115dc1859076eaa902228bae76b750f1e1bcbba569af5",
+      "cases": [
+        {
+          "source": {
+            "id": "L9:C3",
+            "title": "listens, writes runtime for this process, and releases the port on stop",
+            "suites": [
+              "embedded interceptor service"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实启动本进程 HTTP 服务并读取 runtime/health 的 pid、版本、commit、实际端口，stop 后真实 TCP 连接失败。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/lifecycle.rs",
+                "test": "listens_writes_runtime_and_releases_the_port"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/qoder-surface.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/cli/qoder_surface.rs",
+          "test": "classifies_desktop_and_cli_executables"
+        },
+        {
+          "file": "src/interceptor/cli/qoder_surface.rs",
+          "test": "ignores_qoder_work_and_interceptor_hosts"
+        },
+        {
+          "file": "src/interceptor/cli/qoder_surface.rs",
+          "test": "prefers_qoder_config_dir_when_it_points_at_the_desktop_profile"
+        },
+        {
+          "file": "src/interceptor/cli/qoder_surface.rs",
+          "test": "native_ancestor_lookup_recognizes_real_desktop_and_cli_parent_processes_without_shells"
+        }
+      ],
+      "note": "真实改名父进程与未改名探测子进程已在 Linux、Windows x64/ARM64 和 macOS ARM64 执行通过。5304e68 dry-run 40829939809 Windows 配置桥接/父进程探针通过但其他卸载检查失败，不冒充整个发行验收通过。",
+      "source_hash": "5d824309c59fe1a1fdfb2a50a4e9dfe3b018ea577fda1847c5e061d0e67d1ec5",
+      "cases": [
+        {
+          "source": {
+            "id": "L9:C3",
+            "title": "classifies desktop and CLI executables",
+            "suites": [
+              "qoder surface detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Desktop/CLI 的 Unix 与 Windows 可执行文件名分类保持兼容。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/qoder_surface.rs",
+                "test": "classifies_desktop_and_cli_executables"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L16:C3",
+            "title": "ignores Qoder Work and interceptor hosts",
+            "suites": [
+              "qoder surface detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Qoder Work、千问办公、Node 与拦截器宿主不被错误当作 Qoder。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/qoder_surface.rs",
+                "test": "ignores_qoder_work_and_interceptor_hosts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L24:C3",
+            "title": "prefers QODER_CONFIG_DIR when it points at the desktop profile",
+            "suites": [
+              "qoder surface detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "桌面配置目录的显式环境优先于真实/注入的 CLI 祖先进程。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/cli/qoder_surface.rs",
+                "test": "prefers_qoder_config_dir_when_it_points_at_the_desktop_profile"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L28:C3",
+            "title": "uses PowerShell CIM rather than the removed WMIC executable on Windows",
+            "suites": [
+              "qoder surface detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Windows 父进程识别使用原生系统快照，不启动 PowerShell/WMIC；实际父子进程在无脚本 PATH 下完成 Desktop/CLI 分类。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "不再使用 PowerShell CIM 读取祖先进程，旧注入 exec stub 的命令参数合同随外部进程机制退役；Rust 原移植中的测试专用 CIM helper 也已移除。生产入口与实际 Windows 父子进程测试承接行为。",
+            "replacement": [
+              {
+                "file": "src/interceptor/cli/qoder_surface.rs",
+                "test": "native_ancestor_lookup_recognizes_real_desktop_and_cli_parent_processes_without_shells"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
