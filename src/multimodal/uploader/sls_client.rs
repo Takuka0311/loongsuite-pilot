@@ -1076,7 +1076,7 @@ fn parse_aliyun_oss_virtual_host(url: &str) -> Option<(String, String, String)> 
     if bucket.is_empty() {
         return None;
     }
-    let endpoint = normalize_oss_endpoint(&format!("{}//{rest}", parsed.scheme())).ok()?;
+    let endpoint = normalize_oss_endpoint(&format!("{}://{rest}", parsed.scheme())).ok()?;
     Some((
         bucket.to_string(),
         endpoint.region,
