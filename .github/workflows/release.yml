@@ -103,6 +103,7 @@ jobs:
           cargo test --locked -p loongsuite-pilot --lib cli::dashboard_shortcut::tests
           cargo test --locked -p loongsuite-pilot --lib utils::process_discovery::tests
           cargo test --locked -p loongsuite-pilot --lib utils::single_instance_lock::tests
+          cargo test --locked -p loongsuite-pilot --lib deployment::dsh_yaml_patch_strategy::tests
           cargo test --locked -p loongsuite-pilot --lib updater::package_archive::tests
           cargo test --locked -p loongsuite-pilot --lib updater::runtime::tests::same_version_activation_preserves_live_tree_and_retries_failed_preflight
           cargo test --locked -p loongsuite-pilot --test cli_native native_span_attributes_preserve_types_strings_and_never_launch_a_runtime -- --exact

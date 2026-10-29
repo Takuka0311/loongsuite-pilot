@@ -686,4 +686,124 @@ mod tests {
         assert!(strategy.undeploy(&def).await);
         assert!(!home.join("cordis.patch.yml").exists());
     }
+    // Fixed historical syntax, independent of the Rust block formatter.
+    fn historical_cleanup_block(created_file: bool) -> String {
+        format!("# BEGIN PILOT-OBSERVABILITY-MANAGED (created-file: {created_file})\n# entryId=loongsuite-pilot-observability\n# pluginSource=file:///pilot/plugins/dsh/plugin.mjs\n# pluginHash=abc123\n- insert:\n  - id: 'loongsuite-pilot-observability'\n    name: file:///pilot/plugins/dsh/plugin.mjs\n# END PILOT-OBSERVABILITY-MANAGED\n")
+    }
+
+    fn cleanup_fixture() -> (
+        tempfile::TempDir,
+        AgentDefinition,
+        std::path::PathBuf,
+        std::path::PathBuf,
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let plugin = root.path().join("data/plugins/dsh/plugin.mjs");
+        let patch = root.path().join("dsh-home/cordis.patch.yml");
+        std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+        std::fs::write(&plugin, "export {}\n").unwrap();
+        std::fs::write(
+            plugin.parent().unwrap().join(DSH_ENABLED_MARKER),
+            "enabled\n",
+        )
+        .unwrap();
+        let mut def: AgentDefinition =
+            serde_json::from_str(include_str!("../../agents.d/dsh.json")).unwrap();
+        let cfg = def.dsh_yaml_patch.as_mut().unwrap();
+        cfg.plugin_source = plugin.to_string_lossy().into_owned();
+        cfg.patch_path = Some(patch.to_string_lossy().into_owned());
+        (root, def, plugin, patch)
+    }
+
+    #[tokio::test]
+    async fn uninstall_preserves_mixed_line_endings_deletes_owned_empty_files_and_never_creates_absent_homes(
+    ) {
+        for scenario in [
+            "mixed",
+            "created",
+            "absent",
+            "incomplete",
+            "unmatched-end",
+            "nested",
+            "duplicate",
+        ] {
+            let (root, def, plugin, patch) = cleanup_fixture();
+            let cfg = def.dsh_yaml_patch.as_ref().unwrap();
+            let block = historical_cleanup_block(scenario == "created");
+            let before = "# user-before\n- id: user-a\n  name: file:///a\n";
+            let after = "# user-after\r\n- id: user-b\r\n  name: file:///b\r\n";
+            let raw = match scenario {
+                "mixed" => format!("{before}{block}{after}"),
+                "created" => block.clone(),
+                "absent" => String::new(),
+                "incomplete" => format!("# BEGIN {}\n- insert: []\n", cfg.marker),
+                "unmatched-end" => format!("{before}# END {}\n{after}", cfg.marker),
+                "nested" => format!("# BEGIN {}\n{block}", cfg.marker),
+                "duplicate" => format!("{block}{block}"),
+                _ => unreachable!(),
+            };
+            if scenario != "absent" {
+                std::fs::create_dir_all(patch.parent().unwrap()).unwrap();
+                std::fs::write(&patch, &raw).unwrap();
+            }
+            let strategy =
+                DshYamlPatchStrategy::new(root.path().join("data").to_string_lossy().into_owned());
+            let expected = matches!(scenario, "mixed" | "created" | "absent");
+            assert_eq!(
+                strategy.undeploy_recorded(&def, None).await,
+                expected,
+                "{scenario}"
+            );
+            assert!(
+                plugin.is_file(),
+                "{scenario}: plugin asset survives standalone cleanup"
+            );
+            match scenario {
+                "mixed" => assert_eq!(
+                    std::fs::read_to_string(&patch).unwrap(),
+                    format!("{before}{after}")
+                ),
+                "created" => assert!(!patch.exists()),
+                "absent" => assert!(!patch.parent().unwrap().exists()),
+                _ => assert_eq!(std::fs::read_to_string(&patch).unwrap(), raw),
+            }
+            if expected {
+                assert!(!plugin.parent().unwrap().join(DSH_ENABLED_MARKER).exists());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_stale_lock_cleanup_serializes_and_removes_both_lock_files() {
+        let (root, def, plugin, patch) = cleanup_fixture();
+        std::fs::create_dir_all(patch.parent().unwrap()).unwrap();
+        let block = historical_cleanup_block(false);
+        let before = "# user-before\n";
+        let after = "# user-after\n";
+        std::fs::write(&patch, format!("{before}{block}{after}")).unwrap();
+        let lock = format!("{}{}", patch.display(), LOCK_SUFFIX);
+        std::fs::write(&lock, "abandoned").unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&lock)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new().set_modified(SystemTime::now() - Duration::from_secs(60)),
+            )
+            .unwrap();
+        let strategy =
+            DshYamlPatchStrategy::new(root.path().join("data").to_string_lossy().into_owned());
+        let (a, b) = tokio::join!(
+            strategy.undeploy_recorded(&def, None),
+            strategy.undeploy_recorded(&def, None)
+        );
+        assert!(a && b);
+        assert_eq!(
+            std::fs::read_to_string(&patch).unwrap(),
+            format!("{before}{after}")
+        );
+        assert!(!Path::new(&lock).exists());
+        assert!(!Path::new(&format!("{lock}{LOCK_GATE_SUFFIX}")).exists());
+        assert!(!plugin.parent().unwrap().join(DSH_ENABLED_MARKER).exists());
+    }
 }
