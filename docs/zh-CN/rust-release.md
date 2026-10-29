@@ -227,3 +227,7 @@ JXA 策略的 13 处声明已登记为 retained，实际 Linux Vitest 参数展�
 提交 b155c5f 的发布 dry-run 40865140200 中，四个 Linux 与两个 macOS 包成功；Windows 两架构的 Qoder 身份回归通过，随后原生 Hook 在 20 秒上界内未退出。共享 PowerShell 入口改为 Start-Process -NoNewWindow 继承原始标准句柄，避免 PowerShell 管道接管 stdin 与 UTF-8 输出；显式等待主进程，不等待后台重试子进程。Windows 参数按原生 argv 规则逐项转义。失败仍保留原有 fail-open 响应。
 
 新增 Windows PowerShell 5.1 / PowerShell 7、FullLanguage / ConstrainedLanguage 的 BOM、Unicode、空参数、引号及尾部反斜杠回归。测试进程通过现有进程组/Job 管理，超时会清理整个测试进程树并报告 Shell 和语言模式。Linux 默认 1,460 项、all-features 1,462 项通过，严格 clippy 通过，另有两个原有 doc-tests ignored；新增 Windows 行为仍须实跑验证。本轮不延长 20 秒上界，也不跳过失败用例；更后面的 Windows DSH 回归尚未运行，不计作已修复。
+
+2026-10-29 的 d2d9fa4 dry-run 40869976740 中，Windows 两架构仍在首次 PowerShell 5.1 FullLanguage 调用超时，两个独立 Hook 用例都没有 stdout/stderr。进一步发现候选进程管理器强制 CREATE_SUSPENDED 时没有带 CREATE_NO_WINDOW，覆盖了无控制台启动要求；已将两者同时设置，保留执行前加入 Job 和整棵进程树清理。新增独立 PowerShell 首条指令探针，使用相同的隔离环境和原 20 秒界限，使后续 Hook 故障能与 Shell 启动故障区分。Linux 默认 1,473 项、all-features 1,475 项以及严格 clippy 已通过；Windows 启动修订仍待新一轮实跑，不将本轮失败计作通过。
+
+d2d9fa4 本地 proprietary 候选已通过原生安装器替换远端安装，业务配置 mtime 保持不变。新进程 PID 104046 在 12:04:44Z 获接收端接受 pilot_pipeline 批次，本地指标持续刷新，Dashboard 返回 HTTP 200；仍未直接验证 SLS 索引可见性。

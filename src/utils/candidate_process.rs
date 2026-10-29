@@ -148,7 +148,7 @@ mod windows_tree {
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::Threading::{
-        GetProcessIdOfThread, OpenThread, ResumeThread, CREATE_SUSPENDED,
+        GetProcessIdOfThread, OpenThread, ResumeThread, CREATE_NO_WINDOW, CREATE_SUSPENDED,
         THREAD_QUERY_LIMITED_INFORMATION, THREAD_SUSPEND_RESUME,
     };
 
@@ -178,7 +178,9 @@ mod windows_tree {
             {
                 return Err(io::Error::last_os_error());
             }
-            command.creation_flags(CREATE_SUSPENDED);
+            // Isolated candidate commands never need a console. Creating one can
+            // block PowerShell before its first instruction on unattended hosts.
+            command.creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
             Ok(Self {
                 job,
                 terminated: false,
@@ -630,5 +632,42 @@ pub(crate) mod tests {
         .await
         .unwrap();
         stopped(pid).await;
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_powershell_candidate_reaches_its_first_instruction_without_a_console() {
+        let shell = which::which("powershell.exe").expect("Windows PowerShell 5.1");
+        let root = tempfile::tempdir().unwrap();
+        let mut command = tokio::process::Command::new(shell);
+        command
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Write-Output 'PILOT_SHELL_STARTED'",
+            ])
+            .env_clear()
+            .env("HOME", root.path())
+            .env("USERPROFILE", root.path())
+            .env("PATH", root.path().join("no-runtimes"));
+        for key in ["SystemRoot", "WINDIR"] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
+        let result = output(&mut command, Duration::from_secs(20), 64 * 1024)
+            .await
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(result.stdout).unwrap().trim(),
+            "PILOT_SHELL_STARTED"
+        );
+        assert!(result.stderr.is_empty());
     }
 }
