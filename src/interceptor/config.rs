@@ -16,8 +16,11 @@ fn env_value(key: &str) -> Option<String> {
 }
 
 fn process_env(key: &str) -> Option<String> {
-    std::env::var(key)
-        .ok()
+    std::env::var(key).ok()
+}
+
+fn non_blank(value: Option<String>) -> Option<String> {
+    value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
 }
@@ -72,7 +75,7 @@ pub fn build_interceptor_config_with(
     env: impl Fn(&str) -> Option<String>,
 ) -> InterceptorConfig {
     let file = value.and_then(Value::as_object);
-    let mode = env("LOONGSUITE_PILOT_INTERCEPTOR_MODE").or_else(|| {
+    let mode = non_blank(env("LOONGSUITE_PILOT_INTERCEPTOR_MODE")).or_else(|| {
         file.and_then(|obj| obj.get("mode"))
             .and_then(Value::as_str)
             .map(str::to_string)
@@ -94,7 +97,7 @@ pub fn build_interceptor_config_with(
             types: Vec::new(),
         };
     }
-    let types = if let Some(raw) = env("LOONGSUITE_PILOT_INTERCEPTOR_TYPES") {
+    let types = if let Some(raw) = non_blank(env("LOONGSUITE_PILOT_INTERCEPTOR_TYPES")) {
         parse_interceptor_types(TypesInput::Csv(&raw))
     } else if let Some(input) = as_types_input(file.and_then(|obj| obj.get("types"))) {
         parse_interceptor_types(input)
@@ -261,15 +264,28 @@ mod tests {
     #[test]
     fn treats_invalid_mode_as_none() {
         assert_eq!(
-            cfg(json!({"mode": "audit", "types": ["apiKey"]})).mode,
-            MaskMode::None
+            cfg(json!({"mode": "audit", "types": ["apiKey"]})),
+            InterceptorConfig {
+                mode: MaskMode::None,
+                types: vec![]
+            }
         );
     }
 
     #[test]
     fn custom_mode_with_empty_types_enables_nothing() {
-        assert!(cfg(json!({"mode": "custom"})).types.is_empty());
-        assert!(cfg(json!({"mode": "custom", "types": []})).types.is_empty());
+        for value in [
+            json!({"mode":"custom"}),
+            json!({"mode":"custom","types":[]}),
+        ] {
+            assert_eq!(
+                cfg(value),
+                InterceptorConfig {
+                    mode: MaskMode::Custom,
+                    types: vec![]
+                }
+            );
+        }
     }
 
     #[test]
@@ -294,6 +310,7 @@ mod tests {
                 _ => None,
             },
         );
+        assert_eq!(built.mode, MaskMode::Custom);
         assert_eq!(
             built
                 .types
@@ -311,6 +328,13 @@ mod tests {
             types: vec![MaskType::ApiKey],
         })
         .is_empty());
+        assert_eq!(
+            resolve_enabled_interceptor_types(&InterceptorConfig {
+                mode: MaskMode::Custom,
+                types: vec![MaskType::ApiKey]
+            }),
+            HashSet::from([MaskType::ApiKey])
+        );
         let all = resolve_enabled_rule_ids(&InterceptorConfig {
             mode: MaskMode::All,
             types: vec![],
@@ -335,18 +359,32 @@ mod tests {
     #[test]
     fn treats_empty_interceptor_env_values_as_unset() {
         let built =
-            build_interceptor_config_with(Some(&json!({"mode": "all", "types": []})), |_| None);
-        assert_eq!(built.mode, MaskMode::All);
+            build_interceptor_config_with(Some(&json!({"mode": "all", "types": []})), |key| {
+                (key == "LOONGSUITE_PILOT_INTERCEPTOR_MODE").then(|| "  ".to_string())
+            });
+        assert_eq!(
+            built,
+            InterceptorConfig {
+                mode: MaskMode::All,
+                types: vec![]
+            }
+        );
 
         let built = build_interceptor_config_with(
             Some(&json!({"mode": "custom", "types": ["apiKey"]})),
             |key| match key {
                 "LOONGSUITE_PILOT_INTERCEPTOR_MODE" => Some("custom".to_string()),
-                "LOONGSUITE_PILOT_INTERCEPTOR_TYPES" => None,
+                "LOONGSUITE_PILOT_INTERCEPTOR_TYPES" => Some(String::new()),
                 _ => None,
             },
         );
-        assert_eq!(built.types, vec![MaskType::ApiKey]);
+        assert_eq!(
+            built,
+            InterceptorConfig {
+                mode: MaskMode::Custom,
+                types: vec![MaskType::ApiKey]
+            }
+        );
     }
 
     #[test]
@@ -387,7 +425,14 @@ mod tests {
                 types: vec![MaskType::ApiKey],
             },
         );
-        assert_eq!(merged.types, vec![MaskType::Email, MaskType::ApiKey]);
+        assert_eq!(
+            merged,
+            MaskConfig {
+                mode: MaskMode::Custom,
+                types: vec![MaskType::Email, MaskType::ApiKey],
+                replacement_mode: Some(MaskReplacementMode::Placeholder),
+            }
+        );
 
         let all_mask = MaskConfig {
             mode: MaskMode::All,

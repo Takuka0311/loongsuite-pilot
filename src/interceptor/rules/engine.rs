@@ -127,10 +127,18 @@ mod tests {
         let verdict = engine.evaluate(&prompt);
         assert_eq!(verdict.action, VerdictAction::Allow);
         assert!(verdict.evaluated_rules.is_empty());
+        assert_eq!(
+            serde_json::to_value(&verdict).unwrap(),
+            serde_json::json!({"action":"allow","evaluatedRules":[]})
+        );
         prompt.prompt = Some("LTAI1234567890ABCD".to_string());
         let verdict = engine.evaluate(&prompt);
         assert_eq!(verdict.action, VerdictAction::Allow);
         assert!(verdict.evaluated_rules.is_empty());
+        assert_eq!(
+            serde_json::to_value(&verdict).unwrap(),
+            serde_json::json!({"action":"allow","evaluatedRules":[]})
+        );
     }
 
     #[test]
@@ -145,6 +153,10 @@ mod tests {
         let verdict = engine.evaluate(&request());
         assert_eq!(verdict.action, VerdictAction::Allow);
         assert!(verdict.evaluated_rules.is_empty());
+        assert_eq!(
+            serde_json::to_value(&verdict).unwrap(),
+            serde_json::json!({"action":"allow","evaluatedRules":[]})
+        );
     }
 
     #[test]
@@ -191,6 +203,10 @@ mod tests {
             vec!["first".to_string(), "blocker".to_string()]
         );
         assert_eq!(*seen.lock().unwrap(), vec!["first", "blocker"]);
+        assert_eq!(
+            serde_json::to_value(&verdict).unwrap(),
+            serde_json::json!({"action":"block","reason":"stop here","ruleId":"blocker","evaluatedRules":["first","blocker"]})
+        );
     }
 
     #[test]
@@ -206,6 +222,10 @@ mod tests {
         assert_eq!(verdict.action, VerdictAction::Allow);
         assert_eq!(verdict.fail_open, Some(true));
         assert_eq!(verdict.evaluated_rules, vec!["boom".to_string()]);
+        assert_eq!(
+            serde_json::to_value(&verdict).unwrap(),
+            serde_json::json!({"action":"allow","evaluatedRules":["boom"],"failOpen":true})
+        );
     }
 
     #[test]
@@ -225,5 +245,9 @@ mod tests {
         assert_eq!(verdict.reason.as_deref(), Some("tool blocked"));
         assert_eq!(verdict.rule_id.as_deref(), Some("tool"));
         assert_eq!(verdict.evaluated_rules, vec!["tool".to_string()]);
+        assert_eq!(
+            serde_json::to_value(&verdict).unwrap(),
+            serde_json::json!({"action":"block","reason":"tool blocked","ruleId":"tool","evaluatedRules":["tool"]})
+        );
     }
 }

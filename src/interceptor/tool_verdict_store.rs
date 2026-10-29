@@ -493,6 +493,13 @@ mod tests {
         assert!(raw["records"][1].get("sessionId").is_none());
         assert_eq!(raw["records"][1]["toolUseId"], "call-2");
         assert_eq!(raw["records"][1]["action"], "block");
+        assert_eq!(
+            raw["records"],
+            serde_json::json!([
+                {"sessionId":"s1","toolUseId":"call-1","phase":"PreToolUse","action":"allow","recordedAt":"2026-09-23T08:00:00.000Z"},
+                {"toolUseId":"call-2","phase":"PostToolUse","action":"block","recordedAt":"2026-09-23T08:00:00.000Z"}
+            ])
+        );
 
         let restored = ToolVerdictStore::new(&path);
         restored.restore(now);

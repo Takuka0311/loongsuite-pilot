@@ -93,6 +93,7 @@ mod tests {
         assert_eq!(prompt.agent, InterceptorAgent::QwenWorkCn);
         assert_eq!(prompt.event, HookEventName::UserPromptSubmit);
         assert_eq!(prompt.session_id.as_deref(), Some("session-xxxx"));
+        assert_eq!(prompt.prompt.as_deref(), Some("请汇总本季度客户反馈。"));
 
         let pre = parse_qwen_work_hook_request(
             &map(json!({"event": "PreToolUse", "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "id"}, "tool_use_id": "tool-demo-001"})),
@@ -102,6 +103,7 @@ mod tests {
         assert_eq!(pre.event, HookEventName::PreToolUse);
         assert_eq!(pre.tool_name.as_deref(), Some("Bash"));
         assert_eq!(pre.tool_use_id.as_deref(), Some("tool-demo-001"));
+        assert_eq!(pre.tool_input, Some(json!({"command":"id"})));
 
         let hinted = parse_qwen_work_hook_request(
             &map(json!({"event": "PreToolUse", "tool_name": "Bash"})),
@@ -110,6 +112,7 @@ mod tests {
         .unwrap();
         assert_eq!(hinted.agent, InterceptorAgent::QwenWorkCn);
         assert_eq!(hinted.event, HookEventName::PreToolUse);
+        assert_eq!(hinted.tool_name.as_deref(), Some("Bash"));
     }
 
     #[test]

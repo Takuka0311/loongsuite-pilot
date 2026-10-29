@@ -3466,6 +3466,1296 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/engine.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/rules/engine.rs",
+          "test": "allows_builtin_rules_when_they_are_not_enabled"
+        },
+        {
+          "file": "src/interceptor/rules/engine.rs",
+          "test": "bypasses_rules_unless_they_are_in_the_enabled_set"
+        },
+        {
+          "file": "src/interceptor/rules/engine.rs",
+          "test": "executes_enabled_rules_in_registration_order_and_short_circuits"
+        },
+        {
+          "file": "src/interceptor/rules/engine.rs",
+          "test": "fail_opens_when_a_rule_returns_an_error"
+        },
+        {
+          "file": "src/interceptor/rules/engine.rs",
+          "test": "skips_rules_that_do_not_support_the_request"
+        }
+      ],
+      "note": "逐项核对固定历史断言；生产解析器/规则引擎/持久化接口实际执行，补齐原移植中缺失的字段和空白环境输入断言。",
+      "source_hash": "6392c71c85f806c409c4bdc20cbd33280700e19a171ba14b2c8c79896946fe44",
+      "cases": [
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": "allows builtin rules when they are not enabled",
+            "suites": [
+              "RuleEngine"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "未启用内置规则时普通文本与固定敏感样本均 allow，evaluatedRules 为空，wire verdict 无额外字段。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/engine.rs",
+                "test": "allows_builtin_rules_when_they_are_not_enabled"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L48:C3",
+            "title": "bypasses rules unless they are in the enabled set",
+            "suites": [
+              "RuleEngine"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "未列入 enabled 集合的规则不执行且返回精确空规则 allow 合同。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/engine.rs",
+                "test": "bypasses_rules_unless_they_are_in_the_enabled_set"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L59:C3",
+            "title": "executes enabled rules in registration order and short-circuits on the first block",
+            "suites": [
+              "RuleEngine"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "记录实际执行顺序，按注册次序运行并在首次 block 终止，完整 wire verdict 保留 reason/ruleId/evaluatedRules。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/engine.rs",
+                "test": "executes_enabled_rules_in_registration_order_and_short_circuits"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L100:C3",
+            "title": "fail-opens when a rule throws",
+            "suites": [
+              "RuleEngine"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "规则错误终止后续规则，精确返回 allow、failOpen=true 与已求值规则，不泄漏阻断字段。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/engine.rs",
+                "test": "fail_opens_when_a_rule_returns_an_error"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L112:C3",
+            "title": "skips rules that do not support the request",
+            "suites": [
+              "RuleEngine"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "不支持请求的规则被跳过，PreToolUse 仅执行 tool 并返回完整阻断合同。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/engine.rs",
+                "test": "skips_rules_that_do_not_support_the_request"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/tool-verdict-store.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/tool_verdict_store.rs",
+          "test": "keeps_pre_and_post_apart_and_overwrites_the_same_key"
+        },
+        {
+          "file": "src/interceptor/tool_verdict_store.rs",
+          "test": "drops_records_older_than_30_minutes"
+        },
+        {
+          "file": "src/interceptor/tool_verdict_store.rs",
+          "test": "dumps_one_checkpoint_file_and_restores_it"
+        },
+        {
+          "file": "src/interceptor/tool_verdict_store.rs",
+          "test": "ignores_a_corrupt_or_unknown_checkpoint"
+        },
+        {
+          "file": "src/interceptor/tool_verdict_store.rs",
+          "test": "does_not_restore_records_older_than_30_minutes"
+        }
+      ],
+      "note": "逐项核对固定历史断言；生产解析器/规则引擎/持久化接口实际执行，补齐原移植中缺失的字段和空白环境输入断言。",
+      "source_hash": "d2917d46b47532f81659888f2e1dc686199e4386223072f82ead4b3bda7b8f33",
+      "cases": [
+        {
+          "source": {
+            "id": "L11:C3",
+            "title": "keeps Pre and Post apart and overwrites the same key",
+            "suites": [
+              "tool verdict store"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "同 key 覆盖，Pre/Post 分离，session 隔离。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/tool_verdict_store.rs",
+                "test": "keeps_pre_and_post_apart_and_overwrites_the_same_key"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L24:C3",
+            "title": "drops records older than 30 minutes",
+            "suites": [
+              "tool verdict store"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "TTL 恰为 30 分钟仍有效，超出一毫秒即失效。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/tool_verdict_store.rs",
+                "test": "drops_records_older_than_30_minutes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L34:C3",
+            "title": "dumps one checkpoint file and restores it",
+            "suites": [
+              "tool verdict store"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际写一个 schema=1 checkpoint，逐字段核对两个记录含 Post phase/时间和省略 session，再真实恢复两种结果。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/tool_verdict_store.rs",
+                "test": "dumps_one_checkpoint_file_and_restores_it"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L66:C3",
+            "title": "ignores a corrupt or unknown checkpoint",
+            "suites": [
+              "tool verdict store"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际读取截断 JSON 与未知 schema，均不恢复记录。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/tool_verdict_store.rs",
+                "test": "ignores_a_corrupt_or_unknown_checkpoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L80:C3",
+            "title": "does not restore records older than 30 minutes",
+            "suites": [
+              "tool verdict store"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "从实际历史 checkpoint 恢复时过滤超出 TTL 的记录。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/tool_verdict_store.rs",
+                "test": "does_not_restore_records_older_than_30_minutes"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/config.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "defaults_to_none_when_interceptor_config_is_missing"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "defaults_to_none_when_mode_is_missing"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "loads_all_mode_and_ignores_types"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "loads_custom_mode_with_interceptor_types_only"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "treats_invalid_mode_as_none"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "custom_mode_with_empty_types_enables_nothing"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "uses_interceptor_mode_env_over_config_value"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "uses_interceptor_types_env_for_custom_mode"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "resolves_enabled_types_from_mode"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "treats_empty_interceptor_env_values_as_unset"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "unions_enabled_interceptor_types_into_a_mask_plan"
+        },
+        {
+          "file": "src/interceptor/config.rs",
+          "test": "treats_missing_and_disabled_types_as_bypass"
+        }
+      ],
+      "note": "逐项核对固定历史断言；生产解析器/规则引擎/持久化接口实际执行，补齐原移植中缺失的字段和空白环境输入断言。",
+      "source_hash": "7c5b256f27a7c96bde4f19db4f43f05de2edb49052e11d202fcd24df872a29c9",
+      "cases": [
+        {
+          "source": {
+            "id": "L15:C3",
+            "title": "defaults to none when interceptor config is missing",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺失、null、数组配置均为 none 空 types。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "defaults_to_none_when_interceptor_config_is_missing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L21:C3",
+            "title": "defaults to none when interceptor.mode is missing",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "仅 types 不隐式启用拦截。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "defaults_to_none_when_mode_is_missing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L25:C3",
+            "title": "loads all mode and ignores types",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "all 模式忽略配置 types。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "loads_all_mode_and_ignores_types"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L32:C3",
+            "title": "loads custom mode with interceptor types only",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "custom 保留四种支持的凭据类型并过滤个人信息类型，维持顺序。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "loads_custom_mode_with_interceptor_types_only"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L52:C3",
+            "title": "treats invalid mode as none",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "非法 audit 模式回退 none 且清空 types。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "treats_invalid_mode_as_none"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L59:C3",
+            "title": "custom mode with empty or omitted types enables no interceptor types",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "custom 缺省或空 types 都保留 custom 且无启用规则。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "custom_mode_with_empty_types_enables_nothing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L64:C3",
+            "title": "uses interceptor mode env over config value",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "环境 mode 优先于文件配置并清空 all 的 types。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "uses_interceptor_mode_env_over_config_value"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L72:C3",
+            "title": "uses interceptor types env for custom mode and filters unsupported values",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "custom 的环境 CSV 覆盖文件 types 并过滤不支持类型。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "uses_interceptor_types_env_for_custom_mode"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L87:C3",
+            "title": "resolves enabled types from mode",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "none/all/custom 按支持集合解析启用类型，all 集合与固定支持表相同。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "resolves_enabled_types_from_mode"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L98:C3",
+            "title": "treats empty interceptor env values as unset",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际向生产解析边界传入空白 mode 和空字符串 types，均按未设置回退文件配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "treats_empty_interceptor_env_values_as_unset"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L110:C3",
+            "title": "unions enabled interceptor types into a mask plan that is not already all",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "拦截类型并入 none/custom 脱敏计划，保留替换模式；已有 all 或无额外规则时原值不变。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "unions_enabled_interceptor_types_into_a_mask_plan"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L137:C3",
+            "title": "treats missing and disabled types as bypass",
+            "suites": [
+              "interceptor config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "none、空 custom、未选类型均 bypass，已选及 all 支持类型启用，不支持 idCard 始终旁路。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/config.rs",
+                "test": "treats_missing_and_disabled_types_as_bypass"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/qoder-adapter.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/adapters/qoder.rs",
+          "test": "parses_official_and_aliased_event_names"
+        },
+        {
+          "file": "src/interceptor/adapters/qoder.rs",
+          "test": "renders_desktop_user_prompt_as_decision_block"
+        },
+        {
+          "file": "src/interceptor/adapters/qoder.rs",
+          "test": "renders_cli_user_prompt_as_decision_deny"
+        },
+        {
+          "file": "src/interceptor/adapters/qoder.rs",
+          "test": "renders_pre_tool_use_the_same_way_for_both_surfaces"
+        },
+        {
+          "file": "src/interceptor/adapters/qoder.rs",
+          "test": "renders_post_tool_use_by_replacing_the_tool_output"
+        },
+        {
+          "file": "src/interceptor/adapters/qoder.rs",
+          "test": "keeps_tool_response_on_parsed_post_tool_use_requests"
+        }
+      ],
+      "note": "逐项核对固定历史断言；生产解析器/规则引擎/持久化接口实际执行，补齐原移植中缺失的字段和空白环境输入断言。",
+      "source_hash": "399928cfe8e09bd56ce69d49befd09e27923ac784d3e96bff10608daed9829d1",
+      "cases": [
+        {
+          "source": {
+            "id": "L16:C3",
+            "title": "parses official and aliased event names",
+            "suites": [
+              "Qoder adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "接受官方与 snake/kebab 事件别名，过滤 Stop。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qoder.rs",
+                "test": "parses_official_and_aliased_event_names"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L26:C3",
+            "title": "renders Desktop UserPromptSubmit as decision=block",
+            "suites": [
+              "Qoder adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Desktop prompt 输出 decision=block/reason，JSON 行以换行结尾。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qoder.rs",
+                "test": "renders_desktop_user_prompt_as_decision_block"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L32:C3",
+            "title": "renders CLI UserPromptSubmit as decision=deny",
+            "suites": [
+              "Qoder adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "CLI prompt 输出 decision=deny/reason，JSON 行以换行结尾。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qoder.rs",
+                "test": "renders_cli_user_prompt_as_decision_deny"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L38:C3",
+            "title": "renders PreToolUse the same way for both surfaces",
+            "suites": [
+              "Qoder adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Desktop 与 CLI 的 PreToolUse 均输出完整 hookSpecificOutput deny 合同。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qoder.rs",
+                "test": "renders_pre_tool_use_the_same_way_for_both_surfaces"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L50:C3",
+            "title": "renders PostToolUse by replacing the tool output",
+            "suites": [
+              "Qoder adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "两个 surface 的 PostToolUse 都替换 updatedToolOutput。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qoder.rs",
+                "test": "renders_post_tool_use_by_replacing_the_tool_output"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L61:C3",
+            "title": "keeps tool_response on parsed PostToolUse requests",
+            "suites": [
+              "Qoder adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "解析 CLI PostToolUse 时保留结构化 tool_response。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qoder.rs",
+                "test": "keeps_tool_response_on_parsed_post_tool_use_requests"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/qwenwork-adapter.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/adapters/qwenwork.rs",
+          "test": "parses_official_snake_case_payloads"
+        },
+        {
+          "file": "src/interceptor/adapters/qwenwork.rs",
+          "test": "skips_stop_and_other_non_intercept_events"
+        },
+        {
+          "file": "src/interceptor/adapters/qwenwork.rs",
+          "test": "renders_user_prompt_as_decision_block"
+        },
+        {
+          "file": "src/interceptor/adapters/qwenwork.rs",
+          "test": "renders_pre_tool_use_as_permission_deny"
+        },
+        {
+          "file": "src/interceptor/adapters/qwenwork.rs",
+          "test": "renders_post_tool_use_as_updated_tool_output"
+        },
+        {
+          "file": "src/interceptor/adapters/qwenwork.rs",
+          "test": "uses_an_empty_object_for_allow_bodies"
+        }
+      ],
+      "note": "逐项核对固定历史断言；生产解析器/规则引擎/持久化接口实际执行，补齐原移植中缺失的字段和空白环境输入断言。",
+      "source_hash": "e82d86c3c5dad1b3a5a27d6ed9ebb7f00670a94818368c78c25a58023bf843b5",
+      "cases": [
+        {
+          "source": {
+            "id": "L22:C3",
+            "title": "parses official snake_case payloads as qwen-work-cn",
+            "suites": [
+              "QwenWork adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "官方 prompt/session 与 PreToolUse 的 toolName/toolInput/toolUseId 逐字段保留，event 提示后备同样生效。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qwenwork.rs",
+                "test": "parses_official_snake_case_payloads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L57:C3",
+            "title": "skips Stop and other non-intercept events",
+            "suites": [
+              "QwenWork adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Stop 与 SessionStart 均不进入拦截。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qwenwork.rs",
+                "test": "skips_stop_and_other_non_intercept_events"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L62:C3",
+            "title": "renders UserPromptSubmit as decision=block, not CLI deny",
+            "suites": [
+              "QwenWork adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "办公 prompt 阻断使用 block 并包装用户可见原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qwenwork.rs",
+                "test": "renders_user_prompt_as_decision_block"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L69:C3",
+            "title": "renders PreToolUse as permissionDecision=deny",
+            "suites": [
+              "QwenWork adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "PreToolUse 输出 permissionDecision=deny 与包装后的原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qwenwork.rs",
+                "test": "renders_pre_tool_use_as_permission_deny"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L79:C3",
+            "title": "renders PostToolUse as updatedToolOutput rather than decision=block",
+            "suites": [
+              "QwenWork adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "PostToolUse 只替换工具输出，无顶层 decision。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qwenwork.rs",
+                "test": "renders_post_tool_use_as_updated_tool_output"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L93:C3",
+            "title": "uses an empty object for allow / fail-open HTTP bodies",
+            "suites": [
+              "QwenWork adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "allow/fail-open HTTP body 是空对象。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/qwenwork.rs",
+                "test": "uses_an_empty_object_for_allow_bodies"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/openclaw-adapter.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/interceptor/adapters/openclaw.rs",
+          "test": "maps_native_openclaw_hook_names"
+        },
+        {
+          "file": "src/interceptor/adapters/openclaw.rs",
+          "test": "parses_native_prompt_and_tool_payloads"
+        },
+        {
+          "file": "src/interceptor/adapters/openclaw.rs",
+          "test": "keeps_the_persisted_tool_message_as_post_tool_response"
+        },
+        {
+          "file": "src/interceptor/adapters/openclaw.rs",
+          "test": "renders_before_agent_run_block"
+        },
+        {
+          "file": "src/interceptor/adapters/openclaw.rs",
+          "test": "renders_before_tool_call_as_block"
+        },
+        {
+          "file": "src/interceptor/adapters/openclaw.rs",
+          "test": "renders_tool_result_persist_by_replacing_message_content"
+        },
+        {
+          "file": "src/interceptor/adapters/openclaw.rs",
+          "test": "renders_tool_result_middleware_as_result"
+        }
+      ],
+      "note": "逐项核对固定历史断言；生产解析器/规则引擎/持久化接口实际执行，补齐原移植中缺失的字段和空白环境输入断言。",
+      "source_hash": "a312ddc278e9044fca013c8ad08e2fb45bfeeff3a1dec552172bc3de09ff1537",
+      "cases": [
+        {
+          "source": {
+            "id": "L22:C3",
+            "title": "maps native OpenClaw hook names onto interceptor events",
+            "suites": [
+              "OpenClaw adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "四个原生 hook 映射三个事件，Stop 被过滤。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/openclaw.rs",
+                "test": "maps_native_openclaw_hook_names"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L30:C3",
+            "title": "parses native OpenClaw prompt and tool payloads",
+            "suites": [
+              "OpenClaw adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "prompt/session/cwd 与 toolName/params/toolCallId 在实际解析器中逐字段保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/openclaw.rs",
+                "test": "parses_native_prompt_and_tool_payloads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L57:C3",
+            "title": "keeps the persisted tool message as PostToolUse toolResponse",
+            "suites": [
+              "OpenClaw adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "持久化工具 message 原结构保留为 PostToolUse toolResponse。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/openclaw.rs",
+                "test": "keeps_the_persisted_tool_message_as_post_tool_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L66:C3",
+            "title": "renders before_agent_run as outcome=block with an internal reason and user message",
+            "suites": [
+              "OpenClaw adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "before_agent_run 输出 outcome=block、内部 reason 和面向用户包装后的 message。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/openclaw.rs",
+                "test": "renders_before_agent_run_block"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L75:C3",
+            "title": "renders before_tool_call as block + blockReason",
+            "suites": [
+              "OpenClaw adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "before_tool_call 输出 block=true 与 blockReason。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/openclaw.rs",
+                "test": "renders_before_tool_call_as_block"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L82:C3",
+            "title": "renders tool_result_persist by replacing message content",
+            "suites": [
+              "OpenClaw adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool_result_persist 保留 toolCallId 并只替换消息文本。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/openclaw.rs",
+                "test": "renders_tool_result_persist_by_replacing_message_content"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L95:C3",
+            "title": "renders tool_result_middleware as result for the same-turn model path",
+            "suites": [
+              "OpenClaw adapter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "同轮 middleware 使用 result，保留 details 并替换 content。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/adapters/openclaw.rs",
+                "test": "renders_tool_result_middleware_as_result"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
