@@ -150,20 +150,7 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
     let start = Instant::now();
     let mut child =
         spawn_with_writer_retry(&mut command, start + timeout.min(Duration::from_secs(1))).unwrap();
-    #[cfg(windows)]
-    let mut phases = Vec::<(String, u64)>::new();
-    #[cfg(windows)]
-    let mut next_phase_sample = Instant::now();
     let status = loop {
-        #[cfg(windows)]
-        if Instant::now() >= next_phase_sample {
-            if let Some(phase) = child_bridge_phase(child.id()) {
-                if phases.last().is_none_or(|(last, _)| last != &phase) {
-                    phases.push((phase, start.elapsed().as_millis() as u64));
-                }
-            }
-            next_phase_sample = Instant::now() + Duration::from_secs(1);
-        }
         if let Some(status) = child.try_wait().unwrap() {
             break status;
         }
@@ -188,8 +175,6 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
                 .unwrap_or("shell-startup");
             #[cfg(windows)]
             let stage = environment_stage.as_deref().unwrap_or(stage);
-            #[cfg(windows)]
-            eprintln!("Controlled bridge phase timings (milliseconds): {phases:?}");
             panic!(
                 "安装辅助入口超时 (stage={stage}, shell={})",
                 command.get_program().to_string_lossy()
@@ -1504,7 +1489,9 @@ fn windows_installer_config_bridge_preserves_unicode_and_environment_in_both_she
             )
             .unwrap();
             let source = include_str!("../deploy/installer-opensource.ps1");
-            let mut script = String::from("\u{feff}$env:PILOT_TEST_STAGE = 'shell-entry'\nWrite-Output 'PILOT_BRIDGE_STAGE:shell-entry'\n$ErrorActionPreference = 'Stop'\n");
+            let mut script = String::from(
+                "\u{feff}$env:PILOT_TEST_STAGE = 'shell-entry'\n$ErrorActionPreference = 'Stop'\n",
+            );
             if constrained {
                 script.push_str(
                     "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n",
@@ -1544,21 +1531,17 @@ $script:PROBE_RESULT = '[]'
 $env:TEMP = $env:TEST_NATIVE_TEMP
 $env:TMP = $env:TEST_NATIVE_TEMP
 $env:PILOT_TEST_STAGE = 'check-deps'
-Write-Output 'PILOT_BRIDGE_STAGE:check-deps'
 Check-Deps
 $env:PILOT_TEST_STAGE = 'probe-agents'
-Write-Output 'PILOT_BRIDGE_STAGE:probe-agents'
 Probe-Agents
 if (@($script:PROBE_RESULT | ConvertFrom-Json).Count -lt 1) { throw 'empty native probe result' }
 $env:PILOT_TEST_STAGE = 'check-config'
-Write-Output 'PILOT_BRIDGE_STAGE:check-config'
 Assert-SingleSlsConfig
 $DATA_DIR = $DataDir
 $CACHE_DIR = $env:LOONGSUITE_PILOT_CACHE_DIR
 $CONFIG_FILE = Join-Path $DataDir 'config.json'
 $binary = Join-Path $script:INSTALL_SRC 'bin\loongsuite-pilot.exe'
 $env:PILOT_TEST_STAGE = 'service-version'
-Write-Output 'PILOT_BRIDGE_STAGE:service-version'
 Invoke-Pilot -Binary $binary -Arguments @('--version') | Out-Null
 if ($script:PilotExitCode -ne 0) { throw 'native success exit code lost' }
 Invoke-Pilot -Binary $binary -Arguments @('--invalid-fixture-option') | Out-Null
