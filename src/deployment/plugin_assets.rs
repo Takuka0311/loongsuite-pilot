@@ -57,7 +57,16 @@ where
 
 fn bundle(def: &AgentDefinition) -> Result<(&'static str, &'static [&'static str])> {
     match def.id.as_str() {
-        "opencode" => Ok(("opencode/plugin.mjs", &["opencode/plugin.mjs", SHARED])),
+        "opencode" => Ok((
+            "opencode",
+            &[
+                "opencode/index.js",
+                "opencode/package.json",
+                "opencode/plugin.mjs",
+                "opencode/v2.mjs",
+                SHARED,
+            ],
+        )),
         "mimo-code" => Ok((
             "mimo-code/plugin.mjs",
             &["mimo-code/plugin.mjs", "mimo-code/package.json", SHARED],
@@ -743,7 +752,7 @@ mod tests {
                 .unwrap()
                 .to_file_path()
                 .unwrap(),
-            root.path().join("安装 B/plugins/opencode/plugin.mjs")
+            root.path().join("安装 B/plugins/opencode")
         );
         assert!(text.contains("// 用户配置"));
         assert_eq!(

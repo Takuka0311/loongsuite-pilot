@@ -1402,6 +1402,11 @@ fn resolve_group_key(entry: &AgentActivityEntry) -> (KeySource, String, String) 
 
 fn is_terminal_event(entry: &AgentActivityEntry) -> bool {
     let agent_type = normalize_agent_type(&entry.agent_type);
+    if agent_type == "opencode"
+        && entry_str(entry, "agent.opencode.collection").as_deref() == Some("v2")
+    {
+        return entry_bool(entry, "gen_ai.turn.end") == Some(true);
+    }
     if agent_type == "hermes"
         && entry_str(entry, "agent.hermes.collection").as_deref() == Some("realtime-v1")
     {
@@ -2436,6 +2441,45 @@ mod tests {
         flusher.shutdown().await.unwrap();
         assert_eq!(converter.calls.lock().unwrap().len(), 1);
         assert_eq!(converter.calls.lock().unwrap()[0].len(), 2);
+    }
+
+    #[tokio::test]
+    async fn opencode_v2_flushes_only_execution_completion_and_v1_keeps_finish_reason_behavior() {
+        for v2 in [false, true] {
+            let (flusher, converter) = make_flusher();
+            let mut request = json!({"event.name":"llm.request","gen_ai.agent.type":"opencode",
+                "gen_ai.session.id":"session-1","gen_ai.turn.id":"turn",
+                "trace_id":"4bf92f3577b34da6a3ce929d0e0e4736"});
+            if v2 {
+                request["agent.opencode.collection"] = json!("v2");
+            }
+            flusher.send(entry(request.clone()), None).await.unwrap();
+            let mut response = request.clone();
+            response["event.name"] = json!("llm.response");
+            response["gen_ai.response.finish_reasons"] = json!(["stop"]);
+            flusher.send(entry(response.clone()), None).await.unwrap();
+            if !v2 {
+                assert_eq!(converter.calls.lock().unwrap()[0].len(), 2);
+                flusher.shutdown().await.unwrap();
+                continue;
+            }
+            assert!(converter.calls.lock().unwrap().is_empty());
+            for name in ["tool.call", "tool.result", "llm.request", "llm.response"] {
+                let mut record = request.clone();
+                record["event.name"] = json!(name);
+                record["gen_ai.response.finish_reasons"] = json!(["error"]);
+                record["error.type"] = json!("RetryableModelError");
+                flusher.send(entry(record), None).await.unwrap();
+                assert!(converter.calls.lock().unwrap().is_empty());
+            }
+            response["event.name"] = json!("other");
+            response["gen_ai.turn.end"] = json!(true);
+            flusher.send(entry(response), None).await.unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+            assert_eq!(converter.calls.lock().unwrap()[0].len(), 7);
+            flusher.shutdown().await.unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+        }
     }
 
     #[tokio::test]

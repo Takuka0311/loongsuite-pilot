@@ -192,6 +192,9 @@ fn package(root: &Path) -> PathBuf {
         "assets/plugins/openclaw/interceptor.mjs",
         "assets/plugins/openclaw/first-token.mjs",
         "assets/plugins/opencode/plugin.mjs",
+        "assets/plugins/opencode/index.js",
+        "assets/plugins/opencode/package.json",
+        "assets/plugins/opencode/v2.mjs",
         "assets/plugins/mimo-code/plugin.mjs",
         "assets/plugins/mimo-code/package.json",
         "assets/plugins/pi-coding-agent/index.mjs",
@@ -1524,7 +1527,14 @@ fn packaged_flat_plugins_deploy_real_assets_and_status_never_repairs() {
             } else {
                 PathBuf::from(spec)
             };
-            assert_eq!(referenced, deployed);
+            assert_eq!(
+                referenced,
+                if id == "opencode" {
+                    deployed.parent().unwrap().to_path_buf()
+                } else {
+                    deployed.clone()
+                }
+            );
             assert_eq!(
                 fs::read(&deployed).unwrap(),
                 fs::read(candidate.join("assets/plugins").join(entry)).unwrap()

@@ -8,6 +8,9 @@
 
 ## 2026-10-29 开发收口进展（尚未发布）
 
+- main ca54c11（#475）的 OpenCode V1/V2 兼容已移植：原生安装事务携带 index.js/package.json/plugin.mjs/v2.mjs，以目录 URI 为统一入口；同时清理 plugin/plugins 中本安装的旧文件、包名、tuple 和 package 对象引用，保留其他安装、用户对象及注释。健康检查可发现重引入旧项，迁移/重装/卸载及包内真实资产修复回归通过。Rust 输入把 V1 序列化工具 JSON 与 V2 原生 JSON 归一，保留普通/截断文本；V2 仅 execution 的 turn.end 关闭输出缓冲，步骤结束与可重试错误不提前截断，V1 finish reason 行为保留。50 项原语言宿主测试通过并加入既有 CI；严格 clippy、默认 1,459 项及 all-features 1,461 项通过，两个原有 doc-test ignored。真实 CLI/模型兼容脚本已同步但未执行，仍受已同意暂缓真实 Agent 注入矩阵的范围限制。
+- d68b532 的八平台 dry-run 40860815058 通过四个 Linux 包；Windows 两架构在 Qoder CLI 缓存身份专项失败，macOS 两架构在 Hook 崩溃后恢复的目标集合校验失败。新增逐轮关联测试在已执行的平台通过，整体仍失败；下一批修复这两处平台差异。DSH 原锁竞争阻塞仍保留，不能因本轮在更早的步骤退出就视为已消失。
+
 - main 的 4e019d0（#508）已由 Rust 承接逐轮上游关联：原子发布完整 owner 标记，保留 Node JSON 字段顺序与摘要兼容；native turn 可重放自己的上下文，其他轮次/进程不可重复消费。输入优先关联但保留源顺序，空元数据不消耗 session 回退，原生 subagent 父关系优先；producer UTF-8 全文 hash 支持展示截断，claim 随有效来源保留。OpenClaw 丢弃 before_model_resolve 元数据，Hermes 原生宿主插件同步上游暂存/重试逻辑。回归包括 8 进程竞争、重启/淘汰重放、精确 mtime 下追加、归属文件兼容、四类真实插件重放 × 单批/逐条的 Rust InputManager→converter 链路及 token/父子树断言；不将这些回放当作真实 Agent 注入验收。宿主测试仍用原语言，在独立 Python 3.12 下验证并加入现有 CI；Rust 回放使用校验 producer/source 摘要的生成 fixture，Cargo 测试和安装运行不依赖 Python。宿主 73 项、原生关联/链路 8 项通过；严格 clippy 和默认 1,455 项、all-features 1,457 项全量通过，原有两个 doc-test 仍 ignored。Windows/macOS 的现有发布任务加入 upstream_context，不增加 runner；该新分组的跨平台实跑仍待执行。
 
 - 内部心跳补齐为可配置的 WebTracking 发送路径：仅 proprietary 构建读取实际 dataDir 下的 `configs/inner/telemetry_config.json`（schema 1，alarm/status 各有 url），公开版即便存在该文件也不连接。目标来自私有安装配置，不写入公开仓库或业务输出配置；缺失/损坏/超出 64 KiB 时保持关闭。真实 HTTP 回归覆盖告警/状态 JSON、中文、400 不重试、503 重试、整体超时；独立进程从 load_config 到生产 sender 验证 dataDir 生效及公开版不发送。网络日志只保留错误类别/状态码，不记录 URL、请求体或响应体。严格 clippy 及隔离 HOME 的默认 1,447 项、all-features 1,449 项回归通过，原有两个 doc-test 仍 ignored。52c0dad 内部候选已替换远端安装并启动，业务配置 mtime 未变；2026-10-29 10:27:23Z 的真实接收端已接受 pilot_pipeline 批次，Dashboard 为 HTTP 200、四类本地指标持续刷新。这里只确认 HTTP 接受，尚未直接查询 SLS 索引可见性。

@@ -57,3 +57,7 @@ jobs:
         env:
           PILOT_MIGRATION_REPORT: target/migration-audit/hermes-host-linux.json
         run: npm run test:host:hermes -- --reporter=default --reporter=./scripts/testing/migration-reporter.mjs
+      - name: OpenCode V1/V2 宿主插件回归
+        env:
+          PILOT_MIGRATION_REPORT: target/migration-audit/opencode-host-linux.json
+        run: npm run test:host:opencode -- --reporter=default --reporter=./scripts/testing/migration-reporter.mjs

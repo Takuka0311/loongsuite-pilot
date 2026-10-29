@@ -162,18 +162,8 @@ impl PluginInjectStrategy {
     }
 
     fn matches_spec(&self, entry: &Value, resolved_spec: &str, _plugin_id: &str) -> bool {
-        let entry_str = if let Some(text) = entry.as_str() {
-            text.to_string()
-        } else if let Some(first) = entry
-            .as_array()
-            .and_then(|items| items.first())
-            .and_then(Value::as_str)
-        {
-            first.to_string()
-        } else {
-            String::new()
-        };
-        self.same_spec(&entry_str, resolved_spec)
+        let entry_str = entry_spec(entry).unwrap_or_default();
+        self.same_spec(entry_str, resolved_spec)
     }
 
     fn to_openclaw_path(&self, spec: &str) -> String {
@@ -262,61 +252,103 @@ impl PluginInjectStrategy {
         entry
     }
 
+    fn flat_plugin_keys(&self, json: &Value, config: &PluginInjectConfig) -> Vec<String> {
+        if let Some(key) = &config.config_key {
+            return if json.get(key).is_some_and(Value::is_array) {
+                vec![key.clone()]
+            } else {
+                Vec::new()
+            };
+        }
+        ["plugin", "plugins"]
+            .into_iter()
+            .filter(|key| json.get(*key).is_some_and(Value::is_array))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn flat_removal_matches(
+        &self,
+        entry: &Value,
+        resolved_spec: &str,
+        config: &PluginInjectConfig,
+    ) -> bool {
+        self.matches_spec(entry, resolved_spec, &config.plugin_id)
+            || entry_spec(entry).is_some_and(|text| {
+                config.replace_specs.as_ref().is_some_and(|specs| {
+                    specs
+                        .iter()
+                        .any(|old| self.openclaw_replacement_matches(text, old))
+                })
+            })
+    }
+
     fn flat_array_inject(
         &self,
         json: &mut Value,
         resolved_spec: &str,
         config: &PluginInjectConfig,
     ) -> bool {
-        let plugin_key = if let Some(key) = &config.config_key {
-            key.clone()
-        } else if json.get("plugins").and_then(Value::as_array).is_some() {
-            "plugins".into()
-        } else {
-            "plugin".into()
-        };
-        let object = json.as_object_mut().unwrap();
-        let mut found = false;
-        let mut filtered = Vec::new();
-        for entry in object
-            .get(&plugin_key)
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if self.matches_spec(entry, resolved_spec, &config.plugin_id) {
-                // 保留首次出现的位置；不能把两个安装的引用反复移动到末尾。
-                if !found {
-                    filtered.push(Value::String(resolved_spec.to_string()));
-                    found = true;
+        let primary = config.config_key.clone().unwrap_or_else(|| {
+            if json.get("plugins").is_some_and(Value::is_array) {
+                "plugins".into()
+            } else {
+                "plugin".into()
+            }
+        });
+        if !json.get(&primary).is_some_and(Value::is_array) {
+            json.as_object_mut()
+                .unwrap()
+                .insert(primary.clone(), Value::Array(Vec::new()));
+        }
+        let keys = self.flat_plugin_keys(json, config);
+        let mut mutated = false;
+        for key in keys {
+            let mut found = false;
+            let mut filtered = Vec::new();
+            for entry in json[&key].as_array().unwrap() {
+                if self.matches_spec(entry, resolved_spec, &config.plugin_id) {
+                    // Keep the first owned position stable when other installs
+                    // share the array; canonicalize object/tuple references.
+                    if key == primary && !found {
+                        filtered.push(Value::String(resolved_spec.into()));
+                        found = true;
+                    }
+                } else if !self.flat_removal_matches(entry, resolved_spec, config) {
+                    filtered.push(entry.clone());
                 }
-                continue;
             }
-            let text = entry
-                .as_str()
-                .or_else(|| {
-                    entry
-                        .as_array()
-                        .and_then(|items| items.first())
-                        .and_then(Value::as_str)
-                })
-                .unwrap_or("");
-            let legacy = config.replace_specs.as_ref().is_some_and(|replace| {
-                replace
-                    .iter()
-                    .any(|old| self.openclaw_replacement_matches(text, old))
-            });
-            if !legacy {
-                filtered.push(entry.clone());
+            if key == primary && !found {
+                filtered.push(Value::String(resolved_spec.into()));
+            }
+            let desired = Value::Array(filtered);
+            if json[&key] != desired {
+                json[&key] = desired;
+                mutated = true;
             }
         }
-        if !found {
-            filtered.push(Value::String(resolved_spec.to_string()));
-        }
-        let desired = Value::Array(filtered);
-        let mutated = object.get(&plugin_key) != Some(&desired);
-        if mutated {
-            object.insert(plugin_key, desired);
+        mutated
+    }
+
+    fn flat_array_remove(
+        &self,
+        json: &mut Value,
+        resolved_spec: &str,
+        config: &PluginInjectConfig,
+    ) -> bool {
+        let mut mutated = false;
+        for key in self.flat_plugin_keys(json, config) {
+            let filtered: Vec<_> = json[&key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|entry| !self.flat_removal_matches(entry, resolved_spec, config))
+                .cloned()
+                .collect();
+            if filtered.len() != json[&key].as_array().unwrap().len() {
+                json[&key] = Value::Array(filtered);
+                mutated = true;
+            }
         }
         mutated
     }
@@ -720,27 +752,7 @@ impl PluginInjectStrategy {
         let mutated = if self.is_openclaw_nested(config) {
             self.openclaw_remove(&mut json, &resolved, config)
         } else {
-            let plugin_key = if let Some(key) = &config.config_key {
-                key.clone()
-            } else if json.get("plugins").and_then(Value::as_array).is_some() {
-                "plugins".into()
-            } else {
-                "plugin".into()
-            };
-            if !json.get(&plugin_key).is_some_and(Value::is_array) {
-                return Ok(true);
-            }
-            let before = json[&plugin_key].as_array().unwrap().len();
-            let filtered: Vec<Value> = json[&plugin_key]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|entry| !self.matches_spec(entry, &resolved, &config.plugin_id))
-                .cloned()
-                .collect();
-            let mutated = filtered.len() < before;
-            json[&plugin_key] = Value::Array(filtered);
-            mutated
+            self.flat_array_remove(&mut json, &resolved, config)
         };
         if mutated {
             write_plugin_config(config_path, Some(&raw), &json, false).await?;
@@ -797,6 +809,18 @@ impl PluginInjectStrategy {
         }
         desired != json
     }
+}
+
+fn entry_spec(entry: &Value) -> Option<&str> {
+    entry
+        .as_str()
+        .or_else(|| {
+            entry
+                .as_array()
+                .and_then(|items| items.first())
+                .and_then(Value::as_str)
+        })
+        .or_else(|| entry.get("package").and_then(Value::as_str))
 }
 
 fn ensure_object(value: &mut Value, key: &str) {
@@ -1471,7 +1495,7 @@ mod tests {
         let other = second.resolve_spec(&config.plugin_spec);
         assert_eq!(
             reqwest::Url::parse(&own).unwrap().to_file_path().unwrap(),
-            a.join("plugins/opencode/plugin.mjs")
+            a.join("plugins/opencode")
         );
         let users = serde_json::json!([
             "user-loongsuite-pilot-opencode", "loongsuite-pilot-opencode-unrelated",
@@ -1647,5 +1671,125 @@ mod tests {
                 .unwrap();
         assert_eq!(parsed["a"], "http://x");
         assert_eq!(parsed["b"], 1);
+    }
+    #[tokio::test]
+    async fn opencode_directory_migration_reconciles_both_arrays_and_object_specs_without_touching_other_installs(
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("本安装 %23#🚀");
+        let other = root.path().join("另一安装 %23#🚀");
+        let settings = root.path().join("opencode.jsonc");
+        let mut def: AgentDefinition =
+            serde_json::from_str(include_str!("../../agents.d/opencode.json")).unwrap();
+        def.plugin_inject.as_mut().unwrap().config_paths =
+            vec![settings.to_string_lossy().into_owned()];
+        let mut strategy = PluginInjectStrategy::new(
+            data.to_string_lossy().into_owned(),
+            env!("CARGO_MANIFEST_DIR").into(),
+        );
+        let old = reqwest::Url::from_file_path(data.join("plugins/opencode/plugin.mjs"))
+            .unwrap()
+            .to_string();
+        let foreign = reqwest::Url::from_file_path(other.join("plugins/opencode/plugin.mjs"))
+            .unwrap()
+            .to_string();
+        let own = strategy.resolve_spec(&def.plugin_inject.as_ref().unwrap().plugin_spec);
+        let user = serde_json::json!({"package":"user-plugin@2","options":{"keep":true}});
+        let json = serde_json::json!({
+            "theme":"保留🚀",
+            "plugin":[old, {"package":old,"args":["legacy"]}, {"package":foreign}, "loongsuite-pilot-opencode@0.1.0"],
+            "plugins":[user, {"package":format!("{own}/")}, [old,{"legacy":true}], "loongsuite-pilot-opencode-smoke"],
+        });
+        let raw = format!(
+            "// 用户注释🚀\n{}\n",
+            serde_json::to_string_pretty(&json).unwrap()
+        );
+        std::fs::write(&settings, &raw).unwrap();
+        assert!(strategy.needs_deploy_with(&def, None).await);
+        assert!(strategy.deploy_with(&def).await.success);
+        let installed_raw = std::fs::read_to_string(&settings).unwrap();
+        assert!(installed_raw.contains("// 用户注释🚀"));
+        let installed =
+            parse_plugin_config(&installed_raw, def.plugin_inject.as_ref().unwrap()).unwrap();
+        assert_eq!(installed["theme"], "保留🚀");
+        assert_eq!(
+            installed["plugin"],
+            serde_json::json!([{"package":foreign}])
+        );
+        assert_eq!(installed["plugins"], serde_json::json!([user, own]));
+        for file in ["index.js", "package.json", "plugin.mjs", "v2.mjs"] {
+            assert_eq!(
+                std::fs::read(data.join("plugins/opencode").join(file)).unwrap(),
+                std::fs::read(
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("assets/plugins/opencode")
+                        .join(file)
+                )
+                .unwrap()
+            );
+        }
+        assert!(!strategy.needs_deploy_with(&def, None).await);
+        assert!(strategy.deploy_with(&def).await.success);
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), installed_raw);
+        let mut reintroduced = installed.clone();
+        reintroduced["plugin"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"package":old}));
+        std::fs::write(&settings, format!("// 用户注释🚀\n{}\n", reintroduced)).unwrap();
+        assert!(strategy.needs_deploy_with(&def, None).await);
+        assert!(strategy.deploy_with(&def).await.success);
+        assert!(!strategy.needs_deploy_with(&def, None).await);
+        assert_eq!(
+            parse_plugin_config(
+                &std::fs::read_to_string(&settings).unwrap(),
+                def.plugin_inject.as_ref().unwrap()
+            )
+            .unwrap(),
+            installed
+        );
+        assert!(strategy.remove_plugin(&def).await);
+        let cleaned_raw = std::fs::read_to_string(&settings).unwrap();
+        assert!(cleaned_raw.contains("// 用户注释🚀"));
+        let cleaned =
+            parse_plugin_config(&cleaned_raw, def.plugin_inject.as_ref().unwrap()).unwrap();
+        assert_eq!(cleaned["plugin"], serde_json::json!([{"package":foreign}]));
+        assert_eq!(cleaned["plugins"], serde_json::json!([user]));
+    }
+    #[tokio::test]
+    async fn opencode_uninstall_cleans_legacy_and_directory_specs_before_migration() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("legacy-data");
+        std::fs::create_dir_all(data.join("plugins/opencode")).unwrap();
+        std::fs::write(data.join("plugins/opencode/plugin.mjs"), "old asset").unwrap();
+        let settings = root.path().join("opencode.json");
+        let mut def: AgentDefinition =
+            serde_json::from_str(include_str!("../../agents.d/opencode.json")).unwrap();
+        def.plugin_inject.as_mut().unwrap().config_paths =
+            vec![settings.to_string_lossy().into_owned()];
+        let strategy =
+            PluginInjectStrategy::new(data.to_string_lossy().into_owned(), String::new());
+        let directory = reqwest::Url::from_file_path(data.join("plugins/opencode"))
+            .unwrap()
+            .to_string();
+        let legacy = format!("{directory}/plugin.mjs");
+        let user = serde_json::json!({"package":"/another-install/plugins/opencode","options":{"keep":true}});
+        std::fs::write(
+            &settings,
+            serde_json::json!({
+                "plugin":[legacy,{"package":legacy},"loongsuite-pilot-opencode@1.0.0"],
+                "plugins":[directory,user],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(strategy.remove_plugin(&def).await);
+        let cleaned: Value =
+            serde_json::from_str(&std::fs::read_to_string(settings).unwrap()).unwrap();
+        assert_eq!(cleaned, serde_json::json!({"plugin":[],"plugins":[user]}));
+        assert_eq!(
+            std::fs::read_to_string(data.join("plugins/opencode/plugin.mjs")).unwrap(),
+            "old asset"
+        );
     }
 }

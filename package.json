@@ -50,7 +50,8 @@
     "test:e2e:docker:down": "npm run test:e2e:l2:down",
     "test:e2e:remote": "npm run test:e2e:l2:remote",
     "postinstall": "node scripts/postinstall.js",
-    "test:host:hermes": "vitest run tests/unit/hooks/hermes-agent-plugin.test.mjs tests/unit/hooks/hermes-agent-realtime.test.mjs tests/unit/hooks/hermes-agent-ttft.test.mjs tests/unit/hooks/hermes-subagent.test.mjs tests/unit/hooks/hermes-delayed-input.test.mjs"
+    "test:host:hermes": "vitest run tests/unit/hooks/hermes-agent-plugin.test.mjs tests/unit/hooks/hermes-agent-realtime.test.mjs tests/unit/hooks/hermes-agent-ttft.test.mjs tests/unit/hooks/hermes-subagent.test.mjs tests/unit/hooks/hermes-delayed-input.test.mjs",
+    "test:host:opencode": "vitest run tests/unit/hooks/opencode-plugin-cwd.test.mjs tests/unit/hooks/opencode-plugin-session.test.mjs tests/unit/hooks/opencode-plugin-tokens.test.mjs tests/unit/hooks/opencode-plugin-v2.test.mjs"
   },
   "dependencies": {
     "@alicloud/log": "^1.2.6",
