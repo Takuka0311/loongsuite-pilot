@@ -1139,13 +1139,36 @@ fn windows_shells() -> [PathBuf; 2] {
 }
 
 #[cfg(windows)]
-fn windows_script(constrained: bool, names: &[&str]) -> String {
+fn windows_prelude(constrained: bool) -> String {
+    // App Control runs trusted system modules in FullLanguage. Load only OS
+    // modules before constraining all Pilot definitions and invocation code.
+    // This fixture models that boundary; it does not install a WDAC policy.
     let mut script = String::from(
-        "\u{feff}$env:PSModulePath = $PSHOME + '\\Modules'\n$ErrorActionPreference = 'Stop'\n",
+        "\u{feff}$env:PILOT_TEST_STAGE = 'shell-entry'\n$env:PSModulePath = $PSHOME + '\\Modules'\n$ErrorActionPreference = 'Stop'\n",
     );
+    script.push_str("Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop\nImport-Module Microsoft.PowerShell.Archive -ErrorAction Stop\n");
     if constrained {
-        script.push_str("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n");
+        script.push_str(r#"
+$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
+function Assert-PilotConstrainedLanguage {
+    if ($ExecutionContext.SessionState.LanguageMode -ne 'ConstrainedLanguage') { throw 'Pilot code must remain constrained' }
+    $blocked = $false
+    try { $null = [System.IO.File]::Exists('PILOT_CLM_CANARY') }
+    catch {
+        if ($_.FullyQualifiedErrorId -notmatch 'ConstrainedLanguage') { throw }
+        $blocked = $true
     }
+    if (-not $blocked) { throw 'Pilot CLM canary unexpectedly allowed a forbidden API' }
+}
+Assert-PilotConstrainedLanguage
+"#);
+    }
+    script
+}
+
+#[cfg(windows)]
+fn windows_script(constrained: bool, names: &[&str]) -> String {
+    let mut script = windows_prelude(constrained);
     let source = include_str!("../deploy/installer-opensource.ps1");
     for name in names {
         script.push_str(&function(source, &format!("function {name} {{")));
@@ -1400,12 +1423,7 @@ fn windows_runtime_bridges_preserve_paths_layout_and_input_environment() {
             let fixture = Fixture::new();
             fixture.package();
             fs::write(fixture.data.join("custom-config.json"), "{}").unwrap();
-            let mut script = String::from("\u{feff}$ErrorActionPreference = 'Stop'\n");
-            if constrained {
-                script.push_str(
-                    "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n",
-                );
-            }
+            let mut script = windows_prelude(constrained);
             let source = include_str!("../deploy/installer-opensource.ps1");
             for name in [
                 "Invoke-InstallerHelper",
@@ -1525,14 +1543,7 @@ fn windows_installer_config_bridge_preserves_unicode_and_environment_in_both_she
             )
             .unwrap();
             let source = include_str!("../deploy/installer-opensource.ps1");
-            let mut script = String::from(
-                "\u{feff}$env:PILOT_TEST_STAGE = 'shell-entry'\n$env:PSModulePath = $PSHOME + '\\Modules'\n$ErrorActionPreference = 'Stop'\n",
-            );
-            if constrained {
-                script.push_str(
-                    "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n",
-                );
-            }
+            let mut script = windows_prelude(constrained);
             for name in [
                 "Invoke-InstallerHelper",
                 "Get-InstallConfigJson",

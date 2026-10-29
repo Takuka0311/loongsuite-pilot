@@ -144,14 +144,30 @@ fn legacy_hook_commands(
     if !cfg!(windows) {
         return Vec::new();
     }
-    let current = format_hook_command(hook_command, event, style, agent_id);
+    windows_compatible_hook_commands(hook_command, event, style)
+}
+
+// Only enumerate known command forms. Arguments remain byte-exact so an
+// unrecognized reference still aborts cleanup before runtime assets are removed.
+fn windows_compatible_hook_commands(
+    hook_command: &str,
+    event: &str,
+    style: Option<EventSubcommand>,
+) -> Vec<String> {
     let mut out = Vec::new();
-    for command in [
-        append_event_subcommand(hook_command, event, style),
-        append_event_subcommand(&wrap_legacy_ps1_command(hook_command), event, style),
+    for path in [
+        hook_command.to_string(),
+        hook_command.replace('\\', "/"),
+        hook_command.replace('/', "\\"),
     ] {
-        if command != current && !out.contains(&command) {
-            out.push(command);
+        for command in [
+            append_event_subcommand(&path, event, style),
+            append_event_subcommand(&wrap_ps1_for_platform(&path, true), event, style),
+            append_event_subcommand(&wrap_legacy_ps1_command(&path), event, style),
+        ] {
+            if !out.contains(&command) {
+                out.push(command);
+            }
         }
     }
     out
@@ -1312,6 +1328,21 @@ mod tests {
             assert_eq!(wrap_ps1_for_platform(&expected, true), expected);
             assert_eq!(wrap_ps1_for_platform(script, false), script);
         }
+    }
+
+    #[test]
+    fn windows_compatible_commands_preserve_arguments_and_both_path_separators() {
+        let path = "C:/Users/研发 O'Brien 🚀/hooks/cursor.ps1";
+        let commands =
+            windows_compatible_hook_commands(path, "Stop", Some(EventSubcommand::KebabCase));
+        for path in [path.to_string(), path.replace('/', "\\")] {
+            let command = format!("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{path}\" stop");
+            assert!(commands.contains(&command));
+            assert!(!commands.contains(&format!("{command} --unknown")));
+        }
+        assert!(!commands
+            .iter()
+            .any(|command| command.contains("other-install")));
     }
 
     use crate::types::{

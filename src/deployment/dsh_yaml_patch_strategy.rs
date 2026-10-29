@@ -525,7 +525,10 @@ async fn acquire_patch_lock(target: &str) -> Option<String> {
                 }
                 false
             }
-            Err(_) => false,
+            Err(err) => {
+                eprintln!("DSH lock acquire failed: {err}");
+                false
+            }
         };
         release_owner_file(&gate_path, &gate).await;
         if acquired {
@@ -533,6 +536,11 @@ async fn acquire_patch_lock(target: &str) -> Option<String> {
         }
         tokio::time::sleep(LOCK_RETRY).await;
     }
+    eprintln!(
+        "DSH patch lock timed out: lock_exists={} gate_exists={}",
+        Path::new(&lock_path).exists(),
+        Path::new(&gate_path).exists()
+    );
     None
 }
 
@@ -542,9 +550,13 @@ async fn acquire_owner_file(path: &str, deadline: Instant) -> Option<String> {
         match exclusive_token(path, &token).await {
             Ok(()) => return Some(token),
             Err(err) if err == "exists" => tokio::time::sleep(LOCK_RETRY).await,
-            Err(_) => return None,
+            Err(err) => {
+                eprintln!("DSH lock gate creation failed: {err}");
+                return None;
+            }
         }
     }
+    eprintln!("DSH lock gate timed out");
     None
 }
 
@@ -583,7 +595,11 @@ async fn release_patch_lock(target: &str, token: &str) {
 
 async fn release_owner_file(path: &str, token: &str) {
     if tokio::fs::read_to_string(path).await.ok().as_deref() == Some(token) {
-        let _ = tokio::fs::remove_file(path).await;
+        if let Err(err) = tokio::fs::remove_file(path).await {
+            eprintln!("DSH lock gate release failed: {err}");
+        }
+    } else {
+        eprintln!("DSH lock gate release token unreadable or changed");
     }
 }
 
@@ -797,7 +813,12 @@ mod tests {
             strategy.undeploy_recorded(&def, None),
             strategy.undeploy_recorded(&def, None)
         );
-        assert!(a && b);
+        assert!(
+            a && b,
+            "cleanup results a={a} b={b}, lock={} reclaim={}",
+            Path::new(&lock).exists(),
+            Path::new(&format!("{lock}{LOCK_GATE_SUFFIX}")).exists()
+        );
         assert_eq!(
             std::fs::read_to_string(&patch).unwrap(),
             format!("{before}{after}")

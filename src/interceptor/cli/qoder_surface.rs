@@ -3,14 +3,23 @@
 use crate::interceptor::types::QoderSurface;
 use std::path::Path;
 
-#[cfg(test)]
-struct WindowsExecOptions {
-    pub windows_hide: bool,
-    pub timeout_ms: u64,
-}
-
 pub fn resolve_qoder_surface() -> Option<QoderSurface> {
-    resolve_qoder_surface_with(|key| std::env::var(key).ok(), &ancestor_names())
+    let explicit = std::env::var("QODER_CONFIG_DIR").ok();
+    let ancestors = if classify_config_dir(explicit.as_deref()).is_some() {
+        Vec::new()
+    } else {
+        ancestor_names()
+    };
+    resolve_qoder_surface_with(
+        |key| {
+            if key == "QODER_CONFIG_DIR" {
+                explicit.clone()
+            } else {
+                None
+            }
+        },
+        &ancestors,
+    )
 }
 
 pub fn resolve_qoder_surface_with(
@@ -78,94 +87,35 @@ fn normalize_name(raw: &str) -> String {
 }
 
 fn ancestor_names() -> Vec<String> {
-    #[cfg(unix)]
-    {
-        let mut names = Vec::new();
-        let mut pid = std::os::unix::process::parent_id() as i64;
-        for _ in 0..12 {
-            if pid <= 1 {
-                break;
-            }
-            let Some(info) = read_process(pid) else {
-                break;
-            };
-            names.push(info.name);
-            pid = info.ppid;
-        }
-        names
+    // One native process snapshot, with no PowerShell/WMIC/ps subprocess.
+    // The old port never read ancestors on Windows or macOS at all.
+    let mut system = sysinfo::System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::All,
+        true,
+        sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::Always),
+    );
+    let mut next = system
+        .process(sysinfo::Pid::from_u32(std::process::id()))
+        .and_then(|process| process.parent());
+    let mut names = Vec::new();
+    for _ in 0..12 {
+        let Some(pid) = next.filter(|pid| pid.as_u32() > 1) else {
+            break;
+        };
+        let Some(process) = system.process(pid) else {
+            break;
+        };
+        names.push(
+            process
+                .exe()
+                .filter(|path| !path.as_os_str().is_empty())
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| process.name().to_string_lossy().into_owned()),
+        );
+        next = process.parent();
     }
-    #[cfg(not(unix))]
-    {
-        Vec::new()
-    }
-}
-
-#[cfg(any(unix, test))]
-struct ProcessInfo {
-    name: String,
-    ppid: i64,
-}
-
-#[cfg(unix)]
-fn read_process(pid: i64) -> Option<ProcessInfo> {
-    if cfg!(target_os = "linux") {
-        let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        let close = stat.rfind(')')?;
-        let rest: Vec<&str> = stat[close + 2..].split(' ').collect();
-        let ppid = rest
-            .get(1)
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(0);
-        return Some(ProcessInfo {
-            name: exe.to_string_lossy().to_string(),
-            ppid,
-        });
-    }
-    None
-}
-
-#[cfg(test)]
-fn windows_process_command(pid: u32) -> (String, Vec<String>, WindowsExecOptions) {
-    let script = [
-        format!(
-            "$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\" -ErrorAction Stop"
-        ),
-        "if ($null -ne $p) {".to_string(),
-        "  Write-Output ([string]$p.Name)".to_string(),
-        "  Write-Output ([string]$p.ParentProcessId)".to_string(),
-        "}".to_string(),
-    ]
-    .join("; ");
-    (
-        "powershell.exe".to_string(),
-        vec![
-            "-NoProfile".to_string(),
-            "-NonInteractive".to_string(),
-            "-Command".to_string(),
-            script,
-        ],
-        WindowsExecOptions {
-            windows_hide: true,
-            timeout_ms: 1000,
-        },
-    )
-}
-
-#[cfg(test)]
-fn read_windows_process(
-    pid: u32,
-    mut exec: impl FnMut(&str, &[String], &WindowsExecOptions) -> Result<String, String>,
-) -> Option<ProcessInfo> {
-    let (file, args, options) = windows_process_command(pid);
-    let out = exec(&file, &args, &options).ok()?;
-    let mut lines = out.trim().lines().map(str::trim);
-    let name = lines.next().unwrap_or("").to_string();
-    if name.is_empty() {
-        return None;
-    }
-    let ppid = lines.next().unwrap_or("0").parse().unwrap_or(0);
-    Some(ProcessInfo { name, ppid })
+    names
 }
 
 #[cfg(test)]
@@ -203,26 +153,134 @@ mod tests {
     fn prefers_qoder_config_dir_when_it_points_at_the_desktop_profile() {
         let surface = resolve_qoder_surface_with(
             |key| (key == "QODER_CONFIG_DIR").then(|| "/home/u/.qoder".to_string()),
-            &[],
+            &["qodercli".into()],
         );
         assert_eq!(surface, Some(QoderSurface::Qoder));
     }
 
+    const FIXTURE: &str = "interceptor::cli::qoder_surface::tests::native_surface_fixture";
+
+    fn fixture_command(binary: &Path, root: &Path, mode: &str) -> std::process::Command {
+        use std::process::Stdio;
+        let mut command = std::process::Command::new(binary);
+        command
+            .args(["--exact", FIXTURE, "--nocapture"])
+            .env_clear()
+            .current_dir(root)
+            .env("HOME", root)
+            .env("USERPROFILE", root)
+            .env("PATH", root.join("no-runtimes"))
+            .env("PILOT_SURFACE_FIXTURE_ROOT", root)
+            .env("PILOT_SURFACE_FIXTURE_MODE", mode)
+            .stdin(Stdio::null())
+            .stdout(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(root.join("stdout"))
+                    .unwrap(),
+            )
+            .stderr(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(root.join("stderr"))
+                    .unwrap(),
+            );
+        for key in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
+        command
+    }
+
+    fn wait_fixture(command: &mut std::process::Command, root: &Path) {
+        use crate::utils::candidate_process::CandidateChild;
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        let mut child = loop {
+            match CandidateChild::spawn(command) {
+                Err(error)
+                    if cfg!(target_os = "linux")
+                        && error.raw_os_error() == Some(26)
+                        && start.elapsed() < Duration::from_secs(1) =>
+                {
+                    std::thread::sleep(Duration::from_millis(10))
+                }
+                result => break result.unwrap(),
+            }
+        };
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(
+                    status.success(),
+                    "native surface fixture failed: {}",
+                    std::fs::read_to_string(root.join("stderr")).unwrap()
+                );
+                return;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(15),
+                "native surface fixture timed out"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     #[test]
-    fn uses_powershell_cim_rather_than_wmic() {
-        let mut seen = None;
-        let info = read_windows_process(456, |file, args, options| {
-            seen = Some((file.to_string(), args.to_vec(), options.windows_hide));
-            assert_eq!(options.timeout_ms, 1000);
-            Ok("qodercli.exe\r\n123\r\n".to_string())
-        })
-        .unwrap();
-        assert_eq!(info.name, "qodercli.exe");
-        assert_eq!(info.ppid, 123);
-        let (file, args, hide) = seen.unwrap();
-        assert_eq!(file, "powershell.exe");
-        assert!(args.iter().any(|arg| arg == "-NonInteractive"));
-        assert!(args.iter().any(|arg| arg == "-Command"));
-        assert!(hide);
+    fn native_surface_fixture() {
+        let Some(root) = std::env::var_os("PILOT_SURFACE_FIXTURE_ROOT") else {
+            return;
+        };
+        let root = Path::new(&root);
+        match std::env::var("PILOT_SURFACE_FIXTURE_MODE")
+            .unwrap()
+            .as_str()
+        {
+            "parent" => {
+                let original = std::env::var_os("PILOT_SURFACE_ORIGINAL_BINARY").unwrap();
+                let mut command = fixture_command(Path::new(&original), root, "probe");
+                // Inherit the outer fixture's process group/Job so its
+                // deadline also terminates this probe if the parent is killed.
+                assert!(command.status().unwrap().success());
+            }
+            "probe" => {
+                let surface = match resolve_qoder_surface() {
+                    Some(QoderSurface::Qoder) => "qoder",
+                    Some(QoderSurface::QoderCli) => "qodercli",
+                    None => "none",
+                };
+                std::fs::write(root.join("detected"), surface).unwrap();
+            }
+            _ => panic!("unknown fixture mode"),
+        }
+    }
+
+    #[test]
+    fn native_ancestor_lookup_recognizes_real_desktop_and_cli_parent_processes_without_shells() {
+        for (name, expected) in [("qoder", "qoder"), ("qoder-cli", "qodercli")] {
+            let root = tempfile::tempdir().unwrap();
+            let directory = root.path().join("Qoder 研发 🚀");
+            std::fs::create_dir(&directory).unwrap();
+            let binary = directory.join(if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.to_string()
+            });
+            std::fs::copy(std::env::current_exe().unwrap(), &binary).unwrap();
+            let original = std::env::current_exe().unwrap();
+            assert_eq!(
+                classify_executable(original.file_name().unwrap().to_str().unwrap()),
+                None
+            );
+            let mut command = fixture_command(&binary, root.path(), "parent");
+            command.env("PILOT_SURFACE_ORIGINAL_BINARY", &original);
+            wait_fixture(&mut command, root.path());
+            assert_eq!(
+                std::fs::read_to_string(root.path().join("detected")).unwrap(),
+                expected
+            );
+        }
     }
 }
