@@ -6142,6 +6142,576 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/multimodal/factory.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/multimodal/uploader/factory.rs",
+          "test": "factory_selects_real_upload_routes_auth_and_cold_delegated_lifecycle"
+        },
+        {
+          "file": "src/multimodal/uploader/factory.rs",
+          "test": "delegated_factory_discovers_storage_and_uses_that_origin_for_upload"
+        },
+        {
+          "file": "src/multimodal/uploader/factory.rs",
+          "test": "factory_rejects_invalid_oss_base_and_unresolved_sls_destination"
+        }
+      ],
+      "note": "逐项核对固定历史断言。工厂用生产 factory/uploader/client 经任务内 HTTP 边界验证实际路由、鉴权和生命周期，不以测试专用类名或构造成功冒充选型证明；不声称实际云上传。存储发现链路额外发现并修复 URL scheme 漏冒号。metadata 使用现有生产入口与完整 JSON 值断言。",
+      "source_hash": "35eb14945f8e17304f1aee5df0ee1f7049acbb456ac5eae3d2148f8e20eda9b0",
+      "cases": [
+        {
+          "source": {
+            "id": "L13:C3",
+            "title": "creates OssUploader when storage.type is oss",
+            "suites": [
+              "createUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 factory 返回 uploader 后实际 upload，OSS 路由、V4 鉴权、key 前缀及原始数据均在受控 HTTP 边界核对；shutdown 后不再发送。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/factory.rs",
+                "test": "factory_selects_real_upload_routes_auth_and_cold_delegated_lifecycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L28:C3",
+            "title": "creates SlsUploader when storage.type is sls",
+            "suites": [
+              "createUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "SLS AK 工厂实例实际 PUT 到项目/logstore 对象路由并携带 LOG 签名，关闭后不发送。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/factory.rs",
+                "test": "factory_selects_real_upload_routes_auth_and_cold_delegated_lifecycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L44:C3",
+            "title": "creates SlsUploader when storage.type is delegatedOss",
+            "suites": [
+              "createUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "delegatedOss 已知 origin 时先 SLS presign 后 OSS PUT，校验目标绑定且不向签名 PUT 转发 SLS 凭据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/factory.rs",
+                "test": "factory_selects_real_upload_routes_auth_and_cold_delegated_lifecycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L62:C3",
+            "title": "creates SlsUploader for delegatedOss before the presign origin is known",
+            "suites": [
+              "createUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "未知 presign origin 时仍可创建 delegated uploader，但实际上传被安全拒绝且不发出对象请求。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/factory.rs",
+                "test": "factory_selects_real_upload_routes_auth_and_cold_delegated_lifecycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L78:C3",
+            "title": "exposes storage discovery only for delegatedOss",
+            "suites": [
+              "createUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "专用工厂的存储发现方法真实执行预签名解析并将已发现 origin 交给后续上传；关闭后不再发现/请求。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/factory.rs",
+                "test": "delegated_factory_discovers_storage_and_uses_that_origin_for_upload"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L92:C3",
+            "title": "creates SlsUploader for apiKey mode",
+            "suites": [
+              "createUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "SLS apiKey 工厂实际请求使用 Bearer，保留对象路径和数据，避免误走 AK 分支。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/factory.rs",
+                "test": "factory_selects_real_upload_routes_auth_and_cold_delegated_lifecycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L111:C3",
+            "title": "throws when oss storageBasePath is invalid",
+            "suites": [
+              "createUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "OSS 不合法 storageBasePath 在实际工厂构造时返回原错误。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/factory.rs",
+                "test": "factory_rejects_invalid_oss_base_and_unresolved_sls_destination"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L125:C3",
+            "title": "throws when sls project/logstore cannot be resolved",
+            "suites": [
+              "createUploader"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "SLS 未能从配置或 storageBasePath 解析 project/logstore 时实际构造失败。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/uploader/factory.rs",
+                "test": "factory_rejects_invalid_oss_base_and_unresolved_sls_destination"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/multimodal/rewrite.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "is_uri_part_accepts_only_uri_shaped_objects"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "attach_deletes_field_when_items_empty"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "skips_when_entry_has_no_uri_parts"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "reads_mime_and_dedupes_by_uri"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "collects_tool_result_uris_into_input_metadata"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "collects_tool_call_argument_uris_into_output_metadata"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "ignores_non_uri_tool_arguments"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "writes_output_message_uris_only_to_output_metadata"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "dedupes_the_same_input_uri_across_messages_and_delta"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "defaults_mime_type_when_uri_part_omits_it"
+        },
+        {
+          "file": "src/multimodal/rewrite.rs",
+          "test": "keeps_cumulative_messages_out_of_input_metadata_delta"
+        }
+      ],
+      "note": "逐项核对固定历史断言。工厂用生产 factory/uploader/client 经任务内 HTTP 边界验证实际路由、鉴权和生命周期，不以测试专用类名或构造成功冒充选型证明；不声称实际云上传。存储发现链路额外发现并修复 URL scheme 漏冒号。metadata 使用现有生产入口与完整 JSON 值断言。",
+      "source_hash": "23e1fb76f6b61b29f10dd4390814138a540112fd2b6c00e39dfeb57948e686ee",
+      "cases": [
+        {
+          "source": {
+            "id": "L28:C3",
+            "title": "isUriPart accepts only uri-shaped objects",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "仅接受具有 URI 字符串的 uri 对象，拒绝 blob、缺字段、null 和单独字符串。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "is_uri_part_accepts_only_uri_shaped_objects"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": "attachMultimodalMetadata deletes field when items empty",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "空 metadata 列表清掉原有字段。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "attach_deletes_field_when_items_empty"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L44:C3",
+            "title": "attachMultimodalMetadataForEntry skips when entry has no uri parts",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "只有普通文字的输入不产生多模态 metadata。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "skips_when_entry_has_no_uri_parts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L54:C3",
+            "title": "reads mime/modality from uri parts and dedupes by uri",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "从输入 URI 部件读取 MIME/modality，按 URI 去重并保留顺序/可选字段。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "reads_mime_and_dedupes_by_uri"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L77:C3",
+            "title": "collects tool result uris into input metadata",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "工具结果 URI 同时进入 input metadata 和 delta，output metadata 不出现。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "collects_tool_result_uris_into_input_metadata"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L92:C3",
+            "title": "collects tool call argument uris into output metadata",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "工具调用参数 URI 只进入 output metadata。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "collects_tool_call_argument_uris_into_output_metadata"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L104:C3",
+            "title": "ignores non-uri tool arguments",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "普通路径对象不被当作 URI 参数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "ignores_non_uri_tool_arguments"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L112:C3",
+            "title": "writes output message uris only to output metadata",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "assistant 输出 URI 只写 output metadata，不混入 input。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "writes_output_message_uris_only_to_output_metadata"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L126:C3",
+            "title": "dedupes the same input uri across messages and messages_delta",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "累计消息与 delta 中相同 URI 只记录一次。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "dedupes_the_same_input_uri_across_messages_and_delta"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L139:C3",
+            "title": "defaults mime_type when uri part omits it",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺 MIME 的 URI 默认 application/octet-stream，累计消息不产生 delta metadata。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "defaults_mime_type_when_uri_part_omits_it"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L152:C3",
+            "title": "keeps cumulative messages out of input metadata delta",
+            "suites": [
+              "multimodal rewrite helpers"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "delta 仅含新增 URI；完整 input metadata 按新增在前累计在后合并。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/multimodal/rewrite.rs",
+                "test": "keeps_cumulative_messages_out_of_input_metadata_delta"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
