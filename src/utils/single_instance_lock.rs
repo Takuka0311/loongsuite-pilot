@@ -307,6 +307,17 @@ fn inspect_lock(
     } else {
         String::new()
     };
+    // CIM and FILETIME have different timestamp precision. A format change is
+    // not evidence of PID reuse: keep a live legacy holder until it exits.
+    let current = if lock
+        .process_start_token
+        .as_deref()
+        .is_some_and(|stored| windows_start_token_format_changed(stored, &current))
+    {
+        String::new()
+    } else {
+        current
+    };
     if lock
         .process_start_token
         .as_ref()
@@ -339,6 +350,11 @@ fn inspect_lock(
         holder_process_start_state: Some(state),
         holder_command_state: Some(command_state(lock.pid, patterns)),
     }
+}
+
+fn windows_start_token_format_changed(stored: &str, current: &str) -> bool {
+    (stored.starts_with("win32-cim-v1:") && current.starts_with("win32-filetime-v1:"))
+        || (stored.starts_with("win32-filetime-v1:") && current.starts_with("win32-cim-v1:"))
 }
 
 fn command_state(pid: i64, patterns: Option<&[ProcessCommandPattern<'_>]>) -> HolderCommandState {
@@ -669,6 +685,42 @@ mod tests {
             result.holder_command_state,
             Some(HolderCommandState::Mismatched)
         );
+    }
+
+    #[test]
+    fn a_windows_identity_format_upgrade_is_not_proof_of_pid_reuse() {
+        let old = "win32-cim-v1:2026-10-28T09:00:00.1234560Z";
+        let new = "win32-filetime-v1:134377380001234567";
+        assert!(windows_start_token_format_changed(old, new));
+        assert!(windows_start_token_format_changed(new, old));
+        assert!(!windows_start_token_format_changed(
+            new,
+            "win32-filetime-v1:42"
+        ));
+        assert!(!windows_start_token_format_changed(old, old));
+        assert!(!windows_start_token_format_changed(old, ""));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn keeps_a_live_legacy_cim_holder_after_native_identity_upgrade() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("collector.lock");
+        let holder = spawn_sleeper();
+        let payload = serde_json::json!({
+            "pid": holder.child.id(),
+            "ownerId": "legacy-owner",
+            "processStartToken": "win32-cim-v1:2026-10-28T09:00:00.1234560Z"
+        })
+        .to_string();
+        std::fs::write(&path, &payload).unwrap();
+        let result = acquire_single_instance_lock(path.to_str().unwrap(), None);
+        assert!(result.lock.is_none());
+        assert_eq!(
+            result.holder_process_start_state,
+            Some(HolderProcessStartState::CurrentTokenUnreadable)
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), payload);
     }
 
     #[test]

@@ -139,7 +139,13 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
         if start.elapsed() > timeout {
             child.kill().unwrap();
             child.wait().unwrap();
-            panic!("安装辅助入口超时");
+            let stage = command
+                .get_envs()
+                .find(|(key, _)| *key == "TEST_STAGE")
+                .and_then(|(_, value)| value)
+                .and_then(|path| fs::read_to_string(path).ok())
+                .unwrap_or_else(|| "not-reported".into());
+            panic!("安装辅助入口超时 (stage={})", stage.trim());
         }
         std::thread::sleep(Duration::from_millis(10));
     };
@@ -1392,21 +1398,27 @@ $DataDir = $env:TEST_DATA
 $script:UserId = $env:TEST_VALUE
 $CmsLicenseKey = $env:TEST_VALUE
 $script:PROBE_RESULT = '[]'
+Set-Content -LiteralPath $env:TEST_STAGE -Value 'check-deps' -Encoding UTF8
 Check-Deps
+Set-Content -LiteralPath $env:TEST_STAGE -Value 'probe-agents' -Encoding UTF8
 Probe-Agents
 if (@($script:PROBE_RESULT | ConvertFrom-Json).Count -lt 1) { throw 'empty native probe result' }
+Set-Content -LiteralPath $env:TEST_STAGE -Value 'check-config' -Encoding UTF8
 Assert-SingleSlsConfig
 $DATA_DIR = $DataDir
 $CACHE_DIR = $env:LOONGSUITE_PILOT_CACHE_DIR
 $CONFIG_FILE = Join-Path $DataDir 'config.json'
 $binary = Join-Path $script:INSTALL_SRC 'bin\loongsuite-pilot.exe'
+Set-Content -LiteralPath $env:TEST_STAGE -Value 'service-version' -Encoding UTF8
 Invoke-Pilot -Binary $binary -Arguments @('--version') | Out-Null
 if ($script:PilotExitCode -ne 0) { throw 'native success exit code lost' }
 Invoke-Pilot -Binary $binary -Arguments @('--invalid-fixture-option') | Out-Null
 if ($script:PilotExitCode -ne 2) { throw 'native failure exit code lost' }
 foreach ($previous in @($null, 'previous 研发 🚀')) {
     $env:LOONGSUITE_PILOT_INSTALL_INPUT = $previous
+    Set-Content -LiteralPath $env:TEST_STAGE -Value 'validate-config' -Encoding UTF8
     Invoke-InstallerHelper -Operation 'validate-config' -Json (Get-InstallConfigJson) | Out-Null
+    Set-Content -LiteralPath $env:TEST_STAGE -Value 'write-config' -Encoding UTF8
     Write-Config
     if ($env:LOONGSUITE_PILOT_INSTALL_INPUT -ne $previous) { throw 'input environment not restored' }
     try {
@@ -1438,6 +1450,7 @@ foreach ($previous in @($null, 'previous 研发 🚀')) {
                 .env("TEST_CANDIDATE", &fixture.candidate)
                 .env("TEST_DATA", &fixture.data)
                 .env("TEST_VALUE", value)
+                .env("TEST_STAGE", fixture.root.path().join("bridge-stage.txt"))
                 .env("TEMP", &temp)
                 .env("TMP", &temp);
             let output = bounded(command);

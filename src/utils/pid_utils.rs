@@ -80,8 +80,6 @@ pub const WINDOWS_PROCESS_SCAN_PROGRAM: &str = "powershell.exe";
 pub const WINDOWS_PROCESS_SCAN_TIMEOUT_MS: u64 = 8_000;
 pub const WINDOWS_PROCESS_SCAN_ENCODING: &str = "utf-8";
 pub const WINDOWS_PROCESS_SCAN_WINDOWS_HIDE: bool = true;
-// CIM 冷启动在 Windows ARM 上可能超过 5 秒；单 PID 查询仍保持有界。
-const WINDOWS_PROCESS_QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 pub const WINDOWS_PROCESS_SCAN_COMMAND: &str =
     "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }";
 pub const WINDOWS_PROCESS_SCAN_ARGS: &[&str] = &[
@@ -378,75 +376,109 @@ fn check_process_liveness_with(
 }
 
 pub fn read_process_command(pid: u32) -> String {
-    let output = if cfg!(windows) {
-        let script = format!(
-            "Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\" | Select-Object -ExpandProperty CommandLine"
+    if pid == 0 {
+        return String::new();
+    }
+    if cfg!(windows) {
+        let pid = sysinfo::Pid::from_u32(pid);
+        let mut system = sysinfo::System::new();
+        system.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::Some(&[pid]),
+            true,
+            sysinfo::ProcessRefreshKind::nothing().with_cmd(sysinfo::UpdateKind::Always),
         );
-        run_command(
-            "powershell.exe",
-            &["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script],
-            WINDOWS_PROCESS_QUERY_TIMEOUT,
-        )
-    } else {
-        let pid = pid.to_string();
-        run_command(
-            "ps",
-            &["-p", &pid, "-o", "command="],
-            Duration::from_millis(5_000),
-        )
-    };
-    output
-        .map(|text| text.trim().to_string())
-        .unwrap_or_default()
+        return system
+            .process(pid)
+            .map(|process| {
+                process
+                    .cmd()
+                    .iter()
+                    .map(|arg| arg.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default();
+    }
+    let pid = pid.to_string();
+    run_command(
+        "ps",
+        &["-p", &pid, "-o", "command="],
+        Duration::from_millis(5_000),
+    )
+    .map(|text| text.trim().to_string())
+    .unwrap_or_default()
 }
 
 pub fn read_process_start_token(pid: u32) -> String {
     if pid == 0 {
         return String::new();
     }
-    if cfg!(target_os = "linux") {
+    #[cfg(target_os = "linux")]
+    {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
         let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap_or_default();
-        return linux_proc_start_token(&stat, &boot);
+        linux_proc_start_token(&stat, &boot)
     }
-    if cfg!(windows) {
-        return windows_process_start_token(pid).unwrap_or_default();
+    #[cfg(windows)]
+    {
+        windows_process_start_token(pid).unwrap_or_default()
     }
-    let pid_text = pid.to_string();
-    match run_command(
-        "ps",
-        &["-p", &pid_text, "-o", "lstart="],
-        Duration::from_millis(5_000),
-    ) {
-        Ok(text) => ps_lstart_token(node_platform(), &text),
-        Err(_) => String::new(),
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        let pid_text = pid.to_string();
+        match run_command(
+            "ps",
+            &["-p", &pid_text, "-o", "lstart="],
+            Duration::from_millis(5_000),
+        ) {
+            Ok(text) => ps_lstart_token(node_platform(), &text),
+            Err(_) => String::new(),
+        }
     }
 }
 
+#[cfg(windows)]
 fn windows_process_start_token(pid: u32) -> io::Result<String> {
-    let script = format!(
-        "$ErrorActionPreference = 'Stop'; $p = Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\"; if ($p) {{ $p.CreationDate.ToUniversalTime().ToString(\"O\") }}"
-    );
-    let text = run_command(
-        WINDOWS_PROCESS_SCAN_PROGRAM,
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            &script,
-        ],
-        WINDOWS_PROCESS_QUERY_TIMEOUT,
-    )?;
-    let creation = text.trim();
-    Ok(if creation.is_empty() {
-        String::new()
-    } else {
-        format!("win32-cim-v1:{creation}")
-    })
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    // No PowerShell/WMI startup: creation FILETIME identifies the process even
+    // when the PID is reused. OwnedHandle closes it on every success/error path.
+    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if raw.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    let handle = unsafe { OwnedHandle::from_raw_handle(raw) };
+    let mut creation = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut exit = creation;
+    let mut kernel = creation;
+    let mut user = creation;
+    if unsafe {
+        GetProcessTimes(
+            handle.as_raw_handle(),
+            &mut creation,
+            &mut exit,
+            &mut kernel,
+            &mut user,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let ticks = (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
+    if ticks == 0 {
+        return Err(io::Error::other("process creation time is unavailable"));
+    }
+    Ok(format!("win32-filetime-v1:{ticks}"))
 }
 
+#[cfg(any(test, target_os = "linux"))]
 pub(crate) fn linux_proc_start_token(stat: &str, boot_id: &str) -> String {
     let Some(comm_end) = stat.rfind(')') else {
         return String::new();
@@ -461,6 +493,7 @@ pub(crate) fn linux_proc_start_token(stat: &str, boot_id: &str) -> String {
     }
 }
 
+#[cfg(any(test, not(any(target_os = "linux", windows))))]
 pub(crate) fn ps_lstart_token(platform: &str, stdout: &str) -> String {
     let started = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
     if started.is_empty() {
@@ -470,6 +503,7 @@ pub(crate) fn ps_lstart_token(platform: &str, stdout: &str) -> String {
     }
 }
 
+#[cfg(any(test, not(any(target_os = "linux", windows))))]
 fn node_platform() -> &'static str {
     match std::env::consts::OS {
         "windows" => "win32",
@@ -794,27 +828,44 @@ mod tests {
     #[test]
     fn current_process_start_token_uses_native_identity_and_is_stable() {
         let pid = std::process::id();
-        let first = if cfg!(windows) {
-            windows_process_start_token(pid).expect("Windows 启动身份探针失败")
-        } else {
-            read_process_start_token(pid)
-        };
+        let first = read_process_start_token(pid);
         assert!(!first.is_empty(), "当前进程必须能读到启动身份");
         assert_eq!(read_process_start_token(pid), first);
         assert!(read_process_start_token(0).is_empty());
         assert!(is_process_alive(pid));
         assert!(!is_process_alive(0));
+        assert!(read_process_command(0).is_empty());
+        let command = read_process_command(pid);
+        let executable = std::env::current_exe().unwrap();
+        let file = executable.file_name().unwrap().to_string_lossy();
+        assert!(
+            command.contains(file.as_ref()),
+            "当前进程命令必须来自真实进程"
+        );
         if cfg!(target_os = "linux") {
             let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
             let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap();
             assert_eq!(first, linux_proc_start_token(&stat, &boot));
         } else if cfg!(windows) {
-            let creation = first.strip_prefix("win32-cim-v1:").unwrap();
-            assert!(chrono::DateTime::parse_from_rfc3339(creation).is_ok());
+            let creation = first.strip_prefix("win32-filetime-v1:").unwrap();
+            assert!(creation.parse::<u64>().unwrap() > 0);
         } else {
             assert!(first.starts_with(&format!("{}-ps-lstart-v1:", node_platform())));
             assert!(first.split_whitespace().count() >= 5);
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_process_identity_reports_invalid_pids_without_spawning_a_shell() {
+        assert!(windows_process_start_token(0).is_err());
+        assert!(windows_process_start_token(u32::MAX).is_err());
+        let current = windows_process_start_token(std::process::id()).unwrap();
+        assert!(current.starts_with("win32-filetime-v1:"));
+        assert_eq!(
+            current,
+            windows_process_start_token(std::process::id()).unwrap()
+        );
     }
 
     #[test]

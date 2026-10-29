@@ -156,3 +156,11 @@ cargo run -p xtask -- migration-audit --require-complete
 | `x86_64-unknown-linux-musl` | `2b81e28f314b504d2e0dbd2a45a66c211a2ff2cdb5650e6b62be55fb73d5ca71` |
 
 这些是 dry-run 候选，不是正式发行。`latest-rust.json` 中的 Release 下载地址仅为预生成地址，未上传为更新渠道；没有创建 tag 或正式 Release。后续仅补充本文的提交不改变上述候选的生产代码，发行候选 SHA 仍以上述完整提交为准。历史测试映射与旧工具清理的后续进展见上文，新增清理代码需要重新验证，不沿用本次候选的通过结果。
+
+## 2026-10-29 Windows 发布修复（进行中）
+
+当前基线 `668628e` 的日常 CI 通过，发布 dry-run `40665947674` 的六个 Linux/macOS 包成功；Windows ARM64 的 CIM 启动身份查询和 x64 的安装桥接测试均超时。
+
+单 PID 命令读取同时改用 sysinfo 原生进程信息，避免身份修复后在命令匹配处再次进入 CIM。Windows 启动身份改为直接读取 `GetProcessTimes` 的创建 FILETIME，不再为身份查询启动 PowerShell/WMI。新 token 使用 `win32-filetime-v1`，旧 `win32-cim-v1` 与新格式之间不直接判为 PID 复用；旧锁持有 PID 仍存活时保持锁，待其正常退出后接任。同格式继续精确比较，权限失败仍保守处理。安装桥接专项补充受控阶段名，超时只报告阶段，不输出输入 JSON、环境或凭据。
+
+本批第一次全 feature 全量回归 1,383 项通过，另有 2 个原有 doc-tests ignored；随后单 PID 原生命令读取补丁通过严格 clippy，pid-utils 12 项及单实例锁 14 项专项通过。当前提交树的 GitHub 全量回归及 Windows 实跑结果随工作流追加。已有工作区的 E2E 修改、四个历史测试删除和 Python 缓存未纳入本批。未创建正式 tag 或 Release。
