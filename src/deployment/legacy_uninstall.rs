@@ -56,6 +56,22 @@ fn json_object(raw: &str) -> Result<Value> {
     Ok(data)
 }
 
+fn owned_command(value: &Value) -> bool {
+    value.as_str().is_some_and(|command| {
+        command.contains("otel-claude-hook") || command.contains("hook-entry.sh")
+    })
+}
+
+fn remaining_hook_reference(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(key, value)| {
+            (key == "command" && owned_command(value)) || remaining_hook_reference(value)
+        }),
+        Value::Array(values) => values.iter().any(remaining_hook_reference),
+        _ => false,
+    }
+}
+
 fn settings(raw: &str) -> Result<String> {
     if !raw.contains("otel-claude-hook") && !raw.contains("hook-entry.sh") {
         return Ok(raw.into());
@@ -76,7 +92,11 @@ fn settings(raw: &str) -> Result<String> {
         let mut kept = Vec::new();
         for entry in entries {
             let Some(nested) = entry.get("hooks").and_then(Value::as_array) else {
-                kept.push(entry.clone());
+                if entry.get("command").is_some_and(owned_command) {
+                    changed = true;
+                } else {
+                    kept.push(entry.clone());
+                }
                 continue;
             };
             let filtered: Vec<_> = nested
@@ -127,7 +147,11 @@ fn settings(raw: &str) -> Result<String> {
             JsonEditOptions::default(),
         );
     }
-    json_object(&next)?;
+    let remaining = json_object(&next)?;
+    ensure!(
+        !remaining.get("hooks").is_some_and(remaining_hook_reference),
+        "Unrecognized legacy Claude Hook reference; cache assets were preserved"
+    );
     Ok(next)
 }
 
@@ -148,6 +172,12 @@ fn otel(raw: &str) -> Result<String> {
     Ok(next)
 }
 
+fn marker_line(line: &str, prefix: &str, marker: &str) -> bool {
+    let expected = format!("# {prefix} {marker}");
+    line.strip_prefix(&expected)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+}
+
 fn aliases(raw: &str) -> Result<String> {
     let mut active: Option<&str> = None;
     let mut next = String::new();
@@ -155,12 +185,14 @@ fn aliases(raw: &str) -> Result<String> {
         let trimmed = line.trim();
         let begin = ["otel-claude-hook-env", "otel-claude-hook"]
             .into_iter()
-            .find(|marker| trimmed == format!("# BEGIN {marker}"));
+            .find(|marker| marker_line(trimmed, "BEGIN", marker));
         if let Some(marker) = begin {
             ensure!(active.is_none(), "Nested legacy Claude shell marker");
             active = Some(marker);
+        } else if trimmed.starts_with("# BEGIN otel-claude-hook") {
+            anyhow::bail!("Unrecognized legacy Claude shell marker");
         } else if let Some(marker) = active {
-            if trimmed == format!("# END {marker}") {
+            if marker_line(trimmed, "END", marker) {
                 active = None;
             }
         } else {
@@ -274,11 +306,11 @@ mod tests {
         std::fs::create_dir_all(cache.join("sessions")).unwrap();
         std::fs::write(cache.join("sessions/history"), "history").unwrap();
         std::fs::write(cache.join("intercept.js"), "old preload").unwrap();
-        let original = r#"{"private":"keep","hooks":{"Stop":[{"matcher":"","hooks":[{"command":"otel-claude-hook"},{"command":"user-hook"}]},{"command":"direct-user-hook"}]}}"#;
+        let original = r#"{"private":"keep","hooks":{"Stop":[{"matcher":"","hooks":[{"command":"otel-claude-hook"},{"command":"user-hook"}]},{"command":"hook-entry.sh"},{"command":"direct-user-hook"}]}}"#;
         std::fs::write(home.join(".claude/settings.json"), original).unwrap();
         std::fs::write(home.join(".claude/otel-config.json"),
             "{\"log_enabled\":true,\"log_dir\":\"old\",\"log_filename_format\":\"old\",\"user\":1.0}\n").unwrap();
-        std::fs::write(home.join(".bashrc"), "before\r\n# BEGIN otel-claude-hook-env\r\nexport X=old\r\n# END otel-claude-hook-env\r\nafter").unwrap();
+        std::fs::write(home.join(".bashrc"), "before\r\n# BEGIN otel-claude-hook-env (legacy)\r\nexport X=old\r\n# END otel-claude-hook-env (legacy)\r\nafter").unwrap();
         std::fs::write(home.join(".zshrc"), [0xff, 0xfe, 0x75, 0x73, 0x65, 0x72]).unwrap();
         preflight(&home).unwrap();
         assert_eq!(
@@ -316,7 +348,13 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_config_or_unterminated_shell_block_preserves_all_files_and_cache() {
-        for invalid_settings in [false, true] {
+        for scenario in [
+            "invalid-settings",
+            "incomplete-shell",
+            "unknown-hook-shape",
+            "unknown-marker",
+            "nested-marker",
+        ] {
             let root = tempfile::tempdir().unwrap();
             let home = root.path().join("home");
             let data = root.path().join("data");
@@ -324,16 +362,17 @@ mod tests {
             let cache = home.join(".cache/opentelemetry.instrumentation.claude");
             std::fs::create_dir_all(&cache).unwrap();
             std::fs::write(cache.join("intercept.js"), "keep").unwrap();
-            let settings = if invalid_settings {
-                "broken otel-claude-hook"
-            } else {
-                r#"{"hooks":{"Stop":[{"hooks":[{"command":"otel-claude-hook"}]}]}}"#
+            let settings = match scenario {
+                "invalid-settings" => "broken otel-claude-hook",
+                "unknown-hook-shape" => r#"{"hooks":{"Stop":{"command":"otel-claude-hook"}}}"#,
+                _ => r#"{"hooks":{"Stop":[{"hooks":[{"command":"otel-claude-hook"}]}]}}"#,
             };
             std::fs::write(home.join(".claude/settings.json"), settings).unwrap();
-            let shell = if invalid_settings {
-                "# user\n"
-            } else {
-                "# BEGIN otel-claude-hook\nkeep\n"
+            let shell = match scenario {
+                "incomplete-shell" => "# BEGIN otel-claude-hook\nkeep\n",
+                "unknown-marker" => "# BEGIN otel-claude-hook-custom\nkeep\n# END otel-claude-hook-custom\n",
+                "nested-marker" => "# BEGIN otel-claude-hook\n# BEGIN otel-claude-hook-env\nkeep\n# END otel-claude-hook-env\n# END otel-claude-hook\n",
+                _ => "# user\n",
             };
             std::fs::write(home.join(".bashrc"), shell).unwrap();
             let result = run(&home, &data, true).await;
