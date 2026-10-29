@@ -203,6 +203,14 @@ fn windows_hook_comparison_key(command: &str) -> Option<String> {
     ))
 }
 
+fn hook_commands_match(installed: &str, expected: &str) -> bool {
+    installed == expected
+        || (cfg!(windows)
+            && windows_hook_comparison_key(installed)
+                .zip(windows_hook_comparison_key(expected))
+                .is_some_and(|(installed, expected)| installed == expected))
+}
+
 fn windows_hook_spelling_aliases(definition: &HookDefinition, data: &Value) -> HookDefinition {
     let mut definition = definition.clone();
     let known: HashSet<_> = std::iter::once(&definition.hook_command)
@@ -933,8 +941,8 @@ impl HookStrategy {
                     else {
                         continue;
                     };
-                    if installed_command != command
-                        && !(include_legacy
+                    let known_command = hook_commands_match(installed_command, &command)
+                        || (include_legacy
                             && legacy_hook_commands(
                                 &hook_command,
                                 event_name,
@@ -942,8 +950,8 @@ impl HookStrategy {
                                 &def.id,
                             )
                             .iter()
-                            .any(|old| old == installed_command))
-                    {
+                            .any(|old| hook_commands_match(installed_command, old)));
+                    if !known_command {
                         continue;
                     }
                     if handler
@@ -1643,6 +1651,69 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&hooks).unwrap()).unwrap();
         assert!(parsed["hooks"].get("PreToolUse").is_none());
         assert!(parsed["hooks"].get("Stop").is_some());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn codex_cleanup_removes_trust_for_mixed_windows_script_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let settings = root.path().join(".codex/hooks.json");
+        let config = root.path().join(".codex/config.toml");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        let path = root.path().join("研发 🚀/hooks/codex.ps1");
+        let normalized = path.to_string_lossy().replace('\\', "/");
+        let mixed = path.to_string_lossy().into_owned();
+        assert_ne!(normalized, mixed);
+        let mut def = base_def("codex", &settings.to_string_lossy());
+        let hook = def.hook.as_mut().unwrap();
+        hook.hook_command = normalized;
+        hook.events = vec!["Stop".into()];
+        hook.event_subcommand = None;
+        hook.trust_toml = Some(TrustTomlConfig {
+            config_path: config.to_string_lossy().into_owned(),
+            trust_algo: TrustAlgo::V1,
+            marker: "otel-codex-hook".into(),
+        });
+        let command = wrap_ps1_for_platform(&mixed, true);
+        let data = serde_json::json!({"hooks":{"Stop":[
+            {"matcher":"*","hooks":[
+                {"type":"command","command":command},
+                {"type":"command","command":"user-owned-command"}
+            ]}
+        ]}});
+        std::fs::write(&settings, data.to_string()).unwrap();
+        let strategy = HookStrategy::new(HookManager::new(None, None));
+        let locations = strategy
+            .resolve_codex_hooks_from_data(&def, &["Stop".into()], false, &data, true)
+            .unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations["Stop"].handler.command, command);
+        let trust = plan_trusted_hashes(
+            &TrustOpts::Installed(InstalledTrustOpts {
+                config_path: config.to_string_lossy().into_owned(),
+                hooks_json_abs_path: node_resolve(&settings.to_string_lossy()),
+                locations,
+                retired_keys: vec![],
+                marker: "otel-codex-hook".into(),
+            }),
+            Some("model = \"user-model\"\n"),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(trust.contains("trusted_hash"));
+        std::fs::write(&config, trust).unwrap();
+        assert!(strategy.undeploy_hooks(&def).await);
+        let remaining = std::fs::read_to_string(&config).unwrap();
+        assert!(remaining.contains("user-model"));
+        assert!(!remaining.contains("trusted_hash"));
+        let remaining: Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert_eq!(
+            remaining["hooks"]["Stop"][0]["hooks"],
+            serde_json::json!([
+                {"type":"command","command":"user-owned-command"}
+            ])
+        );
     }
 
     #[tokio::test]

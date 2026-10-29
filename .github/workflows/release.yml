@@ -106,6 +106,7 @@ jobs:
           cargo test --locked -p loongsuite-pilot --test interceptor_native
           cargo test --locked -p loongsuite-pilot --lib utils::single_instance_lock::tests
           pilot_platform_failures=0
+          cargo test --locked -p loongsuite-pilot --lib deployment::hook_strategy::tests || pilot_platform_failures=1
           cargo test --locked -p loongsuite-pilot --lib deployment::dsh_yaml_patch_strategy::tests || pilot_platform_failures=1
           cargo test --locked -p loongsuite-pilot --lib updater::package_archive::tests
           cargo test --locked -p loongsuite-pilot --lib updater::runtime::tests::same_version_activation_preserves_live_tree_and_retries_failed_preflight
