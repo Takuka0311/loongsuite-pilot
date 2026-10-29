@@ -40,6 +40,13 @@ impl Fixture {
     }
     fn command(&self, binary: &Path) -> Command {
         let mut cmd = Command::new(binary);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // PowerShell must not start a console/terminal broker in unattended
+            // tests. This matches the existing bounded Windows process probes.
+            cmd.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+        }
         cmd.env_clear()
             .current_dir(self.root.path())
             .env("HOME", self.root.path())
