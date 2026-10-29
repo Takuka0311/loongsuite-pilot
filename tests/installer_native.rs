@@ -147,13 +147,16 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
     command
         .stdout(stdout.try_clone().unwrap())
         .stderr(stderr.try_clone().unwrap());
-    let mut child = command.spawn().unwrap();
     let start = Instant::now();
+    let mut child =
+        spawn_with_writer_retry(&mut command, start + timeout.min(Duration::from_secs(1))).unwrap();
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
         }
         if start.elapsed() > timeout {
+            #[cfg(windows)]
+            let environment_stage = child_bridge_phase(child.id());
             child.kill().unwrap();
             child.wait().unwrap();
             stdout.seek(SeekFrom::Start(0)).unwrap();
@@ -170,6 +173,8 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
                 })
                 .next_back()
                 .unwrap_or("shell-startup");
+            #[cfg(windows)]
+            let stage = environment_stage.as_deref().unwrap_or(stage);
             panic!(
                 "安装辅助入口超时 (stage={stage}, shell={})",
                 command.get_program().to_string_lossy()
@@ -189,6 +194,76 @@ fn bounded_for(mut command: Command, timeout: Duration) -> Output {
         stderr: read(&mut stderr),
     }
 }
+// Linux can briefly retain a copied executable's writer in another spawning
+// process. Retry ETXTBSY only, within the same bounded command deadline.
+fn spawn_with_writer_retry(
+    command: &mut Command,
+    deadline: Instant,
+) -> std::io::Result<std::process::Child> {
+    loop {
+        match command.spawn() {
+            Err(error)
+                if cfg!(target_os = "linux")
+                    && error.raw_os_error() == Some(26)
+                    && Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(10))
+            }
+            result => return result,
+        }
+    }
+}
+
+#[cfg(windows)]
+fn child_bridge_phase(pid: u32) -> Option<String> {
+    let pid = sysinfo::Pid::from_u32(pid);
+    let mut system = sysinfo::System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        true,
+        sysinfo::ProcessRefreshKind::nothing().with_environ(sysinfo::UpdateKind::Always),
+    );
+    system.process(pid)?.environ().iter().find_map(|entry| {
+        let text = entry.to_str()?;
+        let phase = text.strip_prefix("PILOT_TEST_STAGE=")?;
+        (phase.len() <= 64
+            && phase
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'))
+        .then(|| phase.to_owned())
+    })
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn copied_executable_waits_for_a_transient_writer_without_changing_its_bytes() {
+    use std::fs::OpenOptions;
+    let fixture = Fixture::new();
+    let before = loongsuite_pilot::utils::runtime_paths::sha256_file(&fixture.binary).unwrap();
+    let writer = OpenOptions::new()
+        .write(true)
+        .open(&fixture.binary)
+        .unwrap();
+    let error = fixture
+        .command(&fixture.binary)
+        .arg("--version")
+        .spawn()
+        .unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(26));
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        drop(writer);
+    });
+    let mut command = fixture.command(&fixture.binary);
+    command.arg("--version");
+    success(&bounded(command));
+    release.join().unwrap();
+    assert_eq!(
+        loongsuite_pilot::utils::runtime_paths::sha256_file(&fixture.binary).unwrap(),
+        before
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn timeout_reports_only_a_controlled_bridge_stage() {
@@ -1414,7 +1489,7 @@ fn windows_installer_config_bridge_preserves_unicode_and_environment_in_both_she
             )
             .unwrap();
             let source = include_str!("../deploy/installer-opensource.ps1");
-            let mut script = String::from("\u{feff}Write-Output 'PILOT_BRIDGE_STAGE:shell-entry'\n$ErrorActionPreference = 'Stop'\n");
+            let mut script = String::from("\u{feff}$env:PILOT_TEST_STAGE = 'shell-entry'\nWrite-Output 'PILOT_BRIDGE_STAGE:shell-entry'\n$ErrorActionPreference = 'Stop'\n");
             if constrained {
                 script.push_str(
                     "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n",
@@ -1445,17 +1520,21 @@ $CmsLicenseKey = $env:TEST_VALUE
 $script:PROBE_RESULT = '[]'
 $env:TEMP = $env:TEST_NATIVE_TEMP
 $env:TMP = $env:TEST_NATIVE_TEMP
+$env:PILOT_TEST_STAGE = 'check-deps'
 Write-Output 'PILOT_BRIDGE_STAGE:check-deps'
 Check-Deps
+$env:PILOT_TEST_STAGE = 'probe-agents'
 Write-Output 'PILOT_BRIDGE_STAGE:probe-agents'
 Probe-Agents
 if (@($script:PROBE_RESULT | ConvertFrom-Json).Count -lt 1) { throw 'empty native probe result' }
+$env:PILOT_TEST_STAGE = 'check-config'
 Write-Output 'PILOT_BRIDGE_STAGE:check-config'
 Assert-SingleSlsConfig
 $DATA_DIR = $DataDir
 $CACHE_DIR = $env:LOONGSUITE_PILOT_CACHE_DIR
 $CONFIG_FILE = Join-Path $DataDir 'config.json'
 $binary = Join-Path $script:INSTALL_SRC 'bin\loongsuite-pilot.exe'
+$env:PILOT_TEST_STAGE = 'service-version'
 Write-Output 'PILOT_BRIDGE_STAGE:service-version'
 Invoke-Pilot -Binary $binary -Arguments @('--version') | Out-Null
 if ($script:PilotExitCode -ne 0) { throw 'native success exit code lost' }
@@ -1463,8 +1542,10 @@ Invoke-Pilot -Binary $binary -Arguments @('--invalid-fixture-option') | Out-Null
 if ($script:PilotExitCode -ne 2) { throw 'native failure exit code lost' }
 foreach ($previous in @($null, 'previous 研发 🚀')) {
     $env:LOONGSUITE_PILOT_INSTALL_INPUT = $previous
+    $env:PILOT_TEST_STAGE = 'validate-config'
     Write-Output 'PILOT_BRIDGE_STAGE:validate-config'
     Invoke-InstallerHelper -Operation 'validate-config' -Json (Get-InstallConfigJson) | Out-Null
+    $env:PILOT_TEST_STAGE = 'write-config'
     Write-Output 'PILOT_BRIDGE_STAGE:write-config'
     Write-Config
     if ($env:LOONGSUITE_PILOT_INSTALL_INPUT -ne $previous) { throw 'input environment not restored' }
