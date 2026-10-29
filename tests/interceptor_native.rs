@@ -242,3 +242,65 @@ async fn native_hook_uses_real_http_identity_rules_protocols_and_checkpoint_with
         .any(|entry| entry["result"]["action"] == "block"));
     server.close().await;
 }
+
+#[tokio::test]
+async fn native_hook_empty_config_and_stopped_server_fail_open_without_runtimes() {
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("data");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir(root.path().join("no-runtimes")).unwrap();
+    let config = data.join("config.json");
+    fs::write(&config, "{\"interceptor\":{}}\n").unwrap();
+    let config = loongsuite_pilot::interceptor::load_interceptor_config(config.to_str()).await;
+    let rules = loongsuite_pilot::interceptor::resolve_enabled_rule_ids(&config);
+    assert!(rules.is_empty());
+    let server = create_interceptor_server(InterceptorServerOptions {
+        version: "native-empty-config".into(),
+        engine: RuleEngine::new(builtin_rules(), rules),
+        write_access_log: Some(Arc::new(|_| {})),
+        write_tool_verdict: Some(Arc::new(|_, _| {
+            panic!("prompt must not write tool verdict")
+        })),
+        emit_blocked_prompt: Some(Arc::new(|_| panic!("empty config must not emit a block"))),
+    });
+    let port = server.listen(0).await.unwrap();
+    let data_text = data.to_string_lossy().into_owned();
+    write_runtime(&RuntimeWriteOptions {
+        data_dir: Some(&data_text),
+        port,
+        version: "native-empty-config",
+        git_commit: None,
+    })
+    .await
+    .unwrap();
+    let runtime = interceptor_runtime_path(Some(&data_text));
+    let before = fs::read(&runtime).unwrap();
+    // Even a credential-shaped prompt is allowed when switches are empty.
+    let payload = json!({
+        "hook_event_name":"UserPromptSubmit",
+        "prompt":"sk-1234567890ABCDEFGHIJKLMN"
+    })
+    .to_string();
+    let allowed = hook(root.path(), "qoder", &payload).await;
+    success(&allowed);
+    assert!(allowed.stdout.is_empty());
+    server.close().await;
+    // Retain the real runtime file: exercise a failed connection rather than
+    // the separate missing-runtime early return.
+    let down = hook(root.path(), "qoder", &payload).await;
+    success(&down);
+    assert!(down.stdout.is_empty());
+    assert_eq!(fs::read(runtime).unwrap(), before);
+    assert!(!data.join("interceptor/tool-verdicts.json").exists());
+    let access = fs::read_to_string(interceptor_access_log_path(Some(&data_text))).unwrap();
+    let entries: Vec<Value> = access
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["result"]["action"], "fail-open");
+    assert!(entries[0]["result"]["error"]
+        .as_str()
+        .is_some_and(|error| !error.is_empty()));
+    assert!(!access.contains("sk-1234567890ABCDEFGHIJKLMN"));
+}

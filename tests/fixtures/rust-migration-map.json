@@ -5619,6 +5619,48 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/contract/interceptor-cli-daemon.test.ts",
+      "coverage": "complete",
+      "rust": [
+        {
+          "file": "tests/interceptor_native.rs",
+          "test": "native_hook_empty_config_and_stopped_server_fail_open_without_runtimes"
+        }
+      ],
+      "note": "原 Node dist 入口不再发行，服务由 Rust collector 内嵌；以生产配置加载/启用规则解析/真实 loopback server/runtime writer 与正式 CLI 承接空开关放行和服务关闭后 fail-open。Cargo 构建该正式二进制，取消旧 built 条件跳过。运行服务的集成与 collector 生命周期分别验证，不声称启动了旧独立 daemon。",
+      "source_hash": "065e4d361171eaccab123519760791512947032b9c4e2c6643fb667ebe924353",
+      "cases": [
+        {
+          "source": {
+            "id": "L43:C3",
+            "title": "allows when switches are empty and fail-opens when the daemon is down",
+            "suites": [
+              "interceptor cli/daemon contract"
+            ],
+            "parameters": [
+              "it.skipIf(!built)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "实际加载空 interceptor 配置，连凭据形状的 prompt 也允许；停止真实 HTTP 服务并保留 runtime 文件后，正式 CLI 返回 0、stdout 为空，记录脱敏连接失败且不写 verdict checkpoint。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/interceptor_native.rs",
+                "test": "native_hook_empty_config_and_stopped_server_fail_open_without_runtimes"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
