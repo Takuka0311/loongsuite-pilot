@@ -276,6 +276,18 @@ impl CandidateChild {
         Ok(scoped)
     }
 
+    pub fn take_stdin(&mut self) -> Option<std::process::ChildStdin> {
+        self.child.stdin.take()
+    }
+
+    pub fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
+        self.child.stdout.take()
+    }
+
+    pub fn take_stderr(&mut self) -> Option<std::process::ChildStderr> {
+        self.child.stderr.take()
+    }
+
     pub fn try_wait(&mut self) -> io::Result<Option<std::process::ExitStatus>> {
         #[cfg(unix)]
         if !self.tree.ready_to_reap(self.child.id())? {

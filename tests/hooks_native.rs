@@ -30,36 +30,57 @@ fn execute(mut command: Command, root: &Path, input: &[u8]) -> Output {
             command.env(key, value);
         }
     }
-    let mut child = command.spawn().unwrap();
-    let mut stdout = child.stdout.take().unwrap();
-    let mut stderr = child.stderr.take().unwrap();
+    let label = format!("{command:?}");
+    let mut child =
+        loongsuite_pilot::utils::candidate_process::CandidateChild::spawn(&mut command).unwrap();
+    let stdout = child.take_stdout().unwrap();
+    let stderr = child.take_stderr().unwrap();
     let out = std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        stdout.read_to_end(&mut bytes).unwrap();
+        stdout
+            .take(1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .unwrap();
         bytes
     });
     let err = std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        stderr.read_to_end(&mut bytes).unwrap();
+        stderr
+            .take(1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .unwrap();
         bytes
     });
-    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.take_stdin().unwrap().write_all(input).unwrap();
     let start = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
         }
         if start.elapsed() > Duration::from_secs(20) {
-            child.kill().unwrap();
-            child.wait().unwrap();
-            panic!("Hook 未在限定时间内退出");
+            // The scoped process group/Job kills the native grandchild too,
+            // so readers cannot stay blocked after PowerShell is terminated.
+            drop(child);
+            let stdout = out.join().unwrap();
+            let stderr = err.join().unwrap();
+            panic!(
+                "Hook 未在限定时间内退出：{label}，stdout={}，stderr={}",
+                String::from_utf8_lossy(&stdout[..stdout.len().min(2048)]),
+                String::from_utf8_lossy(&stderr[..stderr.len().min(2048)])
+            );
         }
         std::thread::sleep(Duration::from_millis(10));
     };
+    let stdout = out.join().unwrap();
+    let stderr = err.join().unwrap();
+    assert!(
+        stdout.len() <= 1024 * 1024 && stderr.len() <= 1024 * 1024,
+        "Hook 输出超限"
+    );
     Output {
         status,
-        stdout: out.join().unwrap(),
-        stderr: err.join().unwrap(),
+        stdout,
+        stderr,
     }
 }
 
@@ -106,6 +127,11 @@ fn assert_codex_roundtrip(mut command: Command, root: &Path, hooks: &Path, scrip
     let output = execute(command, root, &payload);
     assert!(
         output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stderr.is_empty(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -203,7 +229,10 @@ fn powershell_51_and_pwsh_preserve_native_stdin_in_both_language_modes() {
     for shell in ["powershell.exe", "pwsh.exe"] {
         let executable = which::which(shell).unwrap_or_else(|_| panic!("Windows 验收缺少 {shell}"));
         for constrained in [false, true] {
-            let harness = hooks.join("runner.ps1");
+            let harness = hooks.join(format!(
+                "runner-{shell}-{}.ps1",
+                if constrained { "constrained" } else { "full" }
+            ));
             let mode = if constrained {
                 "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
             } else {
@@ -303,5 +332,107 @@ fn qodercn_bootstraps_bash_from_sh_or_posix_mode_without_losing_stdin_or_agent_i
         assert!(records
             .iter()
             .any(|row| row.to_string().contains("你好 🚀")));
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn native_argument_probe_fixture() {
+    let args: Vec<String> = std::env::args().collect();
+    if !args.iter().any(|arg| arg == "pilot-argument-values") {
+        return;
+    }
+    let mut input = Vec::new();
+    std::io::stdin().read_to_end(&mut input).unwrap();
+    fs::write(
+        std::env::current_dir().unwrap().join("argv-probe.json"),
+        serde_json::to_vec(&json!({"args":args,"input":input})).unwrap(),
+    )
+    .unwrap();
+    std::io::stdout()
+        .write_all("PILOT_NATIVE_STDOUT:中文🚀\n".as_bytes())
+        .unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn powershell_bridge_preserves_raw_bytes_and_native_argument_boundaries() {
+    let root = tempfile::tempdir().unwrap();
+    let hooks = fixture(root.path());
+    let probe = root.path().join("argv probe 中文🚀.exe");
+    fs::copy(std::env::current_exe().unwrap(), &probe).unwrap();
+    fs::write(hooks.join("pilot-bin"), format!("{}\n", probe.display())).unwrap();
+    let values = [
+        "pilot-argument-values",
+        "",
+        "space argument",
+        r#"quote"inside"#,
+        r#"trailing space \"#,
+        "中文🚀",
+        r#"C:\space dir\quote"and-slash\"#,
+    ];
+    let mut args = vec![
+        "--exact",
+        "native_argument_probe_fixture",
+        "--nocapture",
+        "--",
+    ];
+    args.extend(values);
+    let literal = |arg: &str| format!("'{}'", arg.replace(char::from(39), "''"));
+    let array = args
+        .iter()
+        .map(|arg| literal(arg))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut input = vec![0xef, 0xbb, 0xbf];
+    input.extend(serde_json::to_vec(&json!({"probe":"中文🚀"})).unwrap());
+    for shell in ["powershell.exe", "pwsh.exe"] {
+        let executable = which::which(shell).unwrap_or_else(|_| panic!("Windows 验收缺少 {shell}"));
+        for constrained in [false, true] {
+            let output_path = root.path().join("argv-probe.json");
+            if output_path.exists() {
+                fs::remove_file(&output_path).unwrap();
+            }
+            let script = hooks.join(format!("argv-{shell}-{constrained}.ps1"));
+            let mode = if constrained {
+                "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
+            } else {
+                ""
+            };
+            let body = format!("{mode}. (Join-Path $PSScriptRoot 'shared\\native.ps1')\nInvoke-PilotNative -HookDir $PSScriptRoot -Arguments @({array}) -EmptyResult ''\n");
+            // Windows PowerShell 5.1 needs a BOM for literal Unicode in scripts.
+            let mut source = vec![0xef, 0xbb, 0xbf];
+            source.extend(body.as_bytes());
+            fs::write(&script, source).unwrap();
+            let mut command = Command::new(&executable);
+            command
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                ])
+                .arg(&script);
+            let output = execute(command, root.path(), &input);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                output.stderr.is_empty(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(String::from_utf8(output.stdout)
+                .unwrap()
+                .contains("PILOT_NATIVE_STDOUT:中文🚀"));
+            let observed: Value = serde_json::from_slice(&fs::read(&output_path).unwrap()).unwrap();
+            let actual: Vec<String> = serde_json::from_value(observed["args"].clone()).unwrap();
+            let expected: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+            assert_eq!(&actual[1..], expected.as_slice());
+            assert_eq!(observed["input"], json!(input));
+        }
     }
 }

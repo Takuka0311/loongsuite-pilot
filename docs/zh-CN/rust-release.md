@@ -219,3 +219,8 @@ Linux all-features 全量 1,392 项通过，另有 2 个原有 doc-tests ignored
 继续扫描卸载的实际调用链发现 Unix 安装器也仍有活跃 Node 清理函数，DSH 分支甚至在未部署 DSH 时先解析 Node。后续卸载迁移应覆盖两端全部清理调用，不能只替换 Windows 的 Python helper。\n
 \n第二轮发布 40806841286 仍在 Windows PowerShell 5.1 执行首条脚本前超时（stage=shell-startup），两架构的原生进程/锁回归均通过。对照已有 CREATE_NO_WINDOW 进程探针可正常启动 PowerShell，而安装夹具未设置该标志；本轮使隔离安装命令明确不创建控制台，避免无人值守的控制台/终端启动路径，保持原 30 秒上界和双 Shell / CLM 断言。实际结果待下一轮验证。\n
 JXA 策略的 13 处声明已登记为 retained，实际 Linux Vitest 参数展开 20 项通过，命令为 npm run test:host:shortcut。带保留报告的审计现为 38 个完整文件、23 个部分文件、330 个未映射文件；Rust 348、原语言保留 13、退役 7、未登记 4,326，另有 2 条部分覆盖。审计需传 --retained-report target/migration-audit/shortcut-host-linux.json，缺少报告时保留项继续标为未收集；不会把原语言保留项计作 Rust 迁移。\n
+### 2026-10-29 PowerShell 原生 Hook 输入交接
+
+提交 b155c5f 的发布 dry-run 40865140200 中，四个 Linux 与两个 macOS 包成功；Windows 两架构的 Qoder 身份回归通过，随后原生 Hook 在 20 秒上界内未退出。共享 PowerShell 入口改为 Start-Process -NoNewWindow 继承原始标准句柄，避免 PowerShell 管道接管 stdin 与 UTF-8 输出；显式等待主进程，不等待后台重试子进程。Windows 参数按原生 argv 规则逐项转义。失败仍保留原有 fail-open 响应。
+
+新增 Windows PowerShell 5.1 / PowerShell 7、FullLanguage / ConstrainedLanguage 的 BOM、Unicode、空参数、引号及尾部反斜杠回归。测试进程通过现有进程组/Job 管理，超时会清理整个测试进程树并报告 Shell 和语言模式。Linux 默认 1,460 项、all-features 1,462 项通过，严格 clippy 通过，另有两个原有 doc-tests ignored；新增 Windows 行为仍须实跑验证。本轮不延长 20 秒上界，也不跳过失败用例；更后面的 Windows DSH 回归尚未运行，不计作已修复。

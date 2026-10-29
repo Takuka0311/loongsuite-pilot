@@ -47,6 +47,16 @@ function Resolve-PilotBinary {
     throw 'native binary missing'
 }
 
+function ConvertTo-PilotNativeArgument {
+    param([string]$Value)
+    if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') { return $Value }
+    # Start-Process joins ArgumentList into a Windows command line. Escape for
+    # the native argv parser without introducing cmd.exe or a text pipeline.
+    $escaped = $Value -replace '(\\*)"', '$1$1\"'
+    $escaped = $escaped -replace '(\\+)$', '$1$1'
+    return '"' + $escaped + '"'
+}
+
 function Invoke-PilotNative {
     param([string]$HookDir, [string[]]$Arguments, [string]$EmptyResult = '{}')
     if (-not [Console]::IsInputRedirected) {
@@ -59,10 +69,15 @@ function Invoke-PilotNative {
     }
     try {
         $binary = Resolve-PilotBinary -HookDir $HookDir
-        $result = & $binary @Arguments
-        if ($LASTEXITCODE -ne 0) { throw 'native hook failed' }
-        if ($result) { Write-Output $result }
-        elseif ($EmptyResult) { Write-Output $EmptyResult }
+        $quoted = @($Arguments | ForEach-Object { ConvertTo-PilotNativeArgument $_ })
+        # Inherit the original byte handles; PowerShell's native-command
+        # pipeline can keep redirected stdin open or transcode UTF-8.
+        $process = Start-Process -FilePath $binary -ArgumentList $quoted -NoNewWindow -PassThru -ErrorAction Stop
+        # Keep the native process handle for ExitCode on Windows PowerShell.
+        $null = $process.Handle
+        # Wait only for this hook, not its detached retry descendants.
+        Wait-Process -InputObject $process -ErrorAction Stop
+        if ($null -eq $process.ExitCode -or $process.ExitCode -ne 0) { throw 'native hook failed' }
     } catch {
         Write-Error '[loongsuite-pilot] native hook unavailable' -ErrorAction Continue
         if ($EmptyResult) { Write-Output $EmptyResult }
