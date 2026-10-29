@@ -123,6 +123,8 @@ mod tests {
         let mut sample = request(Some("LTAI1234567890ABCD"));
         let verdict = engine.evaluate(&sample);
         assert_eq!(verdict.action, VerdictAction::Allow);
+        assert!(verdict.reason.is_none());
+        assert!(verdict.rule_id.is_none());
         assert!(verdict.evaluated_rules.is_empty());
         sample.prompt = Some("LTAI1234567890ABCD".to_string());
         assert_eq!(engine.evaluate(&sample).action, VerdictAction::Allow);
@@ -134,6 +136,8 @@ mod tests {
             ("cloudAccessKey", "please use LTAI1234567890ABCD", "[ACCESSKEY_BLOCKED]"),
             ("cloudAccessKey", "aws=AKIAIOSFODNN7EXAMPLE", "[ACCESSKEY_BLOCKED]"),
             ("cloudAccessKey", "sts=ASIAIOSFODNN7EXAMPLE", "[ACCESSKEY_BLOCKED]"),
+            ("cloudAccessKey", concat!("sts=ASIA", "ABCDEFGHIJKLMNOP"), "[ACCESSKEY_BLOCKED]"),
+            ("apiKey", "openai=sk-1234567890abcdefghijklmnop", "[APIKEY_BLOCKED]"),
             ("cloudAccessKey", "tencent=AKIDabcdefghijklmnopqrstuvwxyz", "[ACCESSKEY_BLOCKED]"),
             ("apiKey", "openai=sk-EXAMPLE0123456789abcdef", "[APIKEY_BLOCKED]"),
             ("apiKey", "github=ghp_1234567890abcdefghijklmnop", "[APIKEY_BLOCKED]"),
@@ -165,18 +169,22 @@ mod tests {
         let mut pre = request(None);
         pre.event = HookEventName::PreToolUse;
         pre.tool_name = Some("Bash".to_string());
-        pre.tool_input = Some(json!({"command": "export KEY=sk-EXAMPLE0123456789abcdef"}));
+        pre.tool_input = Some(json!({"command": "export KEY=sk-1234567890abcdefghijklmnop"}));
         let verdict = engine.evaluate(&pre);
+        assert_eq!(verdict.action, VerdictAction::Block);
         assert_eq!(verdict.reason.as_deref(), Some("[APIKEY_BLOCKED]"));
+        assert_eq!(verdict.rule_id.as_deref(), Some("apiKey"));
+        assert_eq!(verdict.evaluated_rules, vec!["apiKey"]);
 
         let mut post = request(None);
         post.event = HookEventName::PostToolUse;
         post.tool_name = Some("Bash".to_string());
-        post.tool_response = Some(json!({"stdout": "openai=sk-EXAMPLE0123456789abcdef"}));
-        assert_eq!(
-            engine.evaluate(&post).reason.as_deref(),
-            Some("[APIKEY_BLOCKED]")
-        );
+        post.tool_response = Some(json!({"stdout": "openai=sk-1234567890abcdefghijklmnop"}));
+        let verdict = engine.evaluate(&post);
+        assert_eq!(verdict.action, VerdictAction::Block);
+        assert_eq!(verdict.reason.as_deref(), Some("[APIKEY_BLOCKED]"));
+        assert_eq!(verdict.rule_id.as_deref(), Some("apiKey"));
+        assert_eq!(verdict.evaluated_rules, vec!["apiKey"]);
     }
 
     #[test]
@@ -200,6 +208,7 @@ mod tests {
         assert_eq!(verdict.action, VerdictAction::Block);
         assert_eq!(verdict.reason.as_deref(), Some("[DATABASEURL_BLOCKED]"));
         assert_eq!(verdict.rule_id.as_deref(), Some("databaseUrl"));
+        assert_eq!(verdict.evaluated_rules, vec!["databaseUrl"]);
     }
 
     #[test]

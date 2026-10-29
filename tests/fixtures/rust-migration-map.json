@@ -2960,6 +2960,512 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/blocked-prompt.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "逐断言核对并复用实际拦截器生产实现的内嵌 Rust 回归；补齐深层消息副本、原始参数样本、完整 verdict 字段及真实 runtime 身份断言，不引用未接线的测试专用 helper。",
+      "source_hash": "06ac021242984d6bb42d040731b893d151a7575c0e66bda9ec4a62eb32355829",
+      "cases": [
+        {
+          "source": {
+            "id": "L20:C3",
+            "title": "fills the synthetic llm.request fields from the hook",
+            "suites": [
+              "buildBlockedQoderPromptEntry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实拒绝条目保留请求/观测纳秒、规范 UUID、turn/step、unknown 模型、消息与增量独立副本、workspace、guardrail 字段，且无输出/token/trace 字段。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/blocked_prompt.rs",
+                "test": "fills_the_synthetic_llm_request_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L54:C3",
+            "title": "omits messages and workspace when the hook has no prompt or cwd",
+            "suites": [
+              "buildBlockedQoderPromptEntry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺少 prompt/cwd/session 时不产生消息及工作区，保留空 session 和 block 决策。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/blocked_prompt.rs",
+                "test": "omits_messages_and_workspace_when_the_hook_has_no_prompt_or_cwd"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/sensitive-type.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "逐断言核对并复用实际拦截器生产实现的内嵌 Rust 回归；补齐深层消息副本、原始参数样本、完整 verdict 字段及真实 runtime 身份断言，不引用未接线的测试专用 helper。",
+      "source_hash": "d1bbd0e691d7a52164a785b521ff0a69c2d4048d27f4456704367ff5fec524fb",
+      "cases": [
+        {
+          "source": {
+            "id": "L21:C3",
+            "title": "registers the four mask types in JSON order",
+            "suites": [
+              "sensitive-type interceptor rules"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "内置规则 ID 保持声明的四种脱敏类型及原始注册顺序。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/sensitive_type.rs",
+                "test": "registers_the_four_mask_types_in_json_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L25:C3",
+            "title": "stays bypassed until the type is enabled",
+            "suites": [
+              "sensitive-type interceptor rules"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "未启用类型时 action=allow、reason/ruleId 均空、evaluatedRules 为空。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/sensitive_type.rs",
+                "test": "stays_bypassed_until_the_type_is_enabled"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L33:C3",
+            "title": "blocks %s text through the engine",
+            "suites": [
+              "sensitive-type interceptor rules"
+            ],
+            "parameters": [
+              "it.each([\n    ['cloudAccessKey', 'please use LTAI1234567890ABCD', '[ACCESSKEY_BLOCKED]'],\n    ['cloudAccessKey', 'aws=AKIAIOSFODNN7EXAMPLE', '[ACCESSKEY_BLOCKED]'],\n    ['cloudAccessKey', 'sts=ASIAABCDEFGHIJKLMNOP', '[ACCESSKEY_BLOCKED]'],\n    ['cloudAccessKey', 'tencent=AKIDabcdefghijklmnopqrstuvwxyz', '[ACCESSKEY_BLOCKED]'],\n    ['apiKey', 'openai=sk-1234567890abcdefghijklmnop', '[APIKEY_BLOCKED]'],\n    ['apiKey', 'github=ghp_1234567890abcdefghijklmnop', '[APIKEY_BLOCKED]'],\n    ['privateKey', '-----BEGIN OPENSSH PRIVATE KEY-----\\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU=\\n-----END OPENSSH PRIVATE KEY-----', '[PRIVATEKEY_BLOCKED]'],\n    ['databaseUrl', 'mysql://agent:eMCyjl4XWcVzpXFb@127.0.0.1:3306/pilot', '[DATABASEURL_BLOCKED]'],\n    ['databaseUrl', 'jdbc:mysql://localhost:3306/db?user=root&password=MySynthMysql12', '[DATABASEURL_BLOCKED]'],\n  ] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留九组历史合成 AccessKey/APIKey/私钥/数据库 URL，经真实 RuleEngine 验证 block、reason、ruleId 和 evaluatedRules 全字段。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/sensitive_type.rs",
+                "test": "blocks_known_secret_shapes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L53:C3",
+            "title": "blocks secrets in tool input",
+            "suites": [
+              "sensitive-type interceptor rules"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原始合成 APIKey 通过工具输入/响应两条路径触发 block，完整核对 reason、ruleId 与 evaluatedRules。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/sensitive_type.rs",
+                "test": "blocks_secrets_in_tool_input_and_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L67:C3",
+            "title": "blocks secrets in tool response",
+            "suites": [
+              "sensitive-type interceptor rules"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原始合成 APIKey 通过工具输入/响应两条路径触发 block，完整核对 reason、ruleId 与 evaluatedRules。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/sensitive_type.rs",
+                "test": "blocks_secrets_in_tool_input_and_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L81:C3",
+            "title": "blocks secrets in nested Read file content after a newline",
+            "suites": [
+              "sensitive-type interceptor rules"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "多行中文嵌套 Read 内容的数据库凭据被拦截，四个结果字段及规则顺序全部保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/sensitive_type.rs",
+                "test": "blocks_secrets_in_nested_read_file_content"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L105:C3",
+            "title": "allows non-matching text when the switch is on",
+            "suites": [
+              "sensitive-type interceptor rules"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "短 AccessKey 及无密码数据库 URL 均由生产规则返回 Miss。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/sensitive_type.rs",
+                "test": "allows_non_matching_text_when_the_switch_is_on"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L117:C3",
+            "title": "joins prompt, tool name, and nested string leaves",
+            "suites": [
+              "collectHookText"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "prompt、工具名、输入及响应中的字符串叶子按原顺序用换行拼接。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/hook_text.rs",
+                "test": "joins_prompt_tool_name_and_nested_string_leaves"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L126:C3",
+            "title": "keeps real newlines inside nested file content",
+            "suites": [
+              "collectHookText"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "嵌套文件正文中的真实换行保持不变，匹配原始完整文本。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/rules/hook_text.rs",
+                "test": "keeps_real_newlines_inside_nested_file_content"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/access-log.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "逐断言核对并复用实际拦截器生产实现的内嵌 Rust 回归；补齐深层消息副本、原始参数样本、完整 verdict 字段及真实 runtime 身份断言，不引用未接线的测试专用 helper。",
+      "source_hash": "5373fe43ee97ce43f1dc4979027656babdd9e702a6ba28cfa0cf964f31629869",
+      "cases": [
+        {
+          "source": {
+            "id": "L15:C3",
+            "title": "includes event, input, and result on each line",
+            "suites": [
+              "interceptor access log"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "JSONL 保留 event/toolUseId/工具名/结果与字符串时间，数据库正文只保留脱敏标签。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/access_log.rs",
+                "test": "includes_event_input_and_result_on_each_line"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L40:C3",
+            "title": "copies prompt, tool input, and tool response from a hook request",
+            "suites": [
+              "interceptor access log"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐字段保留 prompt、toolName、toolInput、toolResponse、cwd 与 raw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/access_log.rs",
+                "test": "copies_prompt_tool_input_and_tool_response_from_a_hook_request"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L61:C3",
+            "title": "appends JSONL to the access log file",
+            "suites": [
+              "interceptor access log"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实落盘两行保留 allow/block，Unix 文件 0600、目录 0700。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/access_log.rs",
+                "test": "appends_jsonl_and_restricts_permissions"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L85:C3",
+            "title": "rotates the access log once it reaches the size limit",
+            "suites": [
+              "interceptor access log"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实三次写入触发轮转，当前、.1、.2 各自保留第三/二/一条内容。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/access_log.rs",
+                "test": "rotates_once_the_size_limit_is_reached"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L112:C3",
+            "title": "truncates oversized input instead of dropping the line",
+            "suites": [
+              "interceptor access log"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "超限正文被截断且保留合法 JSON、事件名、决策和 truncated 标记。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/access_log.rs",
+                "test": "truncates_oversized_input_instead_of_dropping_the_line"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/interceptor/runtime.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "逐断言核对并复用实际拦截器生产实现的内嵌 Rust 回归；补齐深层消息副本、原始参数样本、完整 verdict 字段及真实 runtime 身份断言，不引用未接线的测试专用 helper。",
+      "source_hash": "a40af594d87935b4092a3fa150a20bb5056fc8fe9117c2f59f8e6261a08b8c71",
+      "cases": [
+        {
+          "source": {
+            "id": "L13:C3",
+            "title": "records the process lifetime token when the platform exposes one",
+            "suites": [
+              "interceptor runtime files"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "运行时令牌与真实本进程身份相同且非空，附带核对 service、版本、端口。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/runtime.rs",
+                "test": "records_the_process_lifetime_token_when_the_platform_exposes_one"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L21:C3",
+            "title": "does not remove a PID file already replaced by a successor",
+            "suites": [
+              "interceptor runtime files"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际写 PID 后由接任者覆盖，清理保留对方 PID 文件及完整尾换行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/interceptor/daemon/runtime.rs",
+                "test": "does_not_remove_a_pid_file_already_replaced_by_a_successor"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

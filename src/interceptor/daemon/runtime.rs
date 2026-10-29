@@ -96,9 +96,12 @@ mod tests {
             version: "1.2.3",
             git_commit: None,
         });
-        if let Some(token) = &runtime.process_start_token {
-            assert!(!token.is_empty());
-        }
+        let token = crate::utils::read_process_start_token(std::process::id());
+        assert!(
+            !token.is_empty(),
+            "supported host must expose its own process identity"
+        );
+        assert_eq!(runtime.process_start_token.as_deref(), Some(token.as_str()));
         assert_eq!(runtime.service, INTERCEPTOR_SERVICE);
         assert_eq!(runtime.package_version, "1.2.3");
         assert_eq!(runtime.daemon_port, 18791);

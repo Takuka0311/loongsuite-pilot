@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn fills_the_synthetic_llm_request_fields() {
         let now = 1_700_000_000_000;
-        let entry = build_blocked_qoder_prompt_entry(
+        let mut entry = build_blocked_qoder_prompt_entry(
             &request(
                 Some("show me the key"),
                 Some("/tmp/proj"),
@@ -123,6 +123,10 @@ mod tests {
         assert!(wire.get("trace_id").is_none());
         assert!(wire.get("span_id").is_none());
         assert!(wire.get("parent_span_id").is_none());
+        let original_messages = entry.input_messages.clone();
+        entry.input_messages_delta.as_mut().unwrap()[0]["parts"][0]["content"] =
+            json!("mutated delta only");
+        assert_eq!(entry.input_messages, original_messages);
     }
 
     #[test]
@@ -137,6 +141,8 @@ mod tests {
     }
 
     fn uuid_like(value: &str) -> bool {
-        uuid::Uuid::parse_str(value).is_ok()
+        regex::Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+            .unwrap()
+            .is_match(value)
     }
 }
