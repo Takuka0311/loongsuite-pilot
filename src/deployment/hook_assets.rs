@@ -160,6 +160,11 @@ pub(super) fn recovery_pending(root: &Path) -> bool {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound)
 }
 
+// Freeze config paths before taking locks. The same prepared set must drive
+// both locks and the recovery journal; never resolve parent links again inside
+// the transaction after its locks have been acquired.
+pub(super) struct HookConfigTargets(BTreeMap<String, PathBuf>);
+
 pub(super) struct HookAssets {
     root: PathBuf,
     files: Vec<(String, PathBuf, String)>,
@@ -220,18 +225,21 @@ impl HookAssets {
         })
     }
 
-    fn targets(&self, configs: &BTreeMap<String, PathBuf>) -> BTreeMap<String, PathBuf> {
-        let mut targets = configs.clone();
+    fn targets(&self, configs: &HookConfigTargets) -> BTreeMap<String, PathBuf> {
+        let mut targets = configs.0.clone();
         for (relative, path, _) in &self.files {
             targets.insert(format!("asset:{relative}"), path.clone());
         }
         targets
     }
 
-    pub(super) fn begin(
-        &self,
+    pub(super) fn prepare_configs(
         configs: &BTreeMap<String, PathBuf>,
-    ) -> Result<ActivationTransaction> {
+    ) -> Result<HookConfigTargets> {
+        pin_configuration_targets(configs).map(HookConfigTargets)
+    }
+
+    pub(super) fn begin(&self, configs: &HookConfigTargets) -> Result<ActivationTransaction> {
         for (relative, _, _) in &self.files {
             safe_destination(&self.root, relative)?;
         }
@@ -278,18 +286,7 @@ impl HookAssets {
         build: impl FnOnce(&ActivationTransaction) -> Result<BTreeMap<String, String>> + Send,
     ) -> Result<()> {
         private_directory(&self.root)?;
-        #[cfg(unix)]
-        let configs = configs
-            .into_iter()
-            .map(|(key, path)| {
-                let path = if key == "state" {
-                    path
-                } else {
-                    pin_configuration_parent(&path)?
-                };
-                Ok((key, path))
-            })
-            .collect::<Result<BTreeMap<_, _>>>()?;
+        let configs = Self::prepare_configs(&configs)?;
         let lock = self.root.join(".hook-assets.lock");
         super::with_deployed_state_lock(
             lock.to_str().context("Hook 锁路径编码无效")?,
@@ -301,6 +298,7 @@ impl HookAssets {
                     );
                 }
                 let mut paths: Vec<_> = configs
+                    .0
                     .iter()
                     .map(|(key, path)| {
                         let mut lock = path.as_os_str().to_owned();
@@ -325,7 +323,7 @@ impl HookAssets {
                                     self.prepare(&mut transaction)?;
                                 }
                                 if edits.contains_key("config")
-                                    && configs.contains_key("backup")
+                                    && configs.0.contains_key("backup")
                                     && transaction.original_bytes("backup")?.is_none()
                                 {
                                     if let Some(original) = transaction.original_bytes("config")? {
@@ -334,7 +332,7 @@ impl HookAssets {
                                 }
                                 for (key, content) in edits {
                                     ensure!(
-                                        configs.contains_key(&key) && key != "backup",
+                                        configs.0.contains_key(&key) && key != "backup",
                                         "未知 Hook 配置目标"
                                     );
                                     transaction.write_preserving_mode(
@@ -397,6 +395,25 @@ pub(super) fn private_directory(path: &Path) -> Result<()> {
 /// disk). Pin the resolved parent while leaving the file itself unresolved:
 /// snapshot/write still reject a linked config file and all runtime assets
 /// retain their stricter path validation.
+fn pin_configuration_targets(
+    configs: &BTreeMap<String, PathBuf>,
+) -> Result<BTreeMap<String, PathBuf>> {
+    configs
+        .iter()
+        .map(|(key, path)| {
+            #[cfg(unix)]
+            let path = if key == "state" {
+                path.clone()
+            } else {
+                pin_configuration_parent(path)?
+            };
+            #[cfg(not(unix))]
+            let path = path.clone();
+            Ok((key.clone(), path))
+        })
+        .collect()
+}
+
 #[cfg(unix)]
 fn pin_configuration_parent(path: &Path) -> Result<PathBuf> {
     let file = path.file_name().context("Hook 配置缺少文件名")?;

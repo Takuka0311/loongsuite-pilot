@@ -2067,7 +2067,7 @@ mod tests {
         let (strategy, def) = transaction_fixture(root, "codex");
         let data = strategy.transaction_root(&def).unwrap();
         let assets = HookAssets::load(&def, Some(&root.join("candidate")), &data).unwrap();
-        let configs = strategy.config_targets(&def).unwrap();
+        let configs = HookAssets::prepare_configs(&strategy.config_targets(&def).unwrap()).unwrap();
         let mut transaction = assets.begin(&configs).unwrap();
         let edits = strategy
             .plan_config_edits(&def, &transaction, false)
@@ -2092,7 +2092,23 @@ mod tests {
     #[tokio::test]
     async fn hook_transaction_official_retry_recovers_after_process_exit() {
         let root = tempfile::tempdir().unwrap();
-        let (strategy, def) = seed_transaction_fixture(root.path(), "codex");
+        assert_hook_crash_recovery(root.path()).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn hook_transaction_crash_recovery_uses_the_same_targets_through_a_parent_directory_alias(
+    ) {
+        let owner = tempfile::tempdir().unwrap();
+        let physical = owner.path().join("physical");
+        let alias = owner.path().join("alias");
+        std::fs::create_dir(&physical).unwrap();
+        std::os::unix::fs::symlink(&physical, &alias).unwrap();
+        assert_hook_crash_recovery(&alias).await;
+    }
+
+    async fn assert_hook_crash_recovery(root: &Path) {
+        let (strategy, def) = seed_transaction_fixture(root, "codex");
         let configs = strategy.config_targets(&def).unwrap();
         let original = std::fs::read(&configs["config"]).unwrap();
         let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
@@ -2103,10 +2119,10 @@ mod tests {
                 "--nocapture",
             ])
             .env_clear()
-            .env("PILOT_HOOK_TRANSACTION_FIXTURE", root.path())
-            .env("HOME", root.path())
-            .env("USERPROFILE", root.path())
-            .current_dir(root.path());
+            .env("PILOT_HOOK_TRANSACTION_FIXTURE", root)
+            .env("HOME", root)
+            .env("USERPROFILE", root)
+            .current_dir(root);
         for key in ["SystemRoot", "WINDIR"] {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
@@ -2133,17 +2149,14 @@ mod tests {
         assert_eq!(std::fs::read(&configs["config"]).unwrap(), partial);
         // 不允许其他配置目标借用旧 journal，且恢复材料不能丢失。
         let mut other = def.clone();
-        other.hook.as_mut().unwrap().settings_path = root
-            .path()
-            .join("other/hooks.json")
-            .to_string_lossy()
-            .into_owned();
+        other.hook.as_mut().unwrap().settings_path =
+            root.join("other/hooks.json").to_string_lossy().into_owned();
         assert!(!strategy.deploy(&other).await.success);
         assert!(strategy.recovery_pending(&def));
         let manager = crate::deployment::DeploymentManager::new(
             crate::deployment::DeploymentManagerOptions {
-                data_dir: root.path().join("数据 🚀").to_string_lossy().into_owned(),
-                pilot_dir: root.path().join("candidate").to_string_lossy().into_owned(),
+                data_dir: root.join("数据 🚀").to_string_lossy().into_owned(),
+                pilot_dir: root.join("candidate").to_string_lossy().into_owned(),
                 builtin_agents_dir: None,
                 installed_by: Some(crate::types::InstalledBy::HookInstall),
             },

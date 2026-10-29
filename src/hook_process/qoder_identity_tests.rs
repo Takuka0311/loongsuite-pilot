@@ -49,7 +49,7 @@ impl Fixture {
     }
 
     fn seed_cli_account(&self) {
-        let path = self.root().join(".qoder/.auth/user");
+        let path = self.root().join(".qoder").join(".auth").join("user");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, "synthetic-cli-account").unwrap();
         let meta = fs::metadata(&path).unwrap();
@@ -66,6 +66,11 @@ impl Fixture {
             .unwrap(),
         )
         .unwrap();
+        // This fixture must seed a cache accepted by the real reader on every
+        // platform before testing that Desktop ignores the separate CLI account.
+        let identity = resolve_qoder_cli_user_identity(&env).expect("valid seeded CLI identity");
+        assert_eq!(identity.name.as_deref(), Some("cli-other-account"));
+        assert_eq!(identity.email.as_deref(), Some("cli@example.com"));
     }
 
     fn env(&self) -> Env {
