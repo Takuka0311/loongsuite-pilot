@@ -2,8 +2,8 @@
 //!
 //! The default build records nothing on the network. `send_alarm`, `send_status`,
 //! `send_running_status`, and `post_alarm` return immediately. The `proprietary`
-//! feature enables the in-tree statistic web-tracking post. The proprietary alarm
-//! transport is not in this repository, so alarm functions stay empty there too.
+//! feature enables running-status samples and configured internal alarm/status
+//! delivery. Missing private configuration keeps alarm/status delivery disabled.
 
 use indexmap::IndexMap;
 #[cfg(test)]
@@ -63,9 +63,9 @@ fn record(kind: &'static str, topic: &str, data: &IndexMap<String, String>) {
 pub fn send_alarm(topic: &str, data: &IndexMap<String, String>) {
     #[cfg(test)]
     record("alarm", topic, data);
-    #[cfg(all(feature = "proprietary", not(test)))]
+    #[cfg(not(test))]
     crate::internal::alarm_sender::send_alarm(topic, data);
-    #[cfg(any(not(feature = "proprietary"), test))]
+    #[cfg(test)]
     {
         let _ = (topic, data);
     }
@@ -74,9 +74,9 @@ pub fn send_alarm(topic: &str, data: &IndexMap<String, String>) {
 pub fn send_status(topic: &str, data: &IndexMap<String, String>) {
     #[cfg(test)]
     record("status", topic, data);
-    #[cfg(all(feature = "proprietary", not(test)))]
+    #[cfg(not(test))]
     crate::internal::alarm_sender::send_status(topic, data);
-    #[cfg(any(not(feature = "proprietary"), test))]
+    #[cfg(test)]
     {
         let _ = (topic, data);
     }
@@ -96,11 +96,11 @@ pub fn send_running_status(data: &IndexMap<String, String>) {
 pub async fn post_alarm(topic: &str, data: &IndexMap<String, String>, timeout_ms: u64) -> bool {
     #[cfg(test)]
     record("post-alarm", topic, data);
-    #[cfg(all(feature = "proprietary", not(test)))]
+    #[cfg(not(test))]
     {
         return crate::internal::alarm_sender::post_alarm(topic, data, timeout_ms).await;
     }
-    #[cfg(any(not(feature = "proprietary"), test))]
+    #[cfg(test)]
     {
         let _ = (topic, data, timeout_ms);
         false

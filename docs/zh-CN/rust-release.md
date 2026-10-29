@@ -8,7 +8,9 @@
 
 ## 2026-10-29 开发收口进展（尚未发布）
 
-- 远端 e111237 本地候选实际升级在 Cursor/Qoder Hook 部署阶段失败并回滚，旧采集进程恢复。新增回归重现其配置 home 指向 SSD 缓存目录的符号链接被事务锁拒绝；现只在 Unix 配置事务中固定父目录的真实路径，保留配置文件本身及运行资源路径的链接拒绝规则。Cursor/Qoder/Codex/Kiro 的目录链接安装、重复安装、状态及卸载保留用户内容通过；最终配置文件链接拒绝用例和原有外部缓存/配置链接保护通过。HookStrategy 19 项、旧配置清理 4 项、严格 clippy 通过；正在重新打包验证真实升级。系统 L1/L2 与告警网络 sender 仍为空实现，不把本地指标更新当作 SLS 心跳送达。
+- 内部心跳补齐为可配置的 WebTracking 发送路径：仅 proprietary 构建读取实际 dataDir 下的 `configs/inner/telemetry_config.json`（schema 1，alarm/status 各有 url），公开版即便存在该文件也不连接。目标来自私有安装配置，不写入公开仓库或业务输出配置；缺失/损坏/超出 64 KiB 时保持关闭。真实 HTTP 回归覆盖告警/状态 JSON、中文、400 不重试、503 重试、整体超时；独立进程从 load_config 到生产 sender 验证 dataDir 生效及公开版不发送。网络日志只保留错误类别/状态码，不记录 URL、请求体或响应体。严格 clippy 及隔离 HOME 的默认 1,447 项、all-features 1,449 项回归通过，原有两个 doc-test 仍 ignored。实际远端接收结果另行核对，不以单元测试代替 SLS 验收。
+
+- 远端 e111237 本地候选实际升级在 Cursor/Qoder Hook 部署阶段失败并回滚，旧采集进程恢复。新增回归重现其配置 home 指向 SSD 缓存目录的符号链接被事务锁拒绝；现只在 Unix 配置事务中固定父目录的真实路径，保留配置文件本身及运行资源路径的链接拒绝规则。Cursor/Qoder/Codex/Kiro 的目录链接安装、重复安装、状态及卸载保留用户内容通过；最终配置文件链接拒绝用例和原有外部缓存/配置链接保护通过。HookStrategy 19 项、旧配置清理 4 项、严格 clippy、默认/all-features 各 1,445 项通过；aad955c 已实际升级远端为 2.0.0，Dashboard/拦截正常，L1/L2 指标连续刷新。该候选仍是公开版，不把本地指标更新当作 SLS 心跳送达；内部 sender 修复见上条。
 
 - 上游 2b516fb（Qoder CN 经 sh 启动）与 51886a2（Qoder Desktop/CN 账号元数据）已移植至原生路径：入口与生成器一起引导 Bash/退出 POSIX 模式；账号快照只限明确 app 调用，16 KiB 有界读取，验证来源/登录/时间并逐 Stop 刷新，不混入独立 CLI 账号，重试沿用已观测身份。Qoder 20 项、原生 Hook 入口 4 项和生成器 2 项通过；非 Linux 发布回归加入同一账号与真实脚本组。main 的其他新增能力仍待对齐。
 

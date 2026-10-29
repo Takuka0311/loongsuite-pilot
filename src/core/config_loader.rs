@@ -123,7 +123,11 @@ async fn load_config_impl(strict: bool) -> anyhow::Result<AnalyticsConfig> {
             Some(&fields(serde_json::json!({ "path": config_path }))),
         );
     }
-    assemble_config(file.as_ref(), inner.as_ref(), &sources)
+    let config = assemble_config(file.as_ref(), inner.as_ref(), &sources)?;
+    if !strict {
+        crate::internal::configure_telemetry(&config.data_dir).await;
+    }
+    Ok(config)
 }
 
 pub fn assemble_config(

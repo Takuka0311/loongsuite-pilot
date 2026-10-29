@@ -27,18 +27,25 @@ pub fn build_web_tracking_url(endpoint: &str, project: &str, logstore: &str) -> 
 }
 
 pub async fn post_web_tracking(url: &str, body: &Value, label: Option<&str>) {
+    let _ = post_web_tracking_result(url, body, label).await;
+}
+
+/// Whether the endpoint accepted the batch; callers can bound the entire retry
+/// operation with a timeout instead of treating fire-and-forget as success.
+pub async fn post_web_tracking_result(url: &str, body: &Value, label: Option<&str>) -> bool {
     #[cfg(feature = "proprietary")]
     {
-        post_web_tracking_enabled(url, body, label).await;
+        post_web_tracking_enabled(url, body, label).await
     }
     #[cfg(not(feature = "proprietary"))]
     {
         let _ = (url, body, label);
+        false
     }
 }
 
 #[cfg(feature = "proprietary")]
-async fn post_web_tracking_enabled(url: &str, body: &Value, label: Option<&str>) {
+async fn post_web_tracking_enabled(url: &str, body: &Value, label: Option<&str>) -> bool {
     let logger = create_logger("WebTrackingPost");
     let raw = serde_json::to_string(body).unwrap_or_else(|_| "null".to_string());
     let tag = label.unwrap_or("webtracking");
@@ -46,13 +53,8 @@ async fn post_web_tracking_enabled(url: &str, body: &Value, label: Option<&str>)
     for attempt in 0..RETRY_MAX_ATTEMPTS {
         match send_once(url, &raw).await {
             Ok(()) => {
-                let mut meta = serde_json::Map::new();
-                meta.insert(
-                    "url".to_string(),
-                    serde_json::Value::String(url.to_string()),
-                );
-                logger.debug(&format!("{tag} sent"), Some(&meta));
-                return;
+                logger.debug(&format!("{tag} sent"), None);
+                return true;
             }
             Err(err) => {
                 let retryable = err.retryable;
@@ -76,12 +78,9 @@ async fn post_web_tracking_enabled(url: &str, body: &Value, label: Option<&str>)
         }
     }
     let mut meta = serde_json::Map::new();
-    meta.insert(
-        "url".to_string(),
-        serde_json::Value::String(url.to_string()),
-    );
     meta.insert("error".to_string(), serde_json::Value::String(last_err));
     logger.error(&format!("{tag} failed after retries"), Some(&meta));
+    false
 }
 
 #[cfg(feature = "proprietary")]
@@ -95,9 +94,9 @@ async fn send_once(url: &str, raw: &str) -> Result<(), SendError> {
     let client = reqwest::Client::builder()
         .timeout(TIMEOUT)
         .build()
-        .map_err(|err| SendError {
-            message: err.to_string(),
-            retryable: is_retryable_message(&err.to_string()),
+        .map_err(|_| SendError {
+            message: "HTTP client initialization failed".into(),
+            retryable: false,
         })?;
     let response = client
         .post(url)
@@ -108,26 +107,24 @@ async fn send_once(url: &str, raw: &str) -> Result<(), SendError> {
         .send()
         .await
         .map_err(|err| SendError {
-            message: err.to_string(),
-            retryable: is_retryable_message(&err.to_string()) || err.is_timeout(),
+            message: if err.is_timeout() {
+                "HTTP request timed out"
+            } else if err.is_connect() {
+                "HTTP connection failed"
+            } else {
+                "HTTP request failed"
+            }
+            .into(),
+            retryable: err.is_timeout() || err.is_connect() || err.is_body(),
         })?;
     if response.status().is_success() {
         return Ok(());
     }
     let status = response.status().as_u16();
-    let text = response.text().await.unwrap_or_default();
     Err(SendError {
-        message: format!("{status} {text}"),
+        message: format!("HTTP {status}"),
         retryable: RETRYABLE_STATUS.contains(&status),
     })
-}
-
-#[cfg(feature = "proprietary")]
-fn is_retryable_message(message: &str) -> bool {
-    message.contains("ECONNRESET")
-        || message.contains("ETIMEDOUT")
-        || message.contains("ECONNREFUSED")
-        || message.contains("TimeoutError")
 }
 
 #[cfg(test)]

@@ -2,11 +2,11 @@
 //!
 //! Open-source builds keep [`send_alarm`], [`send_status`], [`send_running_status`],
 //! and [`post_alarm`] as no-ops. The `proprietary` feature turns on the statistic
-//! web-tracking post from `statistic.ts`. Alarm delivery stays empty because the
-//! proprietary alarm module is not in this tree.
+//! web-tracking post and the configurable internal self-monitoring transport.
+//! Its private destinations are loaded from the installation data directory.
 
-#[cfg(all(feature = "proprietary", not(test)))]
 mod alarm_sender;
+pub use alarm_sender::configure as configure_telemetry;
 pub mod sender;
 mod statistic;
 mod webtracking_post;
