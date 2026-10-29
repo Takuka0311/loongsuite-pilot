@@ -109,9 +109,11 @@ jobs:
           cargo test --locked -p loongsuite-pilot --test cli_native native_span_attributes_preserve_types_strings_and_never_launch_a_runtime -- --exact
           if [[ "$TARGET" == *windows* ]]; then
             cargo test --locked -p loongsuite-pilot --test cli_native dashboard_shortcut_rejects_other_platforms_without_loading_config_or_runtimes -- --exact
-            cargo test --locked -p loongsuite-pilot --test installer_native windows_installer_config_bridge_preserves_unicode_and_environment_in_both_shells -- --exact
-            cargo test --locked -p loongsuite-pilot --test installer_native native_uninstall
-            cargo test --locked -p loongsuite-pilot --lib deployment::legacy_uninstall::tests
+            pilot_windows_failures=0
+            cargo test --locked -p loongsuite-pilot --test installer_native windows_installer_config_bridge_preserves_unicode_and_environment_in_both_shells -- --exact || pilot_windows_failures=1
+            cargo test --locked -p loongsuite-pilot --test installer_native native_uninstall || pilot_windows_failures=1
+            cargo test --locked -p loongsuite-pilot --lib deployment::legacy_uninstall::tests || pilot_windows_failures=1
+            test "$pilot_windows_failures" -eq 0
           fi
       - name: 安装本架构 musl 编译器
         if: contains(matrix.target, 'musl')

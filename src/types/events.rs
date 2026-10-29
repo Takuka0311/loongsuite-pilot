@@ -12,6 +12,8 @@ macro_rules! str_enum {
         }
 
         impl $name {
+            pub const ALL: &'static [Self] = &[$($name::$var),*];
+
             pub fn as_str(self) -> &'static str {
                 match self {
                     $($name::$var => $s,)*

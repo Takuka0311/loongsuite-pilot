@@ -133,7 +133,8 @@ impl Fixture {
         bounded(cmd)
     }
     fn config(&self) -> Value {
-        serde_json::from_slice(&fs::read(self.data.join("config.json")).unwrap()).unwrap()
+        let bytes = fs::read(self.data.join("config.json")).unwrap();
+        serde_json::from_slice(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes)).unwrap()
     }
     fn assert_only_config_and_released_empty_lock(&self) {
         let mut names: Vec<_> = fs::read_dir(&self.data)
@@ -319,12 +320,25 @@ fn function(source: &str, start: &str) -> String {
 fn official_helper_handles_bom_stdin_environment_secrets_and_invalid_config() {
     for use_env in [false, true] {
         let fixture = Fixture::new();
+        fs::create_dir_all(&fixture.data).unwrap();
+        fs::write(
+            fixture.data.join("config.json"),
+            "\u{feff}{\"privacy\":{\"excludeWorkspaces\":[\"保留\u{feff}🚀\"]}}",
+        )
+        .unwrap();
         let opts = fixture.options();
         let result = fixture.helper("write-config", &opts, use_env);
         success(&result);
         assert!(result.stdout.is_empty());
         assert!(result.stderr.is_empty());
         fixture.assert_only_config_and_released_empty_lock();
+        assert!(fs::read(fixture.data.join("config.json"))
+            .unwrap()
+            .starts_with(b"\xef\xbb\xbf"));
+        assert_eq!(
+            fixture.config()["privacy"]["excludeWorkspaces"],
+            json!(["保留\u{feff}🚀"])
+        );
         assert_eq!(fixture.config()["userId"], "研发 O'Brien 🚀");
         assert_eq!(
             fixture.config()["cms"]["licenseKey"],

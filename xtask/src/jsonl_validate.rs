@@ -772,3 +772,119 @@ pub fn run(options: Options) -> u8 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use loongsuite_pilot::normalization::{build_agent_activity_entry, normalize_event_name};
+    use loongsuite_pilot::types::{ActionType, AgentEventName, ClientType};
+    use serde_json::json;
+
+    fn schema_report(entry: &Value) -> Report {
+        let mut report = Report {
+            files: vec![FileStat::default()],
+            ..Report::default()
+        };
+        record(&mut report, 0, entry, 10);
+        report
+    }
+
+    #[test]
+    fn activity_contract_accepts_real_builder_outputs_optional_fields_and_every_enum_value() {
+        let uuid = regex::Regex::new(
+            r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+        )
+        .unwrap();
+        // Pin the pre-migration enums independently: iterating only the new
+        // Rust enum would otherwise miss a variant accidentally lost in porting.
+        let baseline: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/activity-contract-enums.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            baseline["baselineCommit"],
+            "ef8953de1b5d2aa6d719cb0409cb5f48f2b99b42"
+        );
+        let clients: BTreeSet<_> = ClientType::ALL
+            .iter()
+            .map(|client| client.as_str())
+            .collect();
+        let actions: BTreeSet<_> = ActionType::ALL
+            .iter()
+            .map(|action| action.as_str())
+            .collect();
+        for client in baseline["clients"].as_array().unwrap() {
+            assert!(
+                clients.contains(client.as_str().unwrap()),
+                "historical ClientType was dropped"
+            );
+        }
+        for action in baseline["actions"].as_array().unwrap() {
+            assert!(
+                actions.contains(action.as_str().unwrap()),
+                "historical ActionType was dropped"
+            );
+        }
+        let mut options = vec![
+            json!({"sessionId":"sess-1","userId":"user-1","agentType":"qoder","actionType":"edit","filePath":"/tmp/test.ts"}),
+            json!({"sessionId":"sess-2","userId":"user-2","agentType":"qoder-work","actionType":"create","filePath":"/tmp/new-file.ts",
+                "content":"const x = 1;","inlineDiffMessage":"+const x = 1;","extra":{"toolName":"write_file","model":"claude-3"}}),
+        ];
+        for client in ClientType::ALL {
+            options.push(json!({"sessionId":"sess","userId":"u","agentType":client.as_str(),"actionType":"edit","filePath":"/f.ts"}));
+        }
+        for action in ActionType::ALL {
+            options.push(json!({"sessionId":"sess","userId":"u","agentType":"qoder","actionType":action.as_str(),"filePath":"/f.ts"}));
+        }
+        let mut ids = BTreeSet::new();
+        for (index, options) in options.iter().enumerate() {
+            let entry = serde_json::to_value(build_agent_activity_entry(options)).unwrap();
+            assert_eq!(
+                schema_report(&entry).hard_issues,
+                0,
+                "contract scenario {index}"
+            );
+            let id = entry["event.id"].as_str().unwrap();
+            assert!(
+                uuid.is_match(id),
+                "UUID v4 must retain version and variant bits"
+            );
+            assert!(ids.insert(id.to_owned()));
+            let timestamp = entry["time_unix_nano"].as_str().unwrap();
+            assert!(timestamp.bytes().all(|byte| byte.is_ascii_digit()));
+            assert!(timestamp.parse::<u128>().unwrap() > 0);
+            if index == 1 {
+                assert_eq!(entry["agent.content"], "const x = 1;");
+                assert_eq!(entry["agent.inline_diff_message"], "+const x = 1;");
+            }
+        }
+        let input = json!({"time_unix_nano":"1700000000000000000","event.id":"agent-input-event","event.name":"agent.input",
+            "user.id":"u","gen_ai.session.id":"sess","gen_ai.agent.type":"qoder","gen_ai.provider.name":"qwen"});
+        assert_eq!(schema_report(&input).hard_issues, 0);
+        assert_eq!(
+            normalize_event_name(input.get("event.name")),
+            AgentEventName::AgentInput
+        );
+        assert_eq!(input["event.name"], "agent.input");
+    }
+
+    #[test]
+    fn activity_contract_rejects_missing_required_fields_invalid_event_names_and_non_numeric_time()
+    {
+        let minimal = json!({"time_unix_nano":"1700000000000000000","event.id":"event-1","event.name":"other",
+            "user.id":"u","gen_ai.session.id":"sess","gen_ai.agent.type":"qoder","gen_ai.provider.name":"qwen"});
+        let missing = schema_report(&json!({"sessionId":"sess"}));
+        assert!(missing.issue_counts["missing_required"] > 0);
+        let mut invalid = minimal.clone();
+        invalid["event.name"] = json!("invalid-action");
+        assert!(schema_report(&invalid).issue_counts["bad_event_name"] > 0);
+        let mut non_numeric = minimal;
+        non_numeric["time_unix_nano"] = json!("not-a-time");
+        let report = schema_report(&non_numeric);
+        assert!(report.issue_counts["type_error"] > 0);
+        assert!(report
+            .samples
+            .iter()
+            .any(|sample| sample.fields.contains(&"time_unix_nano")));
+    }
+}

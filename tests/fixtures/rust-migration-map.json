@@ -1161,15 +1161,15 @@
       ]
     },
     {
-      "legacy":"tests/unit/utils/pid-utils.test.ts", "coverage":"partial", "rust":[],
-      "note":"九个历史声明逐项登记；EPERM 分类已接入生产系统探针（Unix kill(pid,0)，Windows OpenProcess/WaitForSingleObject），Linux 真实降权子进程已验证 EPERM 仍存活，原生存活/回收/非法 PID 与锁回归通过。Windows 新探针与退出码 259 场景等待平台执行，保留一处部分覆盖。",
+      "legacy":"tests/unit/utils/pid-utils.test.ts", "coverage":"complete", "rust":[],
+      "note":"九个历史声明逐项登记；EPERM 分类直接接入生产 Unix kill(pid,0) 与 Windows OpenProcess/WaitForSingleObject。Linux 自有 nobody 子进程实证权限拒绝仍存活；Windows ARM64/x64 的 run 40819198911、jobs 123267413992/123267413155 均通过生产存活/回收/非法 PID/真实退出码 259 与原 EPERM 分类回归。该轮后续安装测试夹具 BOM 读取失败，不将整轮发布计为成功；工作区原有旧测试删除改动保留。",
       "source_hash":"efe20676800667fbc4a071122b998aadb4158b68c1e1d4c9622d51745ee21ae8",
       "cases":[
         {"source":{"id":"L39:C3","title":"matches strict collector and updater command identities","suites":["pid-utils identity-first liveness"],"parameters":[]},
          "coverage":"complete","behavior":"保留 collector/updater 旧入口、run-service 命中，以及 run-service-helper/unrelated 拒绝的六个断言；增加原生 collector 与 status 排除","platforms":["linux","macos","windows"],
          "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"matches_strict_collector_and_updater_command_identities"}]}},
         {"source":{"id":"L48:C3","title":"treats EPERM from kill zero as alive","suites":["pid-utils identity-first liveness"],"parameters":[]},
-         "coverage":"partial","behavior":"同一 EPERM/成功/ESRCH 分类直接承接生产 Unix/Windows 原生探针；Linux 真实 nobody 子进程向自有 root 父进程执行 kill(pid,0) 得到 EPERM，生产 is_process_alive 返回 true。真实子进程回收及非法 PID 回归通过，Windows 新探针待平台执行。","platforms":["linux","macos","windows"],
+         "coverage":"complete","behavior":"同一 EPERM/成功/ESRCH 分类直接承接生产 Unix/Windows 系统探针；Linux 真实 nobody 子进程向自有 root 父进程执行 kill(pid,0) 得到 EPERM，生产 is_process_alive 返回 true。真实存活/回收/非法 PID/Windows 退出码 259 回归在 Windows ARM64/x64 实跑通过。","platforms":["linux","macos","windows"],
          "target":{"kind":"rust","tests":[{"file":"src/utils/pid_utils.rs","test":"treats_eperm_from_kill_zero_as_alive"},{"file":"src/utils/pid_utils.rs","test":"production_liveness_probe_distinguishes_running_and_reaped_children_and_invalid_pids"}]}},
         {"source":{"id":"L58:C3","title":"reads a stable process-start token from the platform process identity","suites":["pid-utils identity-first liveness"],"parameters":[]},
          "coverage":"complete","behavior":"保留 Linux 带空格 comm 的 stat/boot-id 精确 token 与 macOS lstart 文本归一化；真实入口两次读取本进程 token 相同、PID=0 为空；Windows 原生 FILETIME 身份与历史 CIM/FILETIME 跨格式保守锁交接另有实际平台回归，Linux 与实际 /proc 数据一致。","platforms":["linux","macos","windows"],
@@ -2686,6 +2686,275 @@
               {
                 "file": "tests/installer_native.rs",
                 "test": "native_uninstall_uses_persisted_dsh_path_and_preserves_assets_on_conflict"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/contract/agent-activity-entry.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "真实 Rust entry builder 输出交给正式 JSONL validator 的 record 类型/必需字段检查；拒绝样本直接走同一生产验证逻辑。UUID v4、正数纳秒、可选字段和 agent.input 均保留断言，固定历史基线的 38 个 ClientType / 8 个 ActionType 由独立 TypeScript AST 快照约束，防止只遍历 Rust enum 漏掉旧成员。",
+      "source_hash": "eea5bc061b6c1b85e3d691fe995a7a5a556f415c0951e566f78df5f4750c7361",
+      "cases": [
+        {
+          "source": {
+            "id": "L10:C3",
+            "title": "should validate a minimal entry from buildAgentActivityEntry",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 builder 的最小/全部可选字段、UUID v4 版本及变体、正数纳秒和固定历史 Client/Action 全量枚举均经生产记录验证器校验，agent.input 保持并可归一化。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_accepts_real_builder_outputs_optional_fields_and_every_enum_value"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L23:C3",
+            "title": "should validate an entry with all optional fields",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 builder 的最小/全部可选字段、UUID v4 版本及变体、正数纳秒和固定历史 Client/Action 全量枚举均经生产记录验证器校验，agent.input 保持并可归一化。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_accepts_real_builder_outputs_optional_fields_and_every_enum_value"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L39:C3",
+            "title": "should produce a valid uuid v4",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 builder 的最小/全部可选字段、UUID v4 版本及变体、正数纳秒和固定历史 Client/Action 全量枚举均经生产记录验证器校验，agent.input 保持并可归一化。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_accepts_real_builder_outputs_optional_fields_and_every_enum_value"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L53:C3",
+            "title": "should default timestamp to unix nanoseconds",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 builder 的最小/全部可选字段、UUID v4 版本及变体、正数纳秒和固定历史 Client/Action 全量枚举均经生产记录验证器校验，agent.input 保持并可归一化。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_accepts_real_builder_outputs_optional_fields_and_every_enum_value"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L66:C3",
+            "title": "should reject an entry without event_t required fields",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "正式 JSONL 记录验证器拒绝缺失必需字段、非法事件名和非数字纳秒，并核对错误分类和时间字段诊断。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_rejects_missing_required_fields_invalid_event_names_and_non_numeric_time"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L75:C3",
+            "title": "should reject an entry with invalid event name",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "正式 JSONL 记录验证器拒绝缺失必需字段、非法事件名和非数字纳秒，并核对错误分类和时间字段诊断。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_rejects_missing_required_fields_invalid_event_names_and_non_numeric_time"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L90:C3",
+            "title": "should accept and preserve agent.input",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 builder 的最小/全部可选字段、UUID v4 版本及变体、正数纳秒和固定历史 Client/Action 全量枚举均经生产记录验证器校验，agent.input 保持并可归一化。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_accepts_real_builder_outputs_optional_fields_and_every_enum_value"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L105:C3",
+            "title": "should reject a non-numeric time_unix_nano",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "正式 JSONL 记录验证器拒绝缺失必需字段、非法事件名和非数字纳秒，并核对错误分类和时间字段诊断。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_rejects_missing_required_fields_invalid_event_names_and_non_numeric_time"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L120:C3",
+            "title": "should cover all ClientType enum values",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 builder 的最小/全部可选字段、UUID v4 版本及变体、正数纳秒和固定历史 Client/Action 全量枚举均经生产记录验证器校验，agent.input 保持并可归一化。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_accepts_real_builder_outputs_optional_fields_and_every_enum_value"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L134:C3",
+            "title": "should cover all ActionType enum values",
+            "suites": [
+              "AgentActivityEntry contract"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实 builder 的最小/全部可选字段、UUID v4 版本及变体、正数纳秒和固定历史 Client/Action 全量枚举均经生产记录验证器校验，agent.input 保持并可归一化。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "xtask/src/jsonl_validate.rs",
+                "test": "activity_contract_accepts_real_builder_outputs_optional_fields_and_every_enum_value"
               }
             ]
           }
