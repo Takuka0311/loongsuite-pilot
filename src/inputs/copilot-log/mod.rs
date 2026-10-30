@@ -1,4 +1,6 @@
 //! Copilot CLI transcript/native OTel collection with a durable source index.
+#[cfg(test)]
+mod history_policy_tests;
 mod interaction_parser;
 mod source_index;
 use crate::checkpoints::StateStore;
@@ -14,7 +16,8 @@ use serde_json::{json, Value};
 use source_index::CopilotSourceIndex;
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 pub struct CopilotLogInputOptions {
     pub state_store: Arc<StateStore>,
@@ -38,6 +41,8 @@ pub struct CopilotLogBody {
     native_grace_ms: u64,
     initial_history_start: Option<u64>,
     shared: Arc<Mutex<Shared>>,
+    host: Mutex<Option<Weak<HostedInput<CopilotLogBody>>>>,
+    watcher: Mutex<Option<CopilotWakeupWatcher>>,
 }
 pub struct CopilotLogInput {
     pub inner: Arc<HostedInput<CopilotLogBody>>,
@@ -61,26 +66,29 @@ impl CopilotLogInput {
             data_dir: options.data_dir,
             native_grace_ms: options.native_grace_ms.unwrap_or(30_000),
             initial_history_start: options.history_start_time_ms,
+            host: Mutex::new(None),
+            watcher: Mutex::new(None),
             shared: Arc::new(Mutex::new(Shared {
                 index: None,
                 queued: Vec::new(),
                 history_start: None,
             })),
         };
-        Self {
-            inner: HostedInput::new(
-                body,
-                "CopilotLogInput",
-                options.state_store,
-                Some(
-                    options
-                        .poll_interval_ms
-                        .filter(|interval| *interval > 0)
-                        .unwrap_or(DEFAULT_POLL_INTERVAL_MS),
-                ),
+        let inner = HostedInput::new(
+            body,
+            "CopilotLogInput",
+            options.state_store,
+            Some(
+                options
+                    .poll_interval_ms
+                    .filter(|interval| *interval > 0)
+                    .unwrap_or(DEFAULT_POLL_INTERVAL_MS),
             ),
-        }
+        );
+        *inner.body.host.lock().expect("Copilot host") = Some(Arc::downgrade(&inner));
+        Self { inner }
     }
+
     pub fn collector_running(&self) -> bool {
         self.inner.running()
     }
@@ -342,7 +350,12 @@ impl InputBody for CopilotLogBody {
     }
     async fn on_start(&self, _rt: &InputRuntime) -> Result<()> {
         tokio::fs::create_dir_all(&self.wakeup_dir).await?;
-        self.apply_history_policy().await
+        self.apply_history_policy().await?;
+        if let Some(host) = self.host.lock().expect("Copilot host").clone() {
+            let watcher = spawn_copilot_wakeup_watcher(&self.wakeup_dir, host);
+            *self.watcher.lock().expect("Copilot watcher") = Some(watcher);
+        }
+        Ok(())
     }
     async fn collect(&self, rt: &InputRuntime) -> Result<Vec<AgentActivityEntry>> {
         self.apply_history_policy().await?;
@@ -411,6 +424,10 @@ impl InputBody for CopilotLogBody {
         Ok(())
     }
     async fn on_stop(&self, _rt: &InputRuntime) -> Result<()> {
+        let watcher = self.watcher.lock().expect("Copilot watcher").take();
+        if let Some(watcher) = watcher {
+            watcher.stop().await;
+        }
         let shared = self.shared.clone();
         tokio::task::spawn_blocking(move || {
             let mut shared = shared.lock().expect("Copilot state");
@@ -423,10 +440,239 @@ impl InputBody for CopilotLogBody {
     }
 }
 
+/// Lifetime-owned wakeup listener. Linux watches kernel events; other platforms
+/// observe only the atomic marker directory generation, without reading bodies.
+struct CopilotWakeupWatcher {
+    task: tokio::task::JoinHandle<()>,
+}
+impl CopilotWakeupWatcher {
+    async fn stop(mut self) {
+        self.task.abort();
+        let _ = (&mut self.task).await;
+    }
+}
+impl Drop for CopilotWakeupWatcher {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+fn spawn_copilot_wakeup_watcher(
+    directory: &Path,
+    host: Weak<HostedInput<CopilotLogBody>>,
+) -> CopilotWakeupWatcher {
+    #[cfg(target_os = "linux")]
+    if let Some(watcher) = spawn_copilot_inotify(directory, host.clone()) {
+        return watcher;
+    }
+    let directory = directory.to_owned();
+    let task = tokio::spawn(async move {
+        let mut previous = None;
+        let mut interval = tokio::time::interval(Duration::from_millis(250));
+        loop {
+            interval.tick().await;
+            let generation = tokio::fs::metadata(&directory)
+                .await
+                .ok()
+                .and_then(|metadata| metadata.modified().ok());
+            if generation != previous {
+                previous = generation;
+                let Some(host) = host.upgrade() else {
+                    break;
+                };
+                host.request_collection();
+            }
+        }
+    });
+    CopilotWakeupWatcher { task }
+}
+#[cfg(target_os = "linux")]
+fn spawn_copilot_inotify(
+    directory: &Path,
+    host: Weak<HostedInput<CopilotLogBody>>,
+) -> Option<CopilotWakeupWatcher> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+    let directory = CString::new(directory.as_os_str().as_bytes()).ok()?;
+    let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+    if raw < 0 {
+        return None;
+    }
+    // OwnedFd closes the descriptor on every registration/error/abort path.
+    let file = unsafe { OwnedFd::from_raw_fd(raw) };
+    if unsafe {
+        libc::inotify_add_watch(
+            file.as_raw_fd(),
+            directory.as_ptr(),
+            libc::IN_CREATE | libc::IN_MOVED_TO | libc::IN_CLOSE_WRITE | libc::IN_MODIFY,
+        )
+    } < 0
+    {
+        return None;
+    }
+    let file = unsafe {
+        tokio::io::unix::AsyncFd::register_with_interest(file, tokio::io::Interest::READABLE)
+    }
+    .ok()?;
+    let task = tokio::spawn(async move {
+        loop {
+            let mut guard = match file.readable().await {
+                Ok(guard) => guard,
+                Err(_) => break,
+            };
+            let mut bytes = [0u8; 4096];
+            match guard.try_io(|file| {
+                let size = unsafe {
+                    libc::read(
+                        file.get_ref().as_raw_fd(),
+                        bytes.as_mut_ptr().cast(),
+                        bytes.len(),
+                    )
+                };
+                if size < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(size)
+                }
+            }) {
+                Ok(Ok(0)) => break,
+                Ok(Ok(_)) => {
+                    let Some(host) = host.upgrade() else {
+                        break;
+                    };
+                    host.request_collection();
+                }
+                Ok(Err(error)) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Ok(Err(_)) => break,
+                Err(_) => continue,
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    });
+    Some(CopilotWakeupWatcher { task })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::AgentEventName;
+
+    #[tokio::test]
+    async fn atomic_hook_marker_triggers_collection_and_listener_restarts_and_stops() {
+        let root = tempfile::tempdir().unwrap();
+        let session_dir = root.path().join("sessions");
+        let data = root.path().join("data");
+        let otel_dir = data.join("state/copilot/otel");
+        tokio::fs::create_dir_all(session_dir.join("session-test"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(&otel_dir).await.unwrap();
+        let input = CopilotLogInput::new(CopilotLogInputOptions {
+            state_store: Arc::new(StateStore::new(root.path().join("checkpoint.json"))),
+            data_dir: data.clone(),
+            session_dir: Some(session_dir.clone()),
+            otel_dir: Some(otel_dir.clone()),
+            poll_interval_ms: Some(60_000),
+            native_grace_ms: Some(0),
+            history_start_time_ms: Some(0),
+        });
+        let (sender, mut received) = tokio::sync::mpsc::unbounded_channel();
+        input.on_entries(move |entries| {
+            let _ = sender.send(entries.to_vec());
+        });
+        input.start().await.unwrap();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/copilot/conversation.json"
+        ))
+        .unwrap();
+        let lines = |values: &Value| {
+            values
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n"
+        };
+        tokio::fs::write(
+            session_dir.join("session-test/events.jsonl"),
+            lines(&fixture["events"]),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(otel_dir.join("native.jsonl"), lines(&fixture["spans"]))
+            .await
+            .unwrap();
+        let wakeup = data.join("state/copilot/session-wakeups");
+        tokio::fs::write(wakeup.join("draft"), r#"{"session_id":"session-test"}"#)
+            .await
+            .unwrap();
+        tokio::fs::rename(wakeup.join("draft"), wakeup.join("session.json"))
+            .await
+            .unwrap();
+        let entries = tokio::time::timeout(Duration::from_secs(3), received.recv())
+            .await
+            .expect("atomic marker did not wake native input")
+            .unwrap();
+        assert!(!entries.is_empty());
+        let task = input
+            .inner
+            .body
+            .watcher
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .task
+            .abort_handle();
+        input.stop().await.unwrap();
+        assert!(task.is_finished());
+        input.start().await.unwrap();
+        let task = input
+            .inner
+            .body
+            .watcher
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .task
+            .abort_handle();
+        assert!(!task.is_finished());
+        input.stop().await.unwrap();
+        assert!(task.is_finished());
+        assert!(
+            received.try_recv().is_err(),
+            "restart replayed a delivered interaction"
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_an_idle_listener_aborts_without_a_filesystem_event() {
+        let root = tempfile::tempdir().unwrap();
+        let input = CopilotLogInput::new(CopilotLogInputOptions {
+            state_store: Arc::new(StateStore::new(root.path().join("checkpoint.json"))),
+            data_dir: root.path().join("data"),
+            session_dir: Some(root.path().join("sessions")),
+            otel_dir: None,
+            poll_interval_ms: Some(60_000),
+            native_grace_ms: Some(0),
+            history_start_time_ms: Some(0),
+        });
+        let directory = root.path().join("markers");
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let watcher = spawn_copilot_wakeup_watcher(&directory, Arc::downgrade(&input.inner));
+        let task = watcher.task.abort_handle();
+        drop(watcher);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !task.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
 
     #[tokio::test]
     async fn installed_input_correlates_native_sources_and_restores_delivery_and_history_boundary()

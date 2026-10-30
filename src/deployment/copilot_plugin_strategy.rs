@@ -210,7 +210,10 @@ fn owned_registration(value: &Value, id: &str) -> bool {
     value.get("name").and_then(Value::as_str) == Some(id)
         && value.get("marketplace").and_then(Value::as_str) == Some(id)
 }
-async fn owned_root(root: &Path) -> anyhow::Result<bool> {
+async fn owned_root(
+    root: &Path,
+    legacy: Option<(&CopilotPluginHookConfig, &Value, &Value)>,
+) -> anyhow::Result<bool> {
     match crate::utils::runtime_paths::runtime_metadata(root) {
         Ok(metadata) => anyhow::ensure!(
             metadata.is_dir(),
@@ -228,11 +231,15 @@ async fn owned_root(root: &Path) -> anyhow::Result<bool> {
     let marker = Snapshot::read(&root.join(MARKER)).await?;
     if marker.content.is_none() {
         let mut entries = tokio::fs::read_dir(root).await?;
-        anyhow::ensure!(
-            entries.next_entry().await?.is_none(),
-            "Existing unmanaged Copilot plugin directory preserved"
-        );
-        return Ok(false);
+        if entries.next_entry().await?.is_none() {
+            return Ok(false);
+        }
+        if let Some((config, settings, installed)) = legacy {
+            if legacy_root_owned(root, config, settings, installed).await? {
+                return Ok(true);
+            }
+        }
+        anyhow::bail!("Existing unmanaged Copilot plugin directory preserved");
     }
     let value = marker.json()?;
     anyhow::ensure!(
@@ -241,6 +248,69 @@ async fn owned_root(root: &Path) -> anyhow::Result<bool> {
     );
     Ok(true)
 }
+/// Main's original Copilot plugin predates the ownership marker. Adopt only
+/// exact generated assets, the complete expected directory shape, and an
+/// enabled registration pointing at this very root. Names alone prove nothing.
+async fn legacy_root_owned(
+    root: &Path,
+    config: &CopilotPluginHookConfig,
+    settings: &Value,
+    installed: &Value,
+) -> anyhow::Result<bool> {
+    let key = format!("{}@{}", config.plugin_id, config.plugin_id);
+    if settings.get("enabledPlugins").and_then(|v| v.get(&key)) != Some(&json!(true))
+        || !installed["installedPlugins"]
+            .as_array()
+            .is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    owned_registration(entry, &config.plugin_id)
+                        && entry["enabled"] == true
+                        && entry["cache_path"].as_str() == Some(root.to_string_lossy().as_ref())
+                })
+            })
+    {
+        return Ok(false);
+    }
+    for (directory, expected) in [
+        (root.to_owned(), vec!["hooks", "plugin.json"]),
+        (root.join("hooks"), vec!["hooks.json"]),
+    ] {
+        match crate::utils::runtime_paths::runtime_metadata(&directory) {
+            Ok(metadata) if metadata.is_dir() => {}
+            _ => return Ok(false),
+        }
+        let mut names = Vec::new();
+        let mut entries = tokio::fs::read_dir(directory).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let kind = entry.file_type().await?;
+            if kind.is_symlink() || (!kind.is_dir() && !kind.is_file()) {
+                return Ok(false);
+            }
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                return Ok(false);
+            };
+            names.push(name);
+        }
+        names.sort();
+        if names != expected {
+            return Ok(false);
+        }
+    }
+    for (path, expected) in [
+        (root.join("plugin.json"), build_copilot_plugin_manifest()),
+        (
+            root.join("hooks/hooks.json"),
+            build_copilot_plugin_hooks(config),
+        ),
+    ] {
+        let snapshot = Snapshot::read(&path).await?;
+        if snapshot.content.is_none() || snapshot.json()? != expected {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 pub struct CopilotPluginStrategy {
     data_dir: PathBuf,
     home_dir: PathBuf,
@@ -279,7 +349,7 @@ impl CopilotPluginStrategy {
         let config_value = installed.json()?;
         validate_registration(&settings_value, &config_value)?;
         let profiles = shell_snapshots(&self.home_dir).await?;
-        owned_root(&root).await?;
+        owned_root(&root, Some((config, &settings_value, &config_value))).await?;
         tokio::fs::create_dir_all(&root).await?;
         Snapshot::read(&root.join(MARKER))
             .await?
@@ -335,7 +405,7 @@ impl CopilotPluginStrategy {
         let config_value = installed.json()?;
         validate_registration(&settings_value, &config_value)?;
         let profiles = shell_snapshots(&self.home_dir).await?;
-        let owned = owned_root(&root).await?;
+        let owned = owned_root(&root, Some((config, &settings_value, &config_value))).await?;
         if let Some(mut enabled) = settings_value
             .get("enabledPlugins")
             .and_then(Value::as_object)
@@ -373,7 +443,7 @@ impl CopilotPluginStrategy {
     }
     async fn healthy(&self, config: &CopilotPluginHookConfig) -> anyhow::Result<bool> {
         let root = PathBuf::from(resolve_home(&config.plugin_root));
-        if !owned_root(&root).await? {
+        if !owned_root(&root, None).await? {
             return Ok(false);
         }
         for (path, expected) in [
@@ -616,6 +686,148 @@ mod tests {
                 .unwrap(),
             "owned by user"
         );
+    }
+
+    #[cfg(unix)]
+    async fn legacy_install(def: &AgentDefinition) {
+        let config = def.copilot_plugin.as_ref().unwrap();
+        let root = PathBuf::from(&config.plugin_root);
+        tokio::fs::create_dir_all(root.join("hooks")).await.unwrap();
+        tokio::fs::write(
+            root.join("plugin.json"),
+            build_copilot_plugin_manifest().to_string(),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("hooks/hooks.json"),
+            build_copilot_plugin_hooks(config).to_string(),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            &config.settings_path,
+            json!({"enabledPlugins":{
+                format!("{}@{}",config.plugin_id,config.plugin_id):true, "foreign@market":true
+            }})
+            .to_string(),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            &config.config_path,
+            json!({"installedPlugins":[{
+                "name":config.plugin_id,"marketplace":config.plugin_id,"enabled":true,
+                "cache_path":root
+            }]})
+            .to_string(),
+        )
+        .await
+        .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn exact_main_legacy_install_is_adopted_and_can_be_cleaned_without_a_new_marker() {
+        for upgrade in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let def = definition(root.path());
+            legacy_install(&def).await;
+            let home = root.path().join("home");
+            let plugin = home.join("plugins/pilot");
+            let strategy =
+                CopilotPluginStrategy::new(root.path().join("data")).with_home_dir(&home);
+            assert!(!plugin.join(MARKER).exists());
+            assert!(strategy.needs_deploy(&def, None).await);
+            if upgrade {
+                let result = strategy.deploy(&def).await;
+                assert!(result.success, "{result:?}");
+                assert!(plugin.join(MARKER).is_file());
+                assert!(!strategy.needs_deploy(&def, None).await);
+            }
+            assert!(strategy.undeploy(&def).await);
+            assert!(!plugin.exists());
+            let settings = Snapshot::read(&home.join("settings.json"))
+                .await
+                .unwrap()
+                .json()
+                .unwrap();
+            assert_eq!(settings["enabledPlugins"]["foreign@market"], true);
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_adoption_requires_all_assets_and_the_exact_registered_root() {
+        for fault in [
+            "foreign-file",
+            "different-path",
+            "different-hook",
+            "missing-setting",
+            "missing-registration",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let def = definition(root.path());
+            legacy_install(&def).await;
+            let home = root.path().join("home");
+            let plugin = home.join("plugins/pilot");
+            match fault {
+                "foreign-file" => tokio::fs::write(plugin.join("foreign.txt"), "user owned").await.unwrap(),
+                "different-path" => tokio::fs::write(home.join("config.json"),
+                    r#"{"installedPlugins":[{"name":"loongsuite-pilot","marketplace":"loongsuite-pilot","enabled":true,"cache_path":"/other/install"}]}"#).await.unwrap(),
+                "different-hook" => tokio::fs::write(plugin.join("hooks/hooks.json"),
+                    r#"{"version":1,"hooks":{"agentStop":[{"type":"command","command":"user command"}]}}"#).await.unwrap(),
+                "missing-setting" => tokio::fs::write(home.join("settings.json"), "{}").await.unwrap(),
+                "missing-registration" => tokio::fs::write(home.join("config.json"), "{}").await.unwrap(),
+                _ => unreachable!(),
+            }
+            let settings = tokio::fs::read(home.join("settings.json")).await.unwrap();
+            let installed = tokio::fs::read(home.join("config.json")).await.unwrap();
+            let hooks = tokio::fs::read(plugin.join("hooks/hooks.json"))
+                .await
+                .unwrap();
+            let strategy =
+                CopilotPluginStrategy::new(root.path().join("data")).with_home_dir(&home);
+            assert!(!strategy.deploy(&def).await.success, "{fault}");
+            assert!(!strategy.undeploy(&def).await, "{fault}");
+            assert_eq!(
+                tokio::fs::read(home.join("settings.json")).await.unwrap(),
+                settings
+            );
+            assert_eq!(
+                tokio::fs::read(home.join("config.json")).await.unwrap(),
+                installed
+            );
+            assert_eq!(
+                tokio::fs::read(plugin.join("hooks/hooks.json"))
+                    .await
+                    .unwrap(),
+                hooks
+            );
+            assert!(!plugin.join(MARKER).exists());
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_plugin_symlink_is_never_adopted_or_removed() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let def = definition(root.path());
+        legacy_install(&def).await;
+        let home = root.path().join("home");
+        let plugin = home.join("plugins/pilot");
+        let original = root.path().join("user-hooks.json");
+        tokio::fs::rename(plugin.join("hooks/hooks.json"), &original)
+            .await
+            .unwrap();
+        let before = tokio::fs::read(&original).await.unwrap();
+        symlink(&original, plugin.join("hooks/hooks.json")).unwrap();
+        let strategy = CopilotPluginStrategy::new(root.path().join("data")).with_home_dir(&home);
+        assert!(!strategy.deploy(&def).await.success);
+        assert!(!strategy.undeploy(&def).await);
+        assert_eq!(tokio::fs::read(&original).await.unwrap(), before);
+        assert!(plugin.exists());
     }
 
     #[tokio::test]
