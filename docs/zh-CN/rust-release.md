@@ -272,3 +272,9 @@ Linux Hook 4 项、候选进程 5 项、fmt 与严格 clippy 已通过；Windows
 集中验收保留的问题包括：Windows PowerShell 在 entered 后的管道阶段超时、Windows ARM64 DSH 竞争用例超时，以及这轮功能推进中新增的失败。Shell 快速诊断流程已准备，其结果不能替代八平台发布门禁。Copilot CLI、来源索引/磁盘治理、依赖安全同步和剩余历史测试迁移继续排在功能阶段。
 
 本批提交前另执行 all-features 库级回归：1,352 项通过，0 失败、0 忽略；它不含独立集成测试、xtask、doc-tests 或 Windows/macOS 实跑，不能替代最终全 workspace/八平台验收。
+
+### 2026-10-30 main #504 依赖同步
+
+同步 main 8993a4d 的开发依赖约束、完整锁文件及 overrides，移除直接 uuid/zod/@types/uuid；保留 Rust 分支的 2.0.0 版本和宿主测试脚本。历史 fixture 改用 node:crypto.randomUUID，契约辅助校验采用 main 的独立实现，覆盖新标准事件名，不再依赖 zod。这些是开发/历史测试依赖，原生运行包不依赖 Node/npm。Rust 随机事件 ID 已使用 uuid crate，agent.input 的 SHA-1 UUID v5 实现及 RFC DNS 黄金向量原有测试继续保留；没有重新加入 TS 生产模块。
+
+清单和锁文件根依赖逐项一致性检查通过；不据此宣称历史 TS 测试可直接运行，也不宣称完成新的全依赖漏洞扫描。main #504 的改动已承接，旧基线的 Qoder IDE 等其他迁移缺口仍由历史测试映射清单跟踪。
