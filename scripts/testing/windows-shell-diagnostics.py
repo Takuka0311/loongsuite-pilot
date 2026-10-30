@@ -47,6 +47,21 @@ def environment(root, shell, mode, marker):
         result["PATH"] = str(root / "no-runtimes")
     if mode == "builtin-modules":
         result["PSModulePath"] = str(shell.parent / "Modules")
+    if mode == "cache-disabled":
+        result["PSModulePath"] = str(shell.parent / "Modules")
+        result["PSModuleAnalysisCachePath"] = "NUL"
+    elif mode == "minimal-os-path":
+        result["PSModulePath"] = str(shell.parent / "Modules")
+        system_root = Path(os.environ["SystemRoot"])
+        result["PATH"] = os.pathsep.join([
+            str(root / "no-runtimes"), str(system_root / "System32"),
+            str(system_root), str(shell.parent),
+        ])
+    elif mode == "system-drive-data":
+        result["PSModulePath"] = str(shell.parent / "Modules")
+        for key in ["SystemDrive", "ProgramData", "ALLUSERSPROFILE", "PUBLIC"]:
+            if key in os.environ:
+                result[key] = os.environ[key]
     return result
 
 
@@ -124,6 +139,38 @@ def main():
                                   "ok": False}
                     print(json.dumps(result, ensure_ascii=True), flush=True)
                     failed = failed or not result["ok"]
+
+        # Keep the original 24-case baseline unchanged. These focused probes
+        # distinguish command discovery, explicit import and cache/OS inputs.
+        # They are hypotheses until the same bounded Windows run proves them.
+        shell = shells[0]
+        if shell.is_file():
+            qualified = ("module-qualified", "Microsoft.PowerShell.Utility\\Write-Output '" + TOKEN + "'")
+            explicit = (
+                "explicit-utility",
+                "[IO.File]::AppendAllText($env:PILOT_STARTUP_DIAG,'before-import;');"
+                "Microsoft.PowerShell.Core\\Import-Module -Name "
+                "($PSHOME+'\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop;"
+                "[IO.File]::AppendAllText($env:PILOT_STARTUP_DIAG,'imported;');"
+                "Write-Output '" + TOKEN + "'",
+            )
+            core = (
+                "core-command",
+                "$v=Microsoft.PowerShell.Core\\Get-Module -Name Microsoft.PowerShell.Utility;"
+                "[IO.File]::AppendAllText($env:PILOT_STARTUP_DIAG,'core-complete;');'" + TOKEN + "'",
+            )
+            probes = [("builtin-modules", payload) for payload in [qualified, explicit, core]]
+            probes += [
+                (mode, payload) for mode in ["cache-disabled", "minimal-os-path", "system-drive-data"]
+                for payload in PAYLOADS if payload[0] in ["capture-cmdlet", "cmdlet-pipeline"]
+            ]
+            for mode, payload in probes:
+                case_root = root / ("focused-" + mode + "-" + payload[0])
+                case_root.mkdir()
+                result = run_case(shell, mode, payload, case_root, args.timeout_seconds)
+                result["focused_probe"] = True
+                print(json.dumps(result, ensure_ascii=True), flush=True)
+                failed = failed or not result["ok"]
     finally:
         try:
             shutil.rmtree(str(root))
