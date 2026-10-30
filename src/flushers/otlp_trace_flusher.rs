@@ -120,6 +120,7 @@ struct TurnBuffer {
     agent_type: String,
     session_id: Option<String>,
     records: Vec<AgentActivityEntry>,
+    record_index: HashMap<String, usize>,
     completed: bool,
     last_activity_ms: i64,
     logical_bytes: f64,
@@ -741,7 +742,10 @@ impl OtlpInner {
         entry: AgentActivityEntry,
         logical_bytes: Option<f64>,
     ) -> Result<(), FlushError> {
-        if super::trace_event_compat::is_agent_audit_event(&entry) {
+        if super::trace_event_compat::is_agent_audit_event(&entry)
+            || (normalize_agent_type(&entry.agent_type) == "copilot"
+                && entry.get("gen_ai.copilot.session_summary") == Some(&Value::Bool(true)))
+        {
             return Ok(());
         }
         let (source, value, key) = resolve_group_key(&entry);
@@ -818,6 +822,7 @@ impl OtlpInner {
                         agent_type: agent_type.clone(),
                         session_id: incoming_session.clone(),
                         records: Vec::new(),
+                        record_index: HashMap::new(),
                         completed: false,
                         last_activity_ms: now,
                         logical_bytes: 0.0,
@@ -828,7 +833,30 @@ impl OtlpInner {
                 if buffer.session_id.is_none() {
                     buffer.session_id = incoming_session;
                 }
-                buffer.records.push(entry.clone());
+                if agent_type == "copilot" && !entry.event_id.is_empty() {
+                    if let Some(index) = buffer.record_index.get(&entry.event_id).copied() {
+                        let mut existing = entry_to_object(&buffer.records[index]);
+                        for (key, value) in entry_to_object(&entry) {
+                            if value.is_null() || value.as_str() == Some("") {
+                                continue;
+                            }
+                            if existing
+                                .get(&key)
+                                .is_none_or(|old| old.is_null() || old.as_str() == Some(""))
+                            {
+                                existing.insert(key, value);
+                            }
+                        }
+                        buffer.records[index] = entry_from_map(existing);
+                    } else {
+                        buffer
+                            .record_index
+                            .insert(entry.event_id.clone(), buffer.records.len());
+                        buffer.records.push(entry.clone());
+                    }
+                } else {
+                    buffer.records.push(entry.clone());
+                }
                 buffer.last_activity_ms = now;
                 if let Some(bytes) =
                     logical_bytes.filter(|bytes| bytes.is_finite() && *bytes >= 0.0)
@@ -1515,6 +1543,9 @@ fn prepare_records(
     if agent_type == "grok-build" {
         passthrough.extend(GROK_PASSTHROUGH.iter().map(|key| (*key).to_string()));
     }
+    if agent_type == "copilot" {
+        passthrough.push("gen_ai.copilot.telemetry.source".into());
+    }
     if agent_type == "openclaw" {
         passthrough.extend(OPENCLAW_COMPAT_KEYS.iter().map(|key| (*key).to_string()));
     }
@@ -1573,6 +1604,25 @@ fn route_convert(
         convert_qwen_subagents(records, &options, converter)
     } else if agent_type == "hermes" || agent_type == "openclaw" {
         convert_delegated_turn(records, &options, converter)
+    } else if agent_type == "copilot" {
+        let mut result = converter.convert(records, &options)?;
+        if let Some(error) = records
+            .iter()
+            .find_map(|record| record.get("gen_ai.copilot.interaction.error"))
+        {
+            for span in &mut result.spans {
+                if span
+                    .attributes
+                    .get("gen_ai.operation.name")
+                    .and_then(Value::as_str)
+                    == Some("invoke_agent")
+                {
+                    span.status.insert("code".into(), Value::from(2));
+                    span.attributes.insert("error.type".into(), error.clone());
+                }
+            }
+        }
+        Ok(result)
     } else {
         converter.convert(records, &options)
     }
@@ -1654,6 +1704,11 @@ fn resolve_group_key(entry: &AgentActivityEntry) -> (KeySource, String, String) 
 
 fn is_terminal_event(entry: &AgentActivityEntry) -> bool {
     let agent_type = normalize_agent_type(&entry.agent_type);
+    if agent_type == "copilot"
+        && entry_str(entry, "gen_ai.copilot.source").as_deref() == Some("hybrid-v2")
+    {
+        return entry_bool(entry, "gen_ai.turn.end") == Some(true);
+    }
     if agent_type == "opencode"
         && entry_str(entry, "agent.opencode.collection").as_deref() == Some("v2")
     {
@@ -2564,6 +2619,86 @@ mod tests {
         )
         .unwrap();
         (flusher, converter)
+    }
+
+    #[tokio::test]
+    async fn copilot_hybrid_replay_merges_missing_fields_waits_for_interaction_and_ignores_summary()
+    {
+        let (flusher, converter) = make_flusher();
+        let request = json!({"event.name":"llm.request","event.id":"request","time_unix_nano":"100",
+            "gen_ai.agent.type":"copilot","gen_ai.session.id":"session","gen_ai.turn.id":"interaction",
+            "trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","gen_ai.copilot.source":"hybrid-v2",
+            "gen_ai.response.id":"response","gen_ai.input.messages_delta":[{"role":"user","parts":[{"type":"text","content":"first prompt"}]}]});
+        flusher.send(entry(request.clone()), None).await.unwrap();
+        let mut replay = request.clone();
+        replay["gen_ai.input.messages_delta"] =
+            json!([{"role":"user","parts":[{"type":"text","content":"replacement"}]}]);
+        replay["gen_ai.llm.reasoning.text"] = json!("new evidence");
+        flusher.send(entry(replay), None).await.unwrap();
+        let mut response = request.clone();
+        response["event.name"] = json!("llm.response");
+        response["event.id"] = json!("response-event");
+        response["gen_ai.response.finish_reasons"] = json!(["stop"]);
+        flusher.send(entry(response), None).await.unwrap();
+        assert!(converter.calls.lock().unwrap().is_empty());
+        flusher.send(entry(json!({"event.name":"other","event.id":"summary",
+            "gen_ai.agent.type":"copilot","gen_ai.session.id":"session","gen_ai.copilot.session_summary":true})),None).await.unwrap();
+        let mut terminal = request;
+        terminal["event.name"] = json!("other");
+        terminal["event.id"] = json!("terminal");
+        terminal["gen_ai.turn.end"] = json!(true);
+        flusher.send(entry(terminal), None).await.unwrap();
+        {
+            let calls = converter.calls.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].len(), 3);
+            assert_eq!(
+                calls[0][0].input_messages_delta.as_ref().unwrap()[0]["parts"][0]["content"],
+                "first prompt"
+            );
+            assert_eq!(
+                calls[0][0].get("gen_ai.llm.reasoning.text"),
+                Some(&json!("new evidence"))
+            );
+        }
+        flusher.shutdown().await.unwrap();
+        assert_eq!(converter.calls.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn copilot_cancellation_sets_agent_error_without_inventing_model_error_or_usage() {
+        let records = vec![
+            entry(
+                json!({"event.name":"llm.request","event.id":"req","time_unix_nano":"100","gen_ai.agent.type":"copilot",
+                "gen_ai.session.id":"s","gen_ai.turn.id":"t","gen_ai.step.id":"step","gen_ai.response.id":"r"}),
+            ),
+            entry(
+                json!({"event.name":"llm.response","event.id":"resp","time_unix_nano":"200","gen_ai.agent.type":"copilot",
+                "gen_ai.session.id":"s","gen_ai.turn.id":"t","gen_ai.step.id":"step","gen_ai.response.id":"r",
+                "gen_ai.copilot.interaction.error":"cancelled"}),
+            ),
+        ];
+        let result = super::route_convert(
+            "copilot",
+            &records,
+            &[],
+            &crate::flushers::GenAiEventLogConverter,
+        )
+        .unwrap();
+        let agent = result
+            .spans
+            .iter()
+            .find(|span| span.attributes["gen_ai.span.kind"] == "AGENT")
+            .unwrap();
+        assert_eq!(agent.status["code"], 2);
+        assert_eq!(agent.attributes["error.type"], "cancelled");
+        let llm = result
+            .spans
+            .iter()
+            .find(|span| span.attributes["gen_ai.span.kind"] == "LLM")
+            .unwrap();
+        assert_ne!(llm.status["code"], 2);
+        assert!(!llm.attributes.contains_key("gen_ai.usage.input_tokens"));
     }
 
     #[test]

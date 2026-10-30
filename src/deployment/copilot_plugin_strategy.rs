@@ -1,0 +1,658 @@
+//! Native Copilot plugin configuration, ownership and shell integration.
+use crate::types::{
+    AgentDefinition, CopilotPluginHookConfig, DeployMode, DeployResult, DeployStrategy,
+    DeployedAgentRecord, EventSubcommand,
+};
+use crate::utils::{
+    edit_jsonc, parse_json_document, resolve_home, write_text_file_atomic, AtomicTextWriteOptions,
+    ExpectedFileState, JsonEditOptions, JsonPathSeg, JsonSyntax,
+};
+use async_trait::async_trait;
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+
+const BEGIN: &str = "# >>> loongsuite-pilot copilot otel >>>";
+const END: &str = "# <<< loongsuite-pilot copilot otel <<<";
+const MARKER: &str = ".loongsuite-pilot-managed.json";
+struct Snapshot {
+    path: String,
+    content: Option<String>,
+    mode: u32,
+}
+impl Snapshot {
+    async fn read(path: &Path) -> anyhow::Result<Self> {
+        let metadata = match crate::utils::runtime_paths::runtime_metadata(path) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    metadata.is_file() && metadata.len() <= 4 * 1024 * 1024,
+                    "Copilot configuration must be a bounded regular file"
+                );
+                Some(metadata)
+            }
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                None
+            }
+            Err(error) => return Err(error),
+        };
+        #[cfg(unix)]
+        let mode = {
+            use std::os::unix::fs::PermissionsExt;
+            metadata
+                .as_ref()
+                .map_or(0o600, |metadata| metadata.permissions().mode() & 0o777)
+        };
+        #[cfg(not(unix))]
+        let mode = 0o600;
+        let content = if metadata.is_some() {
+            Some(tokio::fs::read_to_string(path).await?)
+        } else {
+            None
+        };
+        Ok(Self {
+            path: path.to_string_lossy().into_owned(),
+            content,
+            mode,
+        })
+    }
+    fn json(&self) -> anyhow::Result<Value> {
+        let value = parse_json_document(self.content.as_deref().unwrap_or("{}"), JsonSyntax::Jsonc)
+            .map_err(|_| {
+                anyhow::anyhow!("Invalid Copilot JSONC configuration; original file preserved")
+            })?;
+        anyhow::ensure!(value.is_object(), "Copilot configuration must be an object");
+        Ok(value)
+    }
+    async fn write(&self, content: &str) -> anyhow::Result<()> {
+        if self.content.as_deref() == Some(content) {
+            return Ok(());
+        }
+        write_text_file_atomic(
+            &self.path,
+            content,
+            &AtomicTextWriteOptions {
+                expected: Some(
+                    self.content
+                        .clone()
+                        .map(ExpectedFileState::Present)
+                        .unwrap_or(ExpectedFileState::Missing),
+                ),
+                mode: Some(self.mode),
+                backup_path: None,
+            },
+        )
+        .await?;
+        Ok(())
+    }
+    async fn write_key(&self, key: &str, value: Option<Value>) -> anyhow::Result<()> {
+        let content = edit_jsonc(
+            self.content.as_deref().unwrap_or("{}\n"),
+            &[JsonPathSeg::Key(key.into())],
+            value.as_ref(),
+            JsonEditOptions::default(),
+        );
+        self.write(&content).await
+    }
+}
+fn quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+pub fn copilot_shell_block(data_dir: &Path) -> String {
+    let dir = data_dir.join("state/copilot/otel");
+    let marker = data_dir.join("state/copilot/otel-enabled");
+    format!("{BEGIN}\nif [ -f {} ] && [ -z \"${{COPILOT_OTEL_FILE_EXPORTER_PATH+x}}\" ] && [ -z \"${{OTEL_EXPORTER_OTLP_ENDPOINT+x}}\" ] && [ -z \"${{COPILOT_OTEL_EXPORTER_TYPE+x}}\" ] && [ -z \"${{COPILOT_OTEL_ENABLED+x}}\" ]; then\n  if (umask 077; mkdir -p {}); then\n    export COPILOT_OTEL_FILE_EXPORTER_PATH={}/copilot-$(date -u +%Y%m%dT%H%M%S)-$$.jsonl\n  fi\nfi\n{END}\n",
+        quote(&marker.to_string_lossy()), quote(&dir.to_string_lossy()), quote(&dir.to_string_lossy()))
+}
+fn remove_blocks(text: &str) -> anyhow::Result<String> {
+    let mut output = String::new();
+    let mut rest = text;
+    while let Some(begin) = rest.find(BEGIN) {
+        output.push_str(&rest[..begin]);
+        let tail = &rest[begin + BEGIN.len()..];
+        let end = tail.find(END).ok_or_else(|| {
+            anyhow::anyhow!("Incomplete owned Copilot shell block; profile preserved")
+        })?;
+        rest = &tail[end + END.len()..];
+        rest = rest
+            .strip_prefix("\r\n")
+            .or_else(|| rest.strip_prefix('\n'))
+            .unwrap_or(rest);
+    }
+    output.push_str(rest);
+    Ok(output)
+}
+async fn shell_snapshots(home: &Path) -> anyhow::Result<Vec<Snapshot>> {
+    let mut profiles = Vec::new();
+    #[cfg(unix)]
+    let paths = vec![home.join(".bashrc"), home.join(".zshrc")];
+    #[cfg(windows)]
+    let paths = vec![
+        home.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"),
+        home.join("Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1"),
+    ];
+    for profile in paths {
+        let snapshot = Snapshot::read(&profile).await?;
+        remove_blocks(snapshot.content.as_deref().unwrap_or_default())?;
+        profiles.push(snapshot);
+    }
+    Ok(profiles)
+}
+async fn install_shell(data: &Path, profiles: &[Snapshot]) -> anyhow::Result<()> {
+    let dir = data.join("state/copilot/otel");
+    tokio::fs::create_dir_all(&dir).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).await?;
+    }
+    Snapshot::read(&data.join("state/copilot/otel-enabled"))
+        .await?
+        .write("")
+        .await?;
+    for profile in profiles {
+        let base = remove_blocks(profile.content.as_deref().unwrap_or_default())?;
+        profile
+            .write(&format!(
+                "{}\n{}",
+                base.trim_end_matches(['\r', '\n']),
+                copilot_shell_block(data)
+            ))
+            .await?;
+    }
+    Ok(())
+}
+pub fn build_copilot_plugin_manifest() -> Value {
+    json!({"name":"loongsuite-pilot","version":"0.1.0",
+        "description":"Loongsuite Pilot observability hooks for GitHub Copilot CLI",
+        "author":{"name":"loongsuite-pilot"},"license":"Apache-2.0","hooks":"hooks/hooks.json"})
+}
+fn subcommand(event: &str) -> String {
+    let mut output = String::new();
+    for (index, ch) in event.chars().enumerate() {
+        if index > 0 && ch.is_ascii_uppercase() {
+            output.push('-');
+        }
+        output.push(ch.to_ascii_lowercase());
+    }
+    output
+}
+pub fn build_copilot_plugin_hooks(config: &CopilotPluginHookConfig) -> Value {
+    let mut hooks = serde_json::Map::new();
+    for event in &config.events {
+        let command = if config.event_subcommand == Some(EventSubcommand::KebabCase) {
+            format!("{} {}", config.hook_command, subcommand(event))
+        } else {
+            config.hook_command.clone()
+        };
+        hooks.insert(
+            event.clone(),
+            json!([{"type":"command","command":command,
+            "timeoutSec":config.timeout_sec.unwrap_or(5)}]),
+        );
+    }
+    json!({"version":1,"hooks":hooks})
+}
+fn validate_registration(settings: &Value, config: &Value) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        settings.get("enabledPlugins").is_none_or(Value::is_object),
+        "Invalid Copilot enabledPlugins map; original file preserved"
+    );
+    anyhow::ensure!(
+        config.get("installedPlugins").is_none_or(Value::is_array),
+        "Invalid Copilot installedPlugins array; original file preserved"
+    );
+    Ok(())
+}
+fn owned_registration(value: &Value, id: &str) -> bool {
+    value.get("name").and_then(Value::as_str) == Some(id)
+        && value.get("marketplace").and_then(Value::as_str) == Some(id)
+}
+async fn owned_root(root: &Path) -> anyhow::Result<bool> {
+    match crate::utils::runtime_paths::runtime_metadata(root) {
+        Ok(metadata) => anyhow::ensure!(
+            metadata.is_dir(),
+            "Copilot plugin root must be an ordinary directory"
+        ),
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(false)
+        }
+        Err(error) => return Err(error),
+    }
+    let marker = Snapshot::read(&root.join(MARKER)).await?;
+    if marker.content.is_none() {
+        let mut entries = tokio::fs::read_dir(root).await?;
+        anyhow::ensure!(
+            entries.next_entry().await?.is_none(),
+            "Existing unmanaged Copilot plugin directory preserved"
+        );
+        return Ok(false);
+    }
+    let value = marker.json()?;
+    anyhow::ensure!(
+        value["schema"] == 1 && value["owner"] == "loongsuite-pilot",
+        "Unrecognized Copilot plugin ownership marker; assets preserved"
+    );
+    Ok(true)
+}
+pub struct CopilotPluginStrategy {
+    data_dir: PathBuf,
+    home_dir: PathBuf,
+    pilot_dir: Option<PathBuf>,
+}
+impl CopilotPluginStrategy {
+    pub fn new(data_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            data_dir: data_dir.into(),
+            home_dir: PathBuf::from(resolve_home("~")),
+            pilot_dir: None,
+        }
+    }
+    pub fn with_pilot_dir(mut self, pilot: impl Into<PathBuf>) -> Self {
+        self.pilot_dir = Some(pilot.into());
+        self
+    }
+    pub fn with_home_dir(mut self, home: impl Into<PathBuf>) -> Self {
+        self.home_dir = home.into();
+        self
+    }
+    async fn lock_path(&self) -> anyhow::Result<String> {
+        let directory = self.data_dir.join("state/copilot");
+        tokio::fs::create_dir_all(&directory).await?;
+        Ok(directory.join("plugin.lock").to_string_lossy().into_owned())
+    }
+    async fn register(&self, config: &CopilotPluginHookConfig) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !cfg!(windows),
+            "Copilot automatic deployment currently supports Unix shells only"
+        );
+        let root = PathBuf::from(resolve_home(&config.plugin_root));
+        let settings = Snapshot::read(Path::new(&resolve_home(&config.settings_path))).await?;
+        let installed = Snapshot::read(Path::new(&resolve_home(&config.config_path))).await?;
+        let settings_value = settings.json()?;
+        let config_value = installed.json()?;
+        validate_registration(&settings_value, &config_value)?;
+        let profiles = shell_snapshots(&self.home_dir).await?;
+        owned_root(&root).await?;
+        tokio::fs::create_dir_all(&root).await?;
+        Snapshot::read(&root.join(MARKER))
+            .await?
+            .write(&format!(
+                "{}\n",
+                json!({"schema":1,"owner":"loongsuite-pilot"})
+            ))
+            .await?;
+        tokio::fs::create_dir_all(root.join("hooks")).await?;
+        for (path, value) in [
+            (root.join("plugin.json"), build_copilot_plugin_manifest()),
+            (
+                root.join("hooks/hooks.json"),
+                build_copilot_plugin_hooks(config),
+            ),
+        ] {
+            Snapshot::read(&path)
+                .await?
+                .write(&format!("{}\n", serde_json::to_string_pretty(&value)?))
+                .await?;
+        }
+        let mut enabled = settings_value
+            .get("enabledPlugins")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        enabled.insert(
+            format!("{}@{}", config.plugin_id, config.plugin_id),
+            json!(true),
+        );
+        settings
+            .write_key("enabledPlugins", Some(json!(enabled)))
+            .await?;
+        let mut entries = config_value
+            .get("installedPlugins")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        entries.retain(|value| !owned_registration(value, &config.plugin_id));
+        entries.push(json!({"name":config.plugin_id,"marketplace":config.plugin_id,"installed_at":super::paths::iso_now(),
+            "enabled":true,"version":"0.1.0","cache_path":root.to_string_lossy()}));
+        installed
+            .write_key("installedPlugins", Some(json!(entries)))
+            .await?;
+        install_shell(&self.data_dir, &profiles).await?;
+        Ok(())
+    }
+    async fn unregister(&self, config: &CopilotPluginHookConfig) -> anyhow::Result<()> {
+        let root = PathBuf::from(resolve_home(&config.plugin_root));
+        let settings = Snapshot::read(Path::new(&resolve_home(&config.settings_path))).await?;
+        let installed = Snapshot::read(Path::new(&resolve_home(&config.config_path))).await?;
+        let settings_value = settings.json()?;
+        let config_value = installed.json()?;
+        validate_registration(&settings_value, &config_value)?;
+        let profiles = shell_snapshots(&self.home_dir).await?;
+        let owned = owned_root(&root).await?;
+        if let Some(mut enabled) = settings_value
+            .get("enabledPlugins")
+            .and_then(Value::as_object)
+            .cloned()
+        {
+            enabled.remove(&format!("{}@{}", config.plugin_id, config.plugin_id));
+            settings
+                .write_key("enabledPlugins", Some(json!(enabled)))
+                .await?;
+        }
+        if let Some(mut entries) = config_value
+            .get("installedPlugins")
+            .and_then(Value::as_array)
+            .cloned()
+        {
+            entries.retain(|value| !owned_registration(value, &config.plugin_id));
+            installed
+                .write_key("installedPlugins", Some(json!(entries)))
+                .await?;
+        }
+        match tokio::fs::remove_file(self.data_dir.join("state/copilot/otel-enabled")).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        for profile in profiles {
+            if let Some(content) = &profile.content {
+                profile.write(&remove_blocks(content)?).await?;
+            }
+        }
+        if owned {
+            tokio::fs::remove_dir_all(root).await?;
+        }
+        Ok(())
+    }
+    async fn healthy(&self, config: &CopilotPluginHookConfig) -> anyhow::Result<bool> {
+        let root = PathBuf::from(resolve_home(&config.plugin_root));
+        if !owned_root(&root).await? {
+            return Ok(false);
+        }
+        for (path, expected) in [
+            (root.join("plugin.json"), build_copilot_plugin_manifest()),
+            (
+                root.join("hooks/hooks.json"),
+                build_copilot_plugin_hooks(config),
+            ),
+        ] {
+            if Snapshot::read(&path).await?.json()? != expected {
+                return Ok(false);
+            }
+        }
+        let settings = Snapshot::read(Path::new(&resolve_home(&config.settings_path)))
+            .await?
+            .json()?;
+        let installed = Snapshot::read(Path::new(&resolve_home(&config.config_path)))
+            .await?
+            .json()?;
+        validate_registration(&settings, &installed)?;
+        if settings
+            .get("enabledPlugins")
+            .and_then(|enabled| enabled.get(format!("{}@{}", config.plugin_id, config.plugin_id)))
+            != Some(&json!(true))
+        {
+            return Ok(false);
+        }
+        if !installed["installedPlugins"]
+            .as_array()
+            .is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    owned_registration(entry, &config.plugin_id)
+                        && entry["enabled"] == true
+                        && entry["cache_path"].as_str() == Some(root.to_string_lossy().as_ref())
+                })
+            })
+        {
+            return Ok(false);
+        }
+        if !self.data_dir.join("state/copilot/otel-enabled").is_file() {
+            return Ok(false);
+        }
+        for profile in shell_snapshots(&self.home_dir).await? {
+            if !profile
+                .content
+                .as_deref()
+                .unwrap_or_default()
+                .contains(&copilot_shell_block(&self.data_dir))
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+fn result(def: &AgentDefinition, error: Option<String>) -> DeployResult {
+    DeployResult {
+        success: error.is_none(),
+        agent_id: def.id.clone(),
+        deploy_mode: DeployMode::CopilotPlugin,
+        skipped: None,
+        reason: None,
+        error,
+        plugin_inject_config_path: None,
+    }
+}
+#[async_trait]
+impl DeployStrategy for CopilotPluginStrategy {
+    async fn detect(&self, def: &AgentDefinition) -> bool {
+        !cfg!(windows) && super::detect_utils::detect_agent(&def.detection).await
+    }
+    async fn needs_deploy(
+        &self,
+        def: &AgentDefinition,
+        _record: Option<&DeployedAgentRecord>,
+    ) -> bool {
+        if self
+            .pilot_dir
+            .as_ref()
+            .is_some_and(|pilot| !super::hook_assets::healthy(def, pilot, &self.data_dir))
+        {
+            return true;
+        }
+        match &def.copilot_plugin {
+            Some(config) => !self.healthy(config).await.unwrap_or(false),
+            None => true,
+        }
+    }
+    async fn deploy(&self, def: &AgentDefinition) -> DeployResult {
+        let Some(config) = &def.copilot_plugin else {
+            return result(def, Some("Missing copilotPlugin config".into()));
+        };
+        let lock = match self.lock_path().await {
+            Ok(lock) => lock,
+            Err(error) => return result(def, Some(error.to_string())),
+        };
+        let registration = super::deployed_state_merge::with_deployed_state_lock(
+            &lock,
+            || async {
+                if let Some(pilot) = &self.pilot_dir {
+                    let assets =
+                        super::hook_assets::HookAssets::load(def, Some(pilot), &self.data_dir)?;
+                    assets
+                        .apply(Default::default(), None, false, |_| Ok(Default::default()))
+                        .await?;
+                }
+                self.register(config).await
+            },
+            5_000,
+        )
+        .await;
+        result(def, registration.err().map(|error| error.to_string()))
+    }
+    async fn undeploy(&self, def: &AgentDefinition) -> bool {
+        let Some(config) = &def.copilot_plugin else {
+            return true;
+        };
+        let lock = match self.lock_path().await {
+            Ok(lock) => lock,
+            Err(_) => return false,
+        };
+        super::deployed_state_merge::with_deployed_state_lock(
+            &lock,
+            || self.unregister(config),
+            5_000,
+        )
+        .await
+        .is_ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    fn definition(root: &Path) -> AgentDefinition {
+        serde_json::from_value(json!({
+            "id":"copilot","displayName":"GitHub Copilot CLI","deployMode":"copilot-plugin",
+            "detection":{"paths":[],"commands":[]},
+            "copilotPlugin":{"pluginRoot":root.join("home/plugins/pilot"),"pluginId":"loongsuite-pilot",
+                "settingsPath":root.join("home/settings.json"),"configPath":root.join("home/config.json"),
+                "events":["sessionStart","preToolUse","agentStop"],
+                "hookCommand":format!("{}/hooks/copilot-hook.sh",root.join("data").display()),
+                "format":"nested","eventSubcommand":"kebab-case","timeoutSec":5}
+        })).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn deployment_repairs_owned_assets_preserves_jsonc_and_removes_only_owned_registration() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        tokio::fs::create_dir_all(&home).await.unwrap();
+        let settings = home.join("settings.json");
+        let config = home.join("config.json");
+        tokio::fs::write(&settings,"{\n // user comment\n \"theme\":\"dark\", \"enabledPlugins\":{\"foreign@market\":true},\n}\n").await.unwrap();
+        tokio::fs::write(&config,"{\"installedPlugins\":[{\"name\":\"foreign\",\"marketplace\":\"market\"}],\"custom\":42}\n").await.unwrap();
+        tokio::fs::write(home.join(".bashrc"), "export USER_CUSTOM=value\n")
+            .await
+            .unwrap();
+        let strategy = CopilotPluginStrategy::new(root.path().join("data")).with_home_dir(&home);
+        let def = definition(root.path());
+        assert!(strategy.needs_deploy(&def, None).await);
+        let deployed = strategy.deploy(&def).await;
+        assert!(deployed.success, "{deployed:?}");
+        assert!(!strategy.needs_deploy(&def, None).await);
+        let text = tokio::fs::read_to_string(&settings).await.unwrap();
+        assert!(text.contains("// user comment") && text.contains("\"theme\":\"dark\""));
+        let shell = tokio::fs::read_to_string(home.join(".bashrc"))
+            .await
+            .unwrap();
+        assert!(shell.contains("export USER_CUSTOM=value"));
+        assert_eq!(shell.matches(BEGIN).count(), 1);
+        let deployed = strategy.deploy(&def).await;
+        assert!(deployed.success, "{deployed:?}");
+        assert_eq!(
+            tokio::fs::read_to_string(home.join(".bashrc"))
+                .await
+                .unwrap()
+                .matches(BEGIN)
+                .count(),
+            1
+        );
+        let hooks = home.join("plugins/pilot/hooks/hooks.json");
+        tokio::fs::write(&hooks, "{}").await.unwrap();
+        assert!(strategy.needs_deploy(&def, None).await);
+        let deployed = strategy.deploy(&def).await;
+        assert!(deployed.success, "{deployed:?}");
+        assert!(strategy.undeploy(&def).await);
+        let enabled = Snapshot::read(&settings).await.unwrap().json().unwrap();
+        assert_eq!(enabled["enabledPlugins"]["foreign@market"], true);
+        assert!(enabled["enabledPlugins"]
+            .get("loongsuite-pilot@loongsuite-pilot")
+            .is_none());
+        let installed = Snapshot::read(&config).await.unwrap().json().unwrap();
+        assert_eq!(installed["installedPlugins"].as_array().unwrap().len(), 1);
+        assert_eq!(installed["custom"], 42);
+        assert_eq!(
+            tokio::fs::read_to_string(home.join(".bashrc"))
+                .await
+                .unwrap(),
+            "export USER_CUSTOM=value\n"
+        );
+        assert!(!home.join("plugins/pilot").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn malformed_user_config_or_unmanaged_plugin_preserves_all_existing_files() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        tokio::fs::create_dir_all(&home).await.unwrap();
+        let settings = home.join("settings.json");
+        let config = home.join("config.json");
+        tokio::fs::write(&settings, "{\"enabledPlugins\":{}}")
+            .await
+            .unwrap();
+        tokio::fs::write(&config, "not-json").await.unwrap();
+        let strategy = CopilotPluginStrategy::new(root.path().join("data")).with_home_dir(&home);
+        let def = definition(root.path());
+        assert!(!strategy.deploy(&def).await.success);
+        assert_eq!(
+            tokio::fs::read_to_string(&settings).await.unwrap(),
+            "{\"enabledPlugins\":{}}"
+        );
+        assert!(!home.join("plugins/pilot").exists());
+        tokio::fs::write(&config, "{}").await.unwrap();
+        tokio::fs::create_dir_all(home.join("plugins/pilot"))
+            .await
+            .unwrap();
+        tokio::fs::write(home.join("plugins/pilot/foreign.txt"), "owned by user")
+            .await
+            .unwrap();
+        assert!(!strategy.deploy(&def).await.success);
+        assert_eq!(tokio::fs::read_to_string(&config).await.unwrap(), "{}");
+        assert_eq!(
+            tokio::fs::read_to_string(home.join("plugins/pilot/foreign.txt"))
+                .await
+                .unwrap(),
+            "owned by user"
+        );
+    }
+
+    #[tokio::test]
+    async fn optimistic_snapshot_never_overwrites_a_concurrent_user_change() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("settings.json");
+        tokio::fs::write(&path, "{}").await.unwrap();
+        let snapshot = Snapshot::read(&path).await.unwrap();
+        tokio::fs::write(&path, "{\"newUserField\":true}")
+            .await
+            .unwrap();
+        assert!(snapshot
+            .write_key("enabledPlugins", Some(json!({"pilot":true})))
+            .await
+            .is_err());
+        assert_eq!(
+            tokio::fs::read_to_string(&path).await.unwrap(),
+            "{\"newUserField\":true}"
+        );
+    }
+
+    #[test]
+    fn shell_export_respects_explicit_user_exporter_settings_and_quotes_paths() {
+        let text = copilot_shell_block(Path::new("/tmp/user's pilot"));
+        assert!(text.contains("'\\''"));
+        for key in [
+            "COPILOT_OTEL_FILE_EXPORTER_PATH",
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+            "COPILOT_OTEL_EXPORTER_TYPE",
+            "COPILOT_OTEL_ENABLED",
+        ] {
+            assert!(text.contains(&format!("{key}+x")));
+        }
+        assert!(remove_blocks(&format!("before\n{BEGIN}\nunclosed")).is_err());
+        assert_eq!(
+            remove_blocks(&format!("before\n{BEGIN}\nowned\n{END}\nafter\n")).unwrap(),
+            "before\nafter\n"
+        );
+    }
+}

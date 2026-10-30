@@ -278,3 +278,13 @@ Linux Hook 4 项、候选进程 5 项、fmt 与严格 clippy 已通过；Windows
 同步 main 8993a4d 的开发依赖约束、完整锁文件及 overrides，移除直接 uuid/zod/@types/uuid；保留 Rust 分支的 2.0.0 版本和宿主测试脚本。历史 fixture 改用 node:crypto.randomUUID，契约辅助校验采用 main 的独立实现，覆盖新标准事件名，不再依赖 zod。这些是开发/历史测试依赖，原生运行包不依赖 Node/npm。Rust 随机事件 ID 已使用 uuid crate，agent.input 的 SHA-1 UUID v5 实现及 RFC DNS 黄金向量原有测试继续保留；没有重新加入 TS 生产模块。
 
 清单和锁文件根依赖逐项一致性检查通过；不据此宣称历史 TS 测试可直接运行，也不宣称完成新的全依赖漏洞扫描。main #504 的改动已承接，旧基线的 Qoder IDE 等其他迁移缺口仍由历史测试映射清单跟踪。
+
+### 2026-10-30 Copilot 原生功能批次
+
+迁入 main #430 的 Copilot 插件部署、原生 hook 发现入口和 collector，以及 #517 的来源索引、首次启用时间边界和原生时钟偏移恢复。插件设置采用 JSONC 局部编辑和内容对比写入；先记录绝对清理目标，保留其他插件注册与用户 shell 内容，已托管资产可修复。Unix 自动部署，Windows 自动部署继续显式禁用；原生 thin hook 不依赖 Node。新增脚本已通过 xtask 生成一致性检查。
+
+采集以 interaction 为交付单位，使用原生模型调用 ID 关联 OTel 与 transcript；原生 Token 和时间来自匹配的 span，缺失时不补造。SQLite 独立保存读取位置和交付账本，分块保存未结束的长行；未能关联的早期原生证据仅保存字节定位，用户消息授权后重读恢复。首次启用边界在独立文件和 SQLite 中交叉校验，重启及索引恢复不擅自推进边界。当前 collector 使用轮询兜底；唤醒延迟、旧安装兼容和更完整的历史用例对照仍纳入最终集中验收。
+
+OTLP 对 Copilot 重放事件按 ID 合并缺失字段，已有非空信息优先；hybrid-v2 只由交互边界收尾，会话 summary 仅写日志，取消会反映到 Agent 状态。15 项 Copilot 定向测试通过，覆盖实际 Input 生命周期、重启去重、原生用量关联、增量输入、部署修复、畸形记录、10 MiB 未结束行跨重启续读、事务失败回滚及跨时间边界的原生恢复。最终 fmt、全 workspace/all-targets/all-features 严格 clippy 与 1,367 项 all-features 库级回归通过；不包含独立集成测试或 Windows/macOS 新版本实跑。
+
+尚不据此宣布 main 全部同步或迁移完成：#517 的 JSONL 分片、磁盘压力治理、Dashboard 文件身份竞态和 Codex 发现缓存竞态仍在下一批；#487 的端到端输出取消/恢复和验证规则迁移也仍需补齐。真实 Copilot 注入、跨平台回归与统一历史测试映射保持待验收状态。

@@ -189,6 +189,7 @@ impl AgentDefLoader {
                 | "plugin-probe"
                 | "plugin-inject"
                 | "directory-plugin"
+                | "copilot-plugin"
                 | "detection-only"
                 | "dsh-yaml-patch"
         ) {

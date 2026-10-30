@@ -33,6 +33,8 @@ pub mod codex_aborted_turn;
 pub mod codex_log;
 #[path = "codex-transcript/mod.rs"]
 pub mod codex_transcript;
+#[path = "copilot-log/mod.rs"]
+pub mod copilot_log;
 #[path = "cursor-hook/mod.rs"]
 pub mod cursor_hook;
 #[path = "dsh/mod.rs"]

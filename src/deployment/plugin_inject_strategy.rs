@@ -1182,6 +1182,7 @@ mod tests {
             plugin_probe: None,
             plugin_inject: Some(config),
             pi_sdk: None,
+            copilot_plugin: None,
             directory_plugin: None,
             dsh_yaml_patch: None,
             input: None,

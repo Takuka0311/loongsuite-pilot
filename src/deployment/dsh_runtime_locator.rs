@@ -347,6 +347,7 @@ mod tests {
             plugin_probe: None,
             plugin_inject: None,
             pi_sdk: None,
+            copilot_plugin: None,
             directory_plugin: None,
             dsh_yaml_patch: Some(DshYamlPatchConfig {
                 plugin_source: "/tmp/plugin.mjs".into(),

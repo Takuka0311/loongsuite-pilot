@@ -29,6 +29,7 @@ use crate::inputs::base::InputRuntimeDelta;
 use crate::inputs::claude_code_log::ClaudeCodeLogInput;
 use crate::inputs::codex_aborted_turn::{CodexAbortedTurnInput, CodexAbortedTurnInputOptions};
 use crate::inputs::codex_transcript::{CodexTranscriptInput, CodexTranscriptInputOptions};
+use crate::inputs::copilot_log::{CopilotLogInput, CopilotLogInputOptions};
 use crate::inputs::cursor_hook::CursorHookInput;
 use crate::inputs::dsh_log::{ensure_dsh_log_dir, DshLogInput};
 use crate::inputs::grok_build_log::GrokBuildLogInput;
@@ -1629,6 +1630,27 @@ impl Orchestrator {
             QoderCnTraceInput::check_availability,
         )
         .await;
+        self.add_hosted(
+            &mut entries,
+            HostedInputSpec::new(
+                "copilot-log",
+                "copilot",
+                CollectionMethod::SessionFilePolling.as_str(),
+                1,
+            ),
+            CopilotLogInput::new(CopilotLogInputOptions {
+                state_store: Arc::clone(state_store),
+                data_dir: std::path::PathBuf::from(self.data_dir_join("")),
+                session_dir: None,
+                otel_dir: None,
+                poll_interval_ms: self.poll("copilot-log"),
+                native_grace_ms: None,
+                history_start_time_ms: None,
+            }),
+            CopilotLogInput::watch_paths(),
+            CopilotLogInput::check_availability,
+        )
+        .await;
         let wakeup = self.data_dir_join("state/codex/transcript-wakeups");
         let spans = self.data_dir_join("state/codex/transcript-span-contexts");
         ensure_dir(&wakeup).await;
@@ -2898,6 +2920,7 @@ hosted_surface!(QwenWorkCnInput);
 hosted_surface!(QwenWorkCnSqliteInput);
 hosted_surface!(QoderTraceInput);
 hosted_surface!(CodexTranscriptInput);
+hosted_surface!(CopilotLogInput);
 hosted_surface!(CodexAbortedTurnInput);
 hosted_surface!(WukongInput);
 hosted_surface!(WorkBuddyInput);

@@ -40,6 +40,7 @@ macro_rules! str_enum {
 
 str_enum!(ClientType {
     Cursor = "cursor",
+    CopilotCli = "copilot",
     Qoder = "qoder",
     QoderCn = "qoder-cn",
     QoderIdea = "qoder-idea",

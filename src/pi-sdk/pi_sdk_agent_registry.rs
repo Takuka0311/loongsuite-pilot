@@ -138,6 +138,7 @@ pub fn build_pi_sdk_agent_definition(
             config_key: Some("extensions".into()),
             create_if_missing: Some(true),
         }),
+        copilot_plugin: None,
         pi_sdk: Some(PiSdkIntegrationConfig {
             schema_version: 1,
             agent_dir,

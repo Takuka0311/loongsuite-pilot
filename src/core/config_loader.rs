@@ -982,6 +982,7 @@ fn build_listeners(
         "claude-code-log",
         "grok-build-log",
         "codex-transcript",
+        "copilot-log",
         "opencode-log",
         "pi-coding-agent-log",
         "workbuddy",

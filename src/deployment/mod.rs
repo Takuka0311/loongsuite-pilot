@@ -6,6 +6,7 @@
 mod agent_def_loader;
 mod cli_probe_detector;
 mod codex_trust_writer;
+mod copilot_plugin_strategy;
 mod deploy_command;
 mod deploy_notification;
 mod deployed_state_merge;
@@ -51,6 +52,10 @@ pub use codex_trust_writer::{
     write_trusted_hashes, InstalledCodexCommandHandler, InstalledCodexHookLocation,
     InstalledTrustOpts, InvalidCodexConfigError, LegacyTrustOpts, TrustOpts, TrustPlatform,
     VerifyResult, CODEX_HOOK_EVENT_KEYS,
+};
+pub use copilot_plugin_strategy::{
+    build_copilot_plugin_hooks, build_copilot_plugin_manifest, copilot_shell_block,
+    CopilotPluginStrategy,
 };
 pub use deploy_command::{
     collect_unmet, deploy_exit_code, deploy_loaded_config, is_agent_gated_enabled, parse_args,

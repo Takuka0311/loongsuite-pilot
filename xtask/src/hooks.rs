@@ -19,6 +19,21 @@ enum Mode {
 
 const HOOKS: &[Hook] = &[
     Hook {
+        file: "copilot-loongsuite-pilot-hook",
+        agent: "copilot",
+        mode: Mode::Event(&[
+            "session-start",
+            "user-prompt-submit",
+            "user-prompt-submitted",
+            "pre-tool-use",
+            "post-tool-use",
+            "post-tool-use-failure",
+            "session-end",
+            "stop",
+            "agent-stop",
+        ]),
+    },
+    Hook {
         file: "cursor-loongsuite-pilot-hook",
         agent: "cursor",
         mode: Mode::Payload,

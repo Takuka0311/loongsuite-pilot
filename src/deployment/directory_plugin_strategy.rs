@@ -1107,6 +1107,7 @@ mod tests {
             plugin_probe: None,
             plugin_inject: None,
             pi_sdk: None,
+            copilot_plugin: None,
             directory_plugin: Some(DirectoryPluginConfig {
                 source_dir: source.to_string_lossy().into_owned(),
                 target_dir: target.to_string_lossy().into_owned(),

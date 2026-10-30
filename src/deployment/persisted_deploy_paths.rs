@@ -40,6 +40,18 @@ pub fn lifecycle_fields_for_deploy(
     def: &AgentDefinition,
     resolved: Option<&DeployedAgentRecord>,
 ) -> (Option<String>, Option<String>) {
+    if def.deploy_mode == crate::types::DeployMode::CopilotPlugin {
+        return def
+            .copilot_plugin
+            .as_ref()
+            .map(|config| {
+                (
+                    Some(node_resolve(&config.settings_path)),
+                    Some(node_resolve(&config.config_path)),
+                )
+            })
+            .unwrap_or((None, None));
+    }
     let mut hook_settings_path = None;
     let mut plugin_inject_config_path = None;
     if def.deploy_mode == crate::types::DeployMode::Hook {
@@ -115,6 +127,7 @@ pub fn definition_at_hook_settings(
         home = root.to_string_lossy().into_owned();
     }
     let mut next = def.clone();
+
     next.detection.paths = unique_paths({
         let mut paths = vec![home];
         paths.extend(def.detection.paths.clone());
@@ -139,6 +152,23 @@ pub fn apply_persisted_deploy_targets(
         return Ok(def.clone());
     };
     let mut next = def.clone();
+    if def.deploy_mode == crate::types::DeployMode::CopilotPlugin {
+        if let Some(config) = next.copilot_plugin.as_mut() {
+            if let Some(root) = &record.target_dir {
+                config.plugin_root =
+                    absolute_path(Some(root)).ok_or("Invalid persisted Copilot plugin root")?;
+            }
+            if let Some(settings) = &record.hook_settings_path {
+                config.settings_path = absolute_path(Some(settings))
+                    .ok_or("Invalid persisted Copilot settings path")?;
+            }
+            if let Some(path) = &record.plugin_inject_config_path {
+                config.config_path =
+                    absolute_path(Some(path)).ok_or("Invalid persisted Copilot config path")?;
+            }
+        }
+        return Ok(next);
+    }
     let preserve_hook = opts.is_some_and(|opts| opts.preserve_hook_settings);
     if let Some(path) = record
         .hook_settings_path
@@ -212,6 +242,7 @@ mod tests {
             plugin_probe: None,
             plugin_inject: None,
             pi_sdk: None,
+            copilot_plugin: None,
             directory_plugin: None,
             dsh_yaml_patch: None,
             input: None,

@@ -43,6 +43,7 @@ str_enum!(DeployMode {
     PluginProbe = "plugin-probe",
     PluginInject = "plugin-inject",
     DirectoryPlugin = "directory-plugin",
+    CopilotPlugin = "copilot-plugin",
     DetectionOnly = "detection-only",
     DshYamlPatch = "dsh-yaml-patch",
 });
@@ -279,6 +280,22 @@ pub struct DshYamlPatchConfig {
     pub marker: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CopilotPluginHookConfig {
+    pub plugin_root: String,
+    pub plugin_id: String,
+    pub settings_path: String,
+    pub config_path: String,
+    pub events: Vec<String>,
+    pub hook_command: String,
+    pub format: HookFormat,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_subcommand: Option<EventSubcommand>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_sec: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentDefinition {
@@ -296,6 +313,8 @@ pub struct AgentDefinition {
     pub plugin_inject: Option<PluginInjectConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pi_sdk: Option<PiSdkIntegrationConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copilot_plugin: Option<CopilotPluginHookConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub directory_plugin: Option<DirectoryPluginConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -413,6 +432,7 @@ mod tests {
             plugin_probe: None,
             plugin_inject: None,
             pi_sdk: None,
+            copilot_plugin: None,
             directory_plugin: None,
             dsh_yaml_patch: Some(DshYamlPatchConfig {
                 plugin_source: "file:///x/plugin.mjs".into(),

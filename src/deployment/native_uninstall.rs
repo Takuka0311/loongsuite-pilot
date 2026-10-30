@@ -65,6 +65,16 @@ async fn selected(manager: &DeploymentManager, def: &mut AgentDefinition) -> Res
                     )
                 })?
                 .is_some()),
+        DeployMode::CopilotPlugin => {
+            let config = def
+                .copilot_plugin
+                .as_ref()
+                .context("Copilot plugin definition is incomplete")?;
+            Ok(recorded
+                || present(&configured_path(&config.plugin_root))?
+                || present(&configured_path(&config.settings_path))?
+                || present(&configured_path(&config.config_path))?)
+        }
         DeployMode::DirectoryPlugin => {
             let config = def
                 .directory_plugin

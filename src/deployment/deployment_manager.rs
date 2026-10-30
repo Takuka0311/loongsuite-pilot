@@ -14,6 +14,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use super::agent_def_loader::{AgentDefLoader, AgentDefLoaderOptions};
+use super::copilot_plugin_strategy::CopilotPluginStrategy;
 use super::deploy_notification::write_deploy_notification;
 use super::deployed_state_merge::{
     merge_deployed_agents_state, merge_hook_settings_paths, with_deployed_state_lock,
@@ -48,6 +49,7 @@ pub struct DeploymentManager {
     probe: PluginProbeStrategy,
     inject: PluginInjectStrategy,
     directory: DirectoryPluginStrategy,
+    copilot: CopilotPluginStrategy,
     detection: DetectionOnlyStrategy,
     dsh: DshYamlPatchStrategy,
     loader: AgentDefLoader,
@@ -102,8 +104,10 @@ impl DeploymentManager {
                     opts.installed_by,
                 ),
             probe: PluginProbeStrategy::new(opts.data_dir.clone(), opts.pilot_dir.clone()),
-            inject: PluginInjectStrategy::new(opts.data_dir.clone(), opts.pilot_dir),
+            inject: PluginInjectStrategy::new(opts.data_dir.clone(), opts.pilot_dir.clone()),
             directory: DirectoryPluginStrategy::new(Some(opts.data_dir.clone())),
+            copilot: CopilotPluginStrategy::new(opts.data_dir.clone())
+                .with_pilot_dir(opts.pilot_dir.clone()),
             detection: DetectionOnlyStrategy::new(),
             dsh: DshYamlPatchStrategy::new(opts.data_dir.clone()),
             loader,
@@ -362,6 +366,7 @@ impl DeploymentManager {
             DeployMode::PluginProbe => self.probe.undeploy(def).await,
             DeployMode::PluginInject => self.inject.undeploy(def).await,
             DeployMode::DirectoryPlugin => self.directory.undeploy(def).await,
+            DeployMode::CopilotPlugin => self.copilot.undeploy(def).await,
             DeployMode::DetectionOnly => self.detection.undeploy(def).await,
             DeployMode::DshYamlPatch => self.dsh.undeploy(def).await,
         }
@@ -645,6 +650,31 @@ impl DeploymentManager {
             }
             return Ok(skipped(&def, DeploySkipReason::UpToDate));
         }
+        // Record Copilot cleanup targets before the first external write. A
+        // partial deployment must remain discoverable even after HOME changes.
+        if def.deploy_mode == DeployMode::CopilotPlugin {
+            if let Some(config) = &def.copilot_plugin {
+                let previous = self.state.lock().unwrap().get(&def.id).cloned();
+                let mut pending = previous.unwrap_or(DeployedAgentRecord {
+                    deploy_mode: def.deploy_mode,
+                    deployed_at: iso_now(),
+                    source_hash: None,
+                    last_remote_checked_at: None,
+                    target_dir: None,
+                    dsh_patch_path: None,
+                    hook_settings_path: None,
+                    hook_settings_paths: None,
+                    installed_by: self.installed_by,
+                    plugin_inject_config_path: None,
+                });
+                pending.target_dir = Some(node_resolve(&config.plugin_root));
+                pending.hook_settings_path = Some(node_resolve(&config.settings_path));
+                pending.plugin_inject_config_path = Some(node_resolve(&config.config_path));
+                self.state.lock().unwrap().insert(def.id.clone(), pending);
+                self.touched.lock().unwrap().insert(def.id.clone());
+                self.save_state().await?;
+            }
+        }
         let mut result = if def.deploy_mode == DeployMode::DshYamlPatch {
             match &dsh_target {
                 Some(target) => self.dsh.deploy_at(&def, target).await,
@@ -748,6 +778,7 @@ impl DeploymentManager {
             DeployMode::PluginProbe => self.probe.detect(def).await,
             DeployMode::PluginInject => self.inject.detect(def).await,
             DeployMode::DirectoryPlugin => self.directory.detect(def).await,
+            DeployMode::CopilotPlugin => self.copilot.detect(def).await,
             DeployMode::DetectionOnly => self.detection.detect(def).await,
             DeployMode::DshYamlPatch => self.dsh.detect(def).await,
         }
@@ -763,6 +794,7 @@ impl DeploymentManager {
             DeployMode::PluginProbe => self.probe.needs_deploy(def, record).await,
             DeployMode::PluginInject => self.inject.needs_deploy(def, record).await,
             DeployMode::DirectoryPlugin => self.directory.needs_deploy(def, record).await,
+            DeployMode::CopilotPlugin => self.copilot.needs_deploy(def, record).await,
             DeployMode::DetectionOnly => self.detection.needs_deploy(def, record).await,
             DeployMode::DshYamlPatch => self.dsh.needs_deploy(def, record).await,
         }
@@ -774,6 +806,7 @@ impl DeploymentManager {
             DeployMode::PluginProbe => self.probe.deploy(def).await,
             DeployMode::PluginInject => self.inject.deploy(def).await,
             DeployMode::DirectoryPlugin => self.directory.deploy(def).await,
+            DeployMode::CopilotPlugin => self.copilot.deploy(def).await,
             DeployMode::DetectionOnly => self.detection.deploy(def).await,
             DeployMode::DshYamlPatch => self.dsh.deploy(def).await,
         }

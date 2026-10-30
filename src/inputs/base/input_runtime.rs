@@ -34,6 +34,9 @@ pub trait InputBody: Send + Sync + 'static {
     async fn on_stop(&self, _rt: &InputRuntime) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn on_entries_queued(&self, _rt: &InputRuntime) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn before_stop(&self) {}
     fn agent_version(&self) -> String {
         String::new()
@@ -714,6 +717,7 @@ impl<T: InputBody> HostedInput<T> {
                     json!({ "count": filtered.len() }).as_object(),
                 );
             }
+            self.body.on_entries_queued(&self.runtime).await?;
             Ok::<(), anyhow::Error>(())
         }
         .await;

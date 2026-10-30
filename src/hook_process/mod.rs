@@ -8,6 +8,7 @@
 mod claude_code;
 mod codex;
 mod common;
+mod copilot;
 mod cursor;
 mod grok_build;
 mod kiro_cli;
@@ -57,6 +58,7 @@ pub(crate) fn dispatch(
         "cursor" => cursor::run(&mut request),
         "claude-code" => claude_code::run(&mut request),
         "codex" => codex::run(&mut request),
+        "copilot" => copilot::run(&mut request),
         "qwen-code-cli" => qwen_code_cli::run(&mut request),
         "qwen-work-cn" => qwen_work_cn::run(&mut request),
         "grok-build" => grok_build::run(&mut request),
