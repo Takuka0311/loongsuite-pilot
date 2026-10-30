@@ -647,47 +647,114 @@ pub(crate) mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn windows_powershell_candidate_reaches_its_first_instruction_without_a_console() {
+        use std::os::windows::process::CommandExt;
         let shell = which::which("powershell.exe").expect("Windows PowerShell 5.1");
         let root = tempfile::tempdir().unwrap();
-        let mut command = tokio::process::Command::new(shell);
-        command
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Write-Output 'PILOT_SHELL_STARTED'",
-            ])
-            .env_clear()
-            .env("HOME", root.path())
-            .env("USERPROFILE", root.path())
-            .env("PATH", root.path().join("no-runtimes"));
-        for key in [
-            "SystemRoot",
-            "WINDIR",
-            "TEMP",
-            "TMP",
-            "ComSpec",
-            "ProgramFiles",
-            "ProgramFiles(x86)",
-            "ProgramW6432",
-            "PATHEXT",
-        ] {
-            if let Some(value) = std::env::var_os(key) {
-                command.env(key, value);
+        let command = |label: &str| {
+            let mut command = Command::new(&shell);
+            command
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "[IO.File]::WriteAllText($env:PILOT_STARTUP_DIAG,'entered;'); Write-Output 'PILOT_SHELL_STARTED'; [IO.File]::AppendAllText($env:PILOT_STARTUP_DIAG,'script-complete')",
+                ])
+                .env_clear()
+                .env("PILOT_STARTUP_DIAG", root.path().join(format!("{label}.marker")))
+                .env("HOME", root.path())
+                .env("USERPROFILE", root.path())
+                .env("APPDATA", root.path().join("appdata"))
+                .env("LOCALAPPDATA", root.path().join("localappdata"))
+                .env("PATH", root.path().join("no-runtimes"))
+                .current_dir(root.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+            for key in [
+                "SystemRoot",
+                "WINDIR",
+                "TEMP",
+                "TMP",
+                "ComSpec",
+                "ProgramFiles",
+                "ProgramFiles(x86)",
+                "ProgramW6432",
+                "PATHEXT",
+            ] {
+                if let Some(value) = std::env::var_os(key) {
+                    command.env(key, value);
+                }
             }
+            command
+        };
+        // Control: the same literal script, environment and no-console flag,
+        // without suspension or a candidate Job. This script spawns no children.
+        let mut baseline = tokio::process::Command::from(command("direct"));
+        baseline.kill_on_drop(true);
+        let mut baseline_child = baseline.spawn().unwrap();
+        let stdout = baseline_child.stdout.take().unwrap();
+        let stderr = baseline_child.stderr.take().unwrap();
+        let control = tokio::time::timeout(Duration::from_secs(20), async {
+            let (status, stdout, stderr) = tokio::try_join!(
+                baseline_child.wait(),
+                limited(stdout, 64 * 1024),
+                limited(stderr, 64 * 1024)
+            )?;
+            Ok::<_, io::Error>(Output {
+                status,
+                stdout,
+                stderr,
+            })
+        })
+        .await
+        .unwrap_or_else(|_| {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "direct PowerShell startup timed out",
+            ))
+        });
+        let _ = baseline_child.kill().await;
+        let _ = baseline_child.wait().await;
+        // Always run both paths, so a failing control cannot hide the comparison.
+        let mut scoped = tokio::process::Command::from(command("candidate"));
+        let managed = output(&mut scoped, Duration::from_secs(20), 64 * 1024).await;
+        let describe = |result: &io::Result<Output>| match result {
+            Ok(output) => format!(
+                "exit={:?} stdout={:?} stderr={:?}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+            Err(error) => format!("error={:?}: {error}", error.kind()),
+        };
+        eprintln!(
+            "Windows startup control: {}; candidate: {}",
+            describe(&control),
+            describe(&managed)
+        );
+        for label in ["direct", "candidate"] {
+            let marker = std::fs::read_to_string(root.path().join(format!("{label}.marker")))
+                .unwrap_or_else(|_| "absent".into());
+            eprintln!("Windows startup {label} stage: {marker}");
         }
-        let result = output(&mut command, Duration::from_secs(20), 64 * 1024)
-            .await
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        assert_eq!(
-            String::from_utf8(result.stdout).unwrap().trim(),
-            "PILOT_SHELL_STARTED"
-        );
-        assert!(result.stderr.is_empty());
+        for (label, result) in [("direct", control), ("candidate", managed)] {
+            let result = result.unwrap_or_else(|error| panic!("{label}: {error}"));
+            assert!(
+                result.status.success(),
+                "{label}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert_eq!(
+                String::from_utf8(result.stdout).unwrap().trim(),
+                "PILOT_SHELL_STARTED",
+                "{label}"
+            );
+            assert!(
+                result.stderr.is_empty(),
+                "{label}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
     }
 }
