@@ -295,7 +295,7 @@ fn packaged_service_cli_preserves_arguments_environment_exit_status_and_manifest
     fs::create_dir_all(script.parent().unwrap()).unwrap();
     // 仅替代系统服务操作层；执行的是正式原生 CLI 和完整清单校验。
     let body = if cfg!(windows) {
-        "\u{feff}(@($args) + @($env:LOONGSUITE_PILOT_DATA_DIR, $env:LOONGSUITE_PILOT_CACHE_DIR, $env:AGENT_DATA_COLLECTION_CONFIG)) | Set-Content -LiteralPath (Join-Path $env:LOONGSUITE_PILOT_DATA_DIR 'service-env.txt') -Encoding UTF8\nWrite-Output 'platform-fixture'\nexit 23\n"
+        "\u{feff}Import-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop\nImport-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1') -ErrorAction Stop\n(@($args) + @($env:LOONGSUITE_PILOT_DATA_DIR, $env:LOONGSUITE_PILOT_CACHE_DIR, $env:AGENT_DATA_COLLECTION_CONFIG)) | Set-Content -LiteralPath (Join-Path $env:LOONGSUITE_PILOT_DATA_DIR 'service-env.txt') -Encoding UTF8\nWrite-Output 'platform-fixture'\nexit 23\n"
     } else {
         "#!/bin/bash\nprintf '%s\\n' \"$@\" \"$LOONGSUITE_PILOT_DATA_DIR\" \"$LOONGSUITE_PILOT_CACHE_DIR\" \"$AGENT_DATA_COLLECTION_CONFIG\" > \"$LOONGSUITE_PILOT_DATA_DIR/service-env.txt\"\nprintf 'platform-fixture\\n'\nexit 23\n"
     };

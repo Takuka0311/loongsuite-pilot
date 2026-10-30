@@ -1,3 +1,8 @@
+# Resolve signed built-in modules by their exact PSHOME manifests. Short-name
+# autoload can stall in isolated Windows PowerShell 5.1 environments.
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Management\Microsoft.PowerShell.Management.psd1') -ErrorAction Stop
+
 function Test-PilotBinary {
     param([string]$Binary)
     if (-not $Binary -or $Binary -notmatch '^(?:[A-Za-z]:[\\/]|\\\\)') { return $false }

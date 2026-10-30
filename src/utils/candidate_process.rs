@@ -657,7 +657,7 @@ pub(crate) mod tests {
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
-                    "[IO.File]::WriteAllText($env:PILOT_STARTUP_DIAG,'entered;'); Write-Output 'PILOT_SHELL_STARTED'; [IO.File]::AppendAllText($env:PILOT_STARTUP_DIAG,'script-complete')",
+                    "[IO.File]::WriteAllText($env:PILOT_STARTUP_DIAG,'entered;'); Import-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop; Write-Output 'PILOT_SHELL_STARTED'; [IO.File]::AppendAllText($env:PILOT_STARTUP_DIAG,'script-complete')",
                 ])
                 .env_clear()
                 .env("PILOT_STARTUP_DIAG", root.path().join(format!("{label}.marker")))

@@ -262,9 +262,7 @@ fn powershell_51_and_pwsh_preserve_native_stdin_in_both_language_modes() {
             };
             fs::write(
                 &harness,
-                format!(
-                    "{mode}& (Join-Path $PSScriptRoot 'codex-loongsuite-pilot-hook.ps1') stop\n"
-                ),
+                format!("{mode}& ($PSScriptRoot + '\\codex-loongsuite-pilot-hook.ps1') stop\n"),
             )
             .unwrap();
             let mut command = Command::new(&executable);
@@ -421,7 +419,7 @@ fn powershell_bridge_preserves_raw_bytes_and_native_argument_boundaries() {
             } else {
                 ""
             };
-            let body = format!("{mode}. (Join-Path $PSScriptRoot 'shared\\native.ps1')\nInvoke-PilotNative -HookDir $PSScriptRoot -Arguments @({array}) -EmptyResult ''\n");
+            let body = format!("{mode}. ($PSScriptRoot + '\\shared\\native.ps1')\nInvoke-PilotNative -HookDir $PSScriptRoot -Arguments @({array}) -EmptyResult ''\n");
             // Windows PowerShell 5.1 needs a BOM for literal Unicode in scripts.
             let mut source = vec![0xef, 0xbb, 0xbf];
             source.extend(body.as_bytes());

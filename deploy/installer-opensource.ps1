@@ -71,6 +71,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Resolve signed built-in modules by their exact PSHOME manifests. Short-name
+# autoload can stall in isolated Windows PowerShell 5.1 environments.
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Management\Microsoft.PowerShell.Management.psd1') -ErrorAction Stop
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Archive\Microsoft.PowerShell.Archive.psd1') -ErrorAction Stop
 foreach ($excludedWorkspace in $ExcludeWorkspace) {
     if ($excludedWorkspace -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)') {
         throw "-ExcludeWorkspace requires absolute local directories"

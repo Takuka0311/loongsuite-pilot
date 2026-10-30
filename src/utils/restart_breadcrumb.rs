@@ -923,7 +923,7 @@ write_restart_failure updater start-failed 'synthetic updater refusal'
         let source = include_str!("../../scripts/loongsuite-pilot.ps1");
         for constrained in [false, true] {
             let root = tempfile::tempdir().unwrap();
-            let mut harness=String::from("$ErrorActionPreference = 'Stop'\n$LOG_DIR = Join-Path $env:PILOT_RESTART_WRITER_ROOT 'logs'\n");
+            let mut harness=String::from("$ErrorActionPreference = 'Stop'\nImport-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop\nImport-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1') -ErrorAction Stop\n$LOG_DIR = Join-Path $env:PILOT_RESTART_WRITER_ROOT 'logs'\n");
             if constrained {
                 harness.push_str(
                     "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n",

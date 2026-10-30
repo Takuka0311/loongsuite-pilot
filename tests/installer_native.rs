@@ -1194,7 +1194,7 @@ fn windows_prelude(constrained: bool) -> String {
     let mut script = String::from(
         "\u{feff}$env:PILOT_TEST_STAGE = 'shell-entry'\n$env:PSModulePath = $PSHOME + '\\Modules'\n$ErrorActionPreference = 'Stop'\n",
     );
-    script.push_str("Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop\nImport-Module Microsoft.PowerShell.Archive -ErrorAction Stop\n");
+    script.push_str("Import-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop\nImport-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1') -ErrorAction Stop\nImport-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Archive\\Microsoft.PowerShell.Archive.psd1') -ErrorAction Stop\n");
     if constrained {
         script.push_str(r#"
 $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'

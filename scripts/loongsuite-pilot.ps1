@@ -17,6 +17,12 @@ $Command = if ($CliArgs.Count -ge 1) { [string]$CliArgs[0] } else { "status" }
 $SubArgs = if ($CliArgs.Count -ge 2) { [string[]]$CliArgs[1..($CliArgs.Count - 1)] } else { @() }
 $ErrorActionPreference = "Stop"
 
+# Resolve signed built-in modules by their exact PSHOME manifests. Short-name
+# autoload can stall in isolated Windows PowerShell 5.1 environments.
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Management\Microsoft.PowerShell.Management.psd1') -ErrorAction Stop
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+
 # ============================================================
 # Constants & Paths
 # ============================================================
