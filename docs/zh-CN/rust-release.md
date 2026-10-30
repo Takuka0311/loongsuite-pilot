@@ -250,3 +250,7 @@ d2d9fa4 本地 proprietary 候选已通过原生安装器替换远端安装，�
 main fd27d45（#487）的标准事件边界先独立迁入 Rust：保留六种 gen_ai.* 事件名及已有 extra 映射中的父身份、对端、出入站 invocation 字段。只在 Trace 转换的副本上适配四个模型/工具旧名；同 ID 去重，跨别名的语义副本忽略观测时间并递归规范对象键，内容不同的流式片段和同名独立记录保留。审计 invoke/result 不创建或关闭 OTLP 缓冲，也不抢占规范化工作轮次的开始/结束标记；原始日志保持不变。本地 Dashboard 计数支持标准模型/工具名。
 
 默认 1,480 项、all-features 1,482 项全量通过，另有两个原有 doc-tests ignored；随后新增审计轮次边界用例，默认/私有构建的该模块 17 项均通过，最终严格 clippy 通过。新增测试包括标准字段往返、嵌套语义别名去重、真实原生 Span/token 转换、实际 OTLP 缓冲入口和磁盘 JSONL→Dashboard。这里只完成 #487 的事件兼容基础；子工作身份、incoming/outgoing 关联、journal、checkpoint 与输出确认尚未迁入，不将该上游提交计作全部完成。
+
+40988431171 的 Windows x64/ARM64 对照均得到相同结果：直接进程与 Job 候选都留下 entered 标记，未留下 script-complete，停在固定 Write-Output 调用一段。这个结果排除了 Job 绑定是该超时的必要条件，也纠正了“Shell 未执行首条指令”的推断。下一轮夹具显式提供所选 PowerShell 安装目录下的 Modules 路径，检查内建命令自动发现；不继承调用者完整 PSModulePath，HOME 和隐藏运行时的 PATH 仍隔离。位置按 [Microsoft 的模块路径说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath?view=powershell-5.1) 选择，尚不据此断言根因或修复完成。两个启动路径的阶段与成功断言均保留，每条路径仍为 20 秒。
+
+Linux Hook 4 项、候选进程 5 项、fmt 与严格 clippy 已通过；Windows 新模块路径夹具的结果待记录。本批无生产实现变化。

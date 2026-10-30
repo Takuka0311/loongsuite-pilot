@@ -25,6 +25,18 @@ fn execute(mut command: Command, root: &Path, input: &[u8]) -> Output {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        let modules = Path::new(command.get_program())
+            .parent()
+            .unwrap()
+            .join("Modules");
+        assert!(
+            modules.is_dir(),
+            "PowerShell built-in module directory missing"
+        );
+        command.env("PSModulePath", modules);
+    }
     for key in [
         "SystemRoot",
         "WINDIR",

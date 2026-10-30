@@ -666,6 +666,8 @@ pub(crate) mod tests {
                 .env("APPDATA", root.path().join("appdata"))
                 .env("LOCALAPPDATA", root.path().join("localappdata"))
                 .env("PATH", root.path().join("no-runtimes"))
+                // Provide the selected Shell's built-in modules explicitly.
+                .env("PSModulePath",shell.parent().unwrap().join("Modules"))
                 .current_dir(root.path())
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
