@@ -254,3 +254,7 @@ main fd27d45（#487）的标准事件边界先独立迁入 Rust：保留六种 g
 40988431171 的 Windows x64/ARM64 对照均得到相同结果：直接进程与 Job 候选都留下 entered 标记，未留下 script-complete，停在固定 Write-Output 调用一段。这个结果排除了 Job 绑定是该超时的必要条件，也纠正了“Shell 未执行首条指令”的推断。下一轮夹具显式提供所选 PowerShell 安装目录下的 Modules 路径，检查内建命令自动发现；不继承调用者完整 PSModulePath，HOME 和隐藏运行时的 PATH 仍隔离。位置按 [Microsoft 的模块路径说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath?view=powershell-5.1) 选择，尚不据此断言根因或修复完成。两个启动路径的阶段与成功断言均保留，每条路径仍为 20 秒。
 
 Linux Hook 4 项、候选进程 5 项、fmt 与严格 clippy 已通过；Windows 新模块路径夹具的结果待记录。本批无生产实现变化。
+
+41b3253 的 dry-run 40990254408 中，显式模块目录仍得到 entered 后超时，尚无修复证据。新增开发用 Windows Shell Diagnostics（x64/ARM64 两个任务），通过 Python 标准库直接运行固定 PowerShell 脚本，对照继承环境、隔离环境和显式模块目录，以及 Console、捕获 cmdlet、字面量和普通输出管道。每例诊断预算为 5 秒，记录退出码、固定阶段、输出长度和 sentinel 布尔值，不记录环境值、子进程正文或 stderr。任一用例超出诊断预算或断言失败，流程仍返回失败；不是发布门禁，也不改变原生用例的 20 秒上限和成功要求。Python 只用于开发诊断，不进入安装运行包。无需等待 Rust 编译或打包即可读取阶段证据。
+
+日常 CI 与八平台发布门禁保持原有检查。该诊断流程仅手动运行或这两份诊断文件在 Rust 分支变化时运行，单次两个 runner 任务；不创建 tag 或 Release。脚本语法、fmt 和严格 clippy 已检查，Windows 对照结果待记录。
