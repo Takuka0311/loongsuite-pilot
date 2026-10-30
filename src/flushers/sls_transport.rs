@@ -414,7 +414,14 @@ impl SlsHttp for ReqwestSlsHttp {
         }
         let response = builder.send().await.map_err(map_reqwest_error)?;
         let status = response.status().as_u16();
-        let body = response.text().await.unwrap_or_default();
+        // Successful PutLogs/WebTracking responses carry no consumed payload.
+        // Drop the body immediately so an unfinished success stream cannot hold
+        // the source checkpoint until the request timeout.
+        let body = if (200..300).contains(&status) {
+            String::new()
+        } else {
+            response.text().await.map_err(map_reqwest_error)?
+        };
         Ok(SlsHttpResponse { status, body })
     }
 }

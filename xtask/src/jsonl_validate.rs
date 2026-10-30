@@ -35,6 +35,7 @@ const EVENTS: &[&str] = &[
     "skill.use",
     "tool.approve",
     "agent.input",
+    "react.step",
     "other",
 ];
 const COVERAGE: &[&str] = &[

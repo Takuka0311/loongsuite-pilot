@@ -153,6 +153,7 @@ struct Harness {
     spans: Arc<Mutex<Vec<ReadableSpan>>>,
     emitted: Arc<Mutex<Vec<AgentActivityEntry>>>,
     running: Option<Running>,
+    current_privacy: bool,
 }
 impl Harness {
     async fn new() -> Self {
@@ -161,6 +162,7 @@ impl Harness {
             spans: Arc::new(Mutex::new(Vec::new())),
             emitted: Arc::new(Mutex::new(Vec::new())),
             running: None,
+            current_privacy: false,
         };
         tokio::fs::create_dir(harness.root.path().join("sessions"))
             .await
@@ -176,6 +178,23 @@ impl Harness {
         let manager = Arc::new(InputManager::new());
         manager.set_state_store(Arc::clone(&state));
         manager.set_user_id("synthetic-user");
+        if self.current_privacy {
+            manager.set_mask_config(loongsuite_pilot::types::MaskConfig {
+                mode: loongsuite_pilot::types::MaskMode::All,
+                types: Vec::new(),
+                replacement_mode: Some(loongsuite_pilot::types::MaskReplacementMode::Placeholder),
+            });
+            manager.set_workspace_policy(
+                loongsuite_pilot::core::WorkspacePolicy::new(
+                    &[root
+                        .join("excluded-workspace")
+                        .to_string_lossy()
+                        .into_owned()],
+                    None,
+                )
+                .unwrap(),
+            );
+        }
         let weak = Arc::downgrade(&manager);
         let capture = Arc::new(Capture(Arc::clone(&self.spans)));
         let trace = Arc::new(OtlpTraceFlusher::with_parts(
@@ -704,6 +723,185 @@ async fn native_codex_direct_user_turn_stays_independent_when_prompt_repeats_del
             .filter(|e| e["event.name"] == "gen_ai.agent.invoke")
             .count(),
         1
+    );
+    assert_unique(&logs, &spans);
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn native_codex_current_mask_and_workspace_policy_cover_fresh_collection_and_journal_replay()
+{
+    let mut h = Harness::new().await;
+    let api_key = "sk-1234567890abcdefghijklmnop";
+    let excluded = h.root.path().join("excluded-workspace/project");
+    let sensitive_tool = |second: f64, call: &str| {
+        vec![
+            record(
+                second,
+                "response_item",
+                json!({"type":"function_call","call_id":call,"name":"exec_command",
+            "arguments":json!({"cmd":format!("echo {api_key}")}).to_string()}),
+            ),
+            record(
+                second + 1.0,
+                "response_item",
+                json!({"type":"function_call_output","call_id":call,
+            "output":format!("prefix-result {api_key}")}),
+            ),
+        ]
+    };
+    let prefix = |session: &str, turn: &str, prompt: &str, excluded_path: bool| {
+        let mut begin = begin(turn, 1.0, prompt, false);
+        if excluded_path {
+            begin[0] = record(
+                1.0,
+                "turn_context",
+                json!({"turn_id":turn,"model":"gpt-test","cwd":excluded}),
+            );
+        }
+        let mut records = vec![metadata(session, 0.0, None, 1)];
+        records.extend(begin);
+        records.push(record(
+            4.0,
+            "event_msg",
+            json!({"type":"agent_message","message":"first wave","phase":"commentary"}),
+        ));
+        records.extend(sensitive_tool(5.0, "tool-one"));
+        records.push(token(6.0, 100, 10));
+        records.push(record(
+            7.0,
+            "event_msg",
+            json!({"type":"agent_message","message":"next wave","phase":"commentary"}),
+        ));
+        records
+    };
+    // Old policy accepted these prefixes into the actual durable journal.
+    h.write(
+        PARENT,
+        prefix(PARENT, "p1", &format!("restored child-a {api_key}"), false),
+        None,
+    )
+    .await;
+    h.write(
+        CHILD,
+        prefix(
+            CHILD,
+            "excluded",
+            &format!("excluded-content-sentinel {api_key}"),
+            true,
+        ),
+        None,
+    )
+    .await;
+    let old_pending = h.pending().await;
+    assert!(old_pending.iter().any(|entry| entry.session_id == PARENT));
+    let excluded_entry = old_pending
+        .iter()
+        .find(|entry| entry.session_id == CHILD)
+        .unwrap()
+        .clone();
+    assert!(
+        serde_json::to_string(&old_pending)
+            .unwrap()
+            .contains(api_key),
+        "fixture never exercised an old unmasked journal"
+    );
+    assert!(h.captured().is_empty());
+    let before = h.logs().await.len();
+
+    // A fresh manager configures current policy before trace.start() replays
+    // the old journal; both masking and workspace exclusion use production code.
+    h.current_privacy = true;
+    h.restart().await;
+    assert!(
+        h.captured().is_empty(),
+        "unfinished restored prefix must remain unfinished"
+    );
+    assert!(
+        h.pending()
+            .await
+            .iter()
+            .all(|entry| entry.session_id != CHILD),
+        "excluded old journal bypassed current workspace policy"
+    );
+
+    let mut completion = sensitive_tool(8.0, "tool-two");
+    completion.push(token(9.0, 120, 12));
+    completion.push(record(
+        10.0,
+        "event_msg",
+        json!({"type":"agent_message","message":"fixture-result","phase":"final"}),
+    ));
+    completion.push(token(10.0, 130, 13));
+    completion.push(record(
+        11.0,
+        "event_msg",
+        json!({"type":"task_complete","turn_id":"p1","last_agent_message":"fixture-result"}),
+    ));
+    h.write(PARENT, completion, None).await;
+    h.write(CHILD, end("excluded", 15.0), None).await;
+
+    // Entirely new native work must pass through exactly the same current
+    // manager policy, rather than relying only on the journal callback.
+    let mut fresh = vec![metadata(PEER, 19.0, None, 1)];
+    fresh.extend(begin(
+        "fresh",
+        20.0,
+        &format!("fresh child-a {api_key}"),
+        false,
+    ));
+    fresh.push(record(
+        21.0,
+        "event_msg",
+        json!({"type":"agent_message","message":"inspect first","phase":"commentary"}),
+    ));
+    fresh.extend(sensitive_tool(22.0, "fresh-tool"));
+    fresh.push(token(23.0, 10, 2));
+    fresh.extend(end("fresh", 25.0));
+    h.write(PEER, fresh, None).await;
+
+    let logs = h.logs().await;
+    let current = &logs[before..];
+    let spans = h.captured();
+    assert!(current
+        .iter()
+        .any(|entry| entry["gen_ai.session.id"] == PEER));
+    assert!(!current
+        .iter()
+        .any(|entry| entry["gen_ai.session.id"] == CHILD));
+    assert!(!spans
+        .iter()
+        .any(|span| span.attributes.get("gen_ai.session.id") == Some(&json!(CHILD))));
+    assert!(
+        spans
+            .iter()
+            .any(|span| span.attributes.get("gen_ai.tool.call.id") == Some(&json!("tool-one"))),
+        "restored prefix tool disappeared instead of being masked"
+    );
+    assert!(spans
+        .iter()
+        .any(|span| span.attributes.get("gen_ai.tool.call.id") == Some(&json!("fresh-tool"))));
+    for text in [
+        serde_json::to_string(current).unwrap(),
+        serde_json::to_string(
+            &spans
+                .iter()
+                .map(|span| &span.attributes)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap(),
+    ] {
+        assert!(text.contains("child-a"));
+        assert!(text.contains("fixture-result"));
+        assert!(text.contains("[APIKEY_MASKED]"));
+        assert!(!text.contains(api_key));
+        assert!(!text.contains("excluded-content-sentinel"));
+    }
+    assert!(h.pending().await.is_empty());
+    let journal = Arc::new(CodexTurnJournal::new(h.root.path().join("journal")));
+    assert!(
+        !journal.is_acknowledged(&excluded_entry).await.unwrap(),
+        "workspace filtering fabricated backend acknowledgement"
     );
     assert_unique(&logs, &spans);
     h.stop().await;

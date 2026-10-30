@@ -224,7 +224,21 @@ mod tests {
             &data,
             "updater"
         ));
-        for arguments in [&["run-updater"][..], &["run", "extra"], &["check"]] {
+        assert!(!matches_parts(
+            &exe,
+            &args(&["internal-span-enricher", "/tmp/updater-daemon.js.mjs"]),
+            &environment,
+            &cache,
+            &data,
+            "updater"
+        ));
+        for arguments in [
+            &["run-updater"][..],
+            &["run", "extra"],
+            &["check"],
+            &["internal-span-enricher", "/tmp/collector-daemon.js.mjs"],
+            &["internal-span-enricher", "/tmp/updater-daemon.js.mjs"],
+        ] {
             assert!(!matches_parts(
                 &exe,
                 &args(arguments),

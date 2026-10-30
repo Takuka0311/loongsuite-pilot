@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::path::Path;
 
 pub const RESTART_STAGES: &[&str] = &[
+    "binary-missing",
     "node-missing",
     "bootstrap-missing",
     "task-missing",
@@ -789,5 +790,227 @@ mod tests {
     fn sanitize_collapses_whitespace_and_truncates() {
         assert_eq!(sanitize_alarm_text("  a\t b \n c  ", 100), "a b c");
         assert_eq!(sanitize_alarm_text("abcdef", 3), "abc");
+    }
+
+    fn script_function<'a>(source: &'a str, header: &str) -> &'a str {
+        let start = source
+            .find(header)
+            .unwrap_or_else(|| panic!("missing production writer function {header}"));
+        let end = source[start..]
+            .find("\n}")
+            .expect("production function has no top-level terminator")
+            + start
+            + 2;
+        &source[start..end]
+    }
+
+    fn isolate_writer_command(command: &mut tokio::process::Command, root: &Path) {
+        command
+            .env_clear()
+            .env("HOME", root)
+            .env("USERPROFILE", root)
+            .env("PILOT_RESTART_WRITER_ROOT", root)
+            .current_dir(root)
+            .stdin(std::process::Stdio::null())
+            .kill_on_drop(true);
+        for key in [
+            "SystemRoot",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+            "ComSpec",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramW6432",
+            "PATHEXT",
+        ] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
+        command
+            .env("TMPDIR", root)
+            .env("TMP", root)
+            .env("TEMP", root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn actual_shell_writer_round_trips_native_missing_binary_and_unicode_diagnostics() {
+        let root = tempfile::tempdir().unwrap();
+        let source = include_str!("../../scripts/loongsuite-pilot.sh");
+        let mut harness =
+            String::from("set -euo pipefail\nLOG_DIR=\"$PILOT_RESTART_WRITER_ROOT/logs\"\n");
+        for name in [
+            "json_escape",
+            "restart_failure_file",
+            "clear_restart_failure",
+            "write_restart_failure",
+        ] {
+            harness.push_str(script_function(source, &format!("{name}() {{")));
+            harness.push('\n');
+        }
+        harness.push_str(
+            r#"
+read_init_type() { printf '%s\n' 'background'; }
+ensure_dirs() { mkdir -p "$LOG_DIR"; }
+collect_restart_diag() {
+    printf '%s\n' 'task_state=Ready' 'definition_owner=研发\成员'
+}
+clear_restart_failure collector
+write_restart_failure collector binary-missing $'missing "native"\nnext\t\033'
+write_restart_failure updater start-failed 'synthetic updater refusal'
+"#,
+        );
+        let file = root.path().join("writer-fixture.sh");
+        std::fs::write(&file, harness).unwrap();
+        let start = now_ms() as f64;
+        let mut command = tokio::process::Command::new("/bin/bash");
+        command.arg(&file);
+        isolate_writer_command(&mut command, root.path());
+        command.env("PATH", "/usr/bin:/bin");
+        let output = tokio::time::timeout(std::time::Duration::from_secs(10), command.output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "isolated shell writer failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let data = root.path().to_str().unwrap();
+        let collector = read_restart_failure(data, RestartTarget::Collector)
+            .await
+            .unwrap();
+        assert_eq!(collector.stage, "binary-missing");
+        assert!(RESTART_STAGES.contains(&collector.stage.as_str()));
+        assert_eq!(collector.init_type.as_deref(), Some("background"));
+        assert_eq!(
+            collector
+                .diag
+                .as_ref()
+                .unwrap()
+                .get("definition_owner")
+                .map(String::as_str),
+            Some("研发\\成员")
+        );
+        assert_eq!(
+            collector.detail.as_deref(),
+            Some("missing \"native\" next ")
+        );
+        assert!(is_restart_failure_fresh(&collector, start, None));
+        let summary = summarize_restart_failure(&collector);
+        assert!(summary.starts_with("stage=binary-missing"));
+        assert!(summary.contains("definition_owner=\"研发\\成员\""));
+        assert!(!summary.contains('\n'));
+        assert_eq!(
+            read_restart_failure(data, RestartTarget::Updater)
+                .await
+                .unwrap()
+                .stage,
+            "start-failed"
+        );
+        assert!(!root
+            .path()
+            .join("logs/last-restart-failure-collector.json.tmp")
+            .exists());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("stage=binary-missing"));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn actual_powershell_writer_keeps_utf8_flat_diag_in_full_and_constrained_language() {
+        let source = include_str!("../../scripts/loongsuite-pilot.ps1");
+        for constrained in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let mut harness=String::from("$ErrorActionPreference = 'Stop'\n$LOG_DIR = Join-Path $env:PILOT_RESTART_WRITER_ROOT 'logs'\n");
+            if constrained {
+                harness.push_str(
+                    "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n",
+                );
+            }
+            for name in [
+                "Get-RestartFailureFile",
+                "Get-EpochSeconds",
+                "Escape-RestartJsonString",
+                "ConvertTo-RestartFailureJson",
+                "Write-RestartFailure",
+            ] {
+                harness.push_str(script_function(source, &format!("function {name} {{")));
+                harness.push('\n');
+            }
+            harness.push_str(
+                r#"
+function Get-InitType { return 'taskscheduler' }
+function Ensure-Dirs { New-Item -ItemType Directory -Path $LOG_DIR -Force | Out-Null }
+function Get-RestartDiagnostics {
+    param([string]$TaskName,[string]$PidFile,[string]$LogFile,[hashtable]$Extra)
+    return @{ task_state = 'Ready'; definition_owner = '研发\成员' }
+}
+$TASK_NAME_UPDATER = 'fixture-unused'
+$TASK_NAME_COLLECTOR = 'fixture-unused'
+$UPDATER_PID_FILE = Join-Path $LOG_DIR 'fixture-updater.pid'
+$PID_FILE = Join-Path $LOG_DIR 'fixture-collector.pid'
+$UPDATER_LOG_FILE = Join-Path $LOG_DIR 'fixture-updater.log'
+$LOG_FILE = Join-Path $LOG_DIR 'fixture-collector.log'
+"#,
+            );
+            harness.push_str("Write-RestartFailure -Target updater -Stage register-denied -Detail 'synthetic 访问拒绝'\n");
+            let file = root.path().join("writer-fixture.ps1");
+            std::fs::write(&file, format!("\u{feff}{harness}")).unwrap();
+            let system = std::env::var_os("SystemRoot").expect("Windows SystemRoot");
+            let mut command = tokio::process::Command::new(
+                Path::new(&system).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+            );
+            command
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                ])
+                .arg(&file);
+            isolate_writer_command(&mut command, root.path());
+            let output = tokio::time::timeout(std::time::Duration::from_secs(15), command.output())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "isolated PowerShell writer constrained={constrained} failed:\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let data = root.path().to_str().unwrap();
+            let bytes = std::fs::read(restart_failure_path(data, RestartTarget::Updater)).unwrap();
+            assert!(
+                bytes.starts_with(&[0xef, 0xbb, 0xbf]),
+                "Windows PowerShell5.1 writer must emit UTF8 BOM"
+            );
+            let raw: Value =
+                serde_json::from_slice(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap()).unwrap();
+            assert!(
+                raw["diag"].is_object(),
+                "real writer must not serialize diag as Key/Value array"
+            );
+            let breadcrumb = read_restart_failure(data, RestartTarget::Updater)
+                .await
+                .unwrap();
+            assert_eq!(breadcrumb.stage, "register-denied");
+            assert_eq!(breadcrumb.detail.as_deref(), Some("synthetic 访问拒绝"));
+            assert_eq!(
+                breadcrumb
+                    .diag
+                    .as_ref()
+                    .unwrap()
+                    .get("definition_owner")
+                    .map(String::as_str),
+                Some("研发\\成员")
+            );
+            assert!(
+                summarize_restart_failure(&breadcrumb).contains("definition_owner=\"研发\\成员\"")
+            );
+        }
     }
 }

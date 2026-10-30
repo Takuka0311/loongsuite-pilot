@@ -48,6 +48,10 @@ pub struct QoderTraceBody {
 }
 
 impl QoderTraceInput {
+    pub(crate) fn collector_runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        self.inner.runtime.runtime_info()
+    }
+
     /// Collector subscription. Forwards to the hosted runtime without exposing its body type.
     pub fn bind_collector(
         &self,

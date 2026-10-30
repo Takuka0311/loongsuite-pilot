@@ -119,13 +119,12 @@ fn help_version_and_argument_errors_do_not_touch_home_or_load_config() {
 }
 
 #[test]
-fn check_rejects_missing_corrupt_and_legacy_extension_configs_without_writes() {
+fn check_rejects_missing_and_corrupt_configs_without_writes() {
     let root = tempfile::tempdir().unwrap();
     for config in [
         None,
         Some("{\"secret\":\"must-not-print\", broken}"),
         Some("[]"),
-        Some(r#"{"otlpTrace":{"spanEnrichers":["secret-path.mjs"]}}"#),
     ] {
         if let Some(config) = config {
             fs::write(root.path().join("config.json"), config).unwrap();
@@ -139,6 +138,29 @@ fn check_rejects_missing_corrupt_and_legacy_extension_configs_without_writes() {
         assert!(!String::from_utf8_lossy(&output.stderr).contains("must-not-print"));
         assert_eq!(before, snapshot(root.path()));
     }
+}
+
+#[test]
+fn check_accepts_optional_span_enrichers_without_loading_or_rewriting_plugins() {
+    let root = tempfile::tempdir().unwrap();
+    let plugin = root.path().join("preflight-must-not-load.mjs");
+    fs::write(&plugin, "throw new Error('preflight-must-not-load');").unwrap();
+    fs::write(
+        root.path().join("config.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "collectTrace":true,
+            "otlpTrace":{"endpoint":"http://127.0.0.1:4318","spanEnrichers":[plugin]}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let before = snapshot(root.path());
+    let output = invoke(executable(), root.path(), &["check", "--json"]);
+    assert!(output.status.success(), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("preflight-must-not-load"));
+    assert_eq!(snapshot(root.path()), before);
 }
 
 fn package(root: &Path) -> PathBuf {

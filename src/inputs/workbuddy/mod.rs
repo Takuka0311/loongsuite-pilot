@@ -142,6 +142,10 @@ struct HookTranscriptHint {
 }
 
 impl WorkBuddyInput {
+    pub(crate) fn collector_runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        self.inner.runtime.runtime_info()
+    }
+
     pub fn new(opts: WorkBuddyInputOptions) -> Self {
         let root = opts.work_buddy_root.unwrap_or_else(default_root);
         let projects_dir = Path::new(&root)

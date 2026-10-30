@@ -547,6 +547,9 @@ pub struct OtlpTraceFlusherConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalyticsConfig {
+    /// Source identity used for resolving relative runtime assets; never user config.
+    #[serde(skip)]
+    pub source_config_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub privacy: Option<PrivacyConfig>,
     pub enabled: bool,
@@ -595,6 +598,11 @@ pub trait AgentDetection: Send + Sync {
     fn id(&self) -> &str;
     fn type_name(&self) -> &str;
     async fn is_available(&self) -> bool;
+    /// Recoverable detection failures are distinct from an unavailable Agent.
+    /// Existing bool-only detectors retain their behavior through this adapter.
+    async fn availability_result(&self) -> anyhow::Result<bool> {
+        Ok(self.is_available().await)
+    }
     fn watch_paths(&self) -> &[String];
     fn enabled(&self) -> bool;
     async fn start(&self) -> anyhow::Result<()>;

@@ -324,7 +324,17 @@ impl<'a> CodexTranscriptEngine<'a> {
             Err(_) => None,
         };
         let result = match stat {
-            Some(stat) => self.scan_rollout_file(rt, file_path, stat).await,
+            Some(stat) => {
+                let key = self.state_key(file_path);
+                if self.read_checkpoint(rt, &key).is_none()
+                    && rt.state_store.get(&key).last_offset().is_none()
+                {
+                    // Persist body-free ownership before the first native output.
+                    // Failure propagates; the canonical ACK checkpoint stays untouched.
+                    super::source_ownership::remember(&self.body.wakeup_dir, file_path).await?;
+                }
+                self.scan_rollout_file(rt, file_path, stat).await
+            }
             None => Ok(0),
         };
         self.note_rollout_idle(rt, file_path, stat);
@@ -1544,16 +1554,85 @@ impl<'a> CodexTranscriptEngine<'a> {
         false
     }
 
+    async fn baseline_boundary(
+        &self,
+        rt: &InputRuntime,
+        file_path: &str,
+        copied: bool,
+        restored: Option<super::source_ownership::BaselineFloor>,
+    ) -> anyhow::Result<(u64, i64)> {
+        use super::source_ownership::{self, BaselineFloor};
+        let floor = if let Some(floor) = restored {
+            anyhow::ensure!(floor.copied == copied, "baseline source kind changed");
+            floor
+        } else {
+            let witness = source_ownership::capture_baseline(file_path).await?;
+            let size = i64::try_from(witness.size())?;
+            let offset = last_complete_jsonl_offset(file_path, size, Some(rt)).await?;
+            let floor = BaselineFloor {
+                offset: u64::try_from(offset)?,
+                copied,
+            };
+            // This is the first-install exclusion boundary, not delivered progress.
+            // Persist before constructing an in-memory baseline checkpoint.
+            source_ownership::remember_baseline(&self.body.wakeup_dir, file_path, witness, floor)
+                .await?;
+            floor
+        };
+        self.validate_baseline_boundary(file_path, floor).await?;
+        let metadata = tokio::fs::metadata(file_path).await?;
+        let (inode, size, _) = file_meta_snapshot(&metadata);
+        let offset = i64::try_from(floor.offset)?;
+        anyhow::ensure!(
+            offset <= size,
+            "rollout shrank below initial baseline floor"
+        );
+        Ok((inode, offset))
+    }
+
+    async fn validate_baseline_boundary(
+        &self,
+        file_path: &str,
+        floor: super::source_ownership::BaselineFloor,
+    ) -> anyhow::Result<()> {
+        let current =
+            super::source_ownership::baseline_floor(&self.body.wakeup_dir, file_path).await?;
+        anyhow::ensure!(
+            current == Some(floor),
+            "rollout identity or initial floor changed"
+        );
+        Ok(())
+    }
+
     pub async fn baseline_file(
         &self,
         rt: &InputRuntime,
         file_path: &str,
         key: &str,
     ) -> anyhow::Result<()> {
-        let Ok(meta) = tokio::fs::metadata(file_path).await else {
-            return Ok(());
-        };
-        let (inode, size, _) = file_meta_snapshot(&meta);
+        self.baseline_file_at(rt, file_path, key, None).await
+    }
+
+    pub async fn restore_baseline_file(
+        &self,
+        rt: &InputRuntime,
+        file_path: &str,
+        key: &str,
+        floor: super::source_ownership::BaselineFloor,
+    ) -> anyhow::Result<()> {
+        self.baseline_file_at(rt, file_path, key, Some(floor)).await
+    }
+
+    async fn baseline_file_at(
+        &self,
+        rt: &InputRuntime,
+        file_path: &str,
+        key: &str,
+        restored: Option<super::source_ownership::BaselineFloor>,
+    ) -> anyhow::Result<()> {
+        let (inode, size) = self
+            .baseline_boundary(rt, file_path, false, restored)
+            .await?;
         let mut owner = None;
         let mut active: Option<CodexActiveTranscriptTurn> = None;
         let stats = scan_json_lines(file_path, 0, size, Some(rt), |line| {
@@ -1591,6 +1670,18 @@ impl<'a> CodexTranscriptEngine<'a> {
             true
         })
         .await?;
+        anyhow::ensure!(
+            stats.next_offset == size,
+            "baseline floor is not a complete JSONL boundary"
+        );
+        self.validate_baseline_boundary(
+            file_path,
+            super::source_ownership::BaselineFloor {
+                offset: u64::try_from(size)?,
+                copied: false,
+            },
+        )
+        .await?;
         if let Some(active) = active.as_mut() {
             active.start_offset = stats.next_offset;
         }
@@ -1618,12 +1709,39 @@ impl<'a> CodexTranscriptEngine<'a> {
         file_path: &str,
         key: &str,
     ) -> anyhow::Result<()> {
-        let Ok(meta) = tokio::fs::metadata(file_path).await else {
-            return Ok(());
-        };
-        let (inode, size, _) = file_meta_snapshot(&meta);
-        let scan_offset = last_complete_jsonl_offset(file_path, size, Some(rt)).await?;
+        self.park_fork_baseline_at(rt, file_path, key, None).await
+    }
+
+    pub async fn restore_fork_baseline(
+        &self,
+        rt: &InputRuntime,
+        file_path: &str,
+        key: &str,
+        floor: super::source_ownership::BaselineFloor,
+    ) -> anyhow::Result<()> {
+        self.park_fork_baseline_at(rt, file_path, key, Some(floor))
+            .await
+    }
+
+    async fn park_fork_baseline_at(
+        &self,
+        rt: &InputRuntime,
+        file_path: &str,
+        key: &str,
+        restored: Option<super::source_ownership::BaselineFloor>,
+    ) -> anyhow::Result<()> {
+        let (inode, scan_offset) = self
+            .baseline_boundary(rt, file_path, true, restored)
+            .await?;
         let owner = find_owner_session_meta_offset(file_path, scan_offset, Some(rt)).await?;
+        self.validate_baseline_boundary(
+            file_path,
+            super::source_ownership::BaselineFloor {
+                offset: u64::try_from(scan_offset)?,
+                copied: true,
+            },
+        )
+        .await?;
         self.save_checkpoint(
             rt,
             key,

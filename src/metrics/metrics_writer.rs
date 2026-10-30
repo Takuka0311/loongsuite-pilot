@@ -178,11 +178,20 @@ impl MetricsWriter {
     }
 
     pub async fn start(&self) {
+        self.start_with_intervals(DATAFLOW_INTERVAL, ALARM_FLUSH_INTERVAL)
+            .await;
+    }
+
+    async fn start_with_intervals(
+        &self,
+        dataflow_interval: Duration,
+        alarm_flush_interval: Duration,
+    ) {
         ensure_dir(&self.logs_dir.to_string_lossy()).await;
         self.sampler.start();
         let writer = self.share();
         let dataflow = tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(DATAFLOW_INTERVAL);
+            let mut ticker = tokio::time::interval(dataflow_interval);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             ticker.tick().await;
             loop {
@@ -194,7 +203,7 @@ impl MetricsWriter {
         if self.inner.lock().expect("writer").alarm_manager.is_some() {
             let writer = self.share();
             let alarms = tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(ALARM_FLUSH_INTERVAL);
+                let mut ticker = tokio::time::interval(alarm_flush_interval);
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 ticker.tick().await;
                 loop {
@@ -1406,3 +1415,7 @@ mod tests {
         assert!(metric.get("disk_data_bytes").is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "metrics_writer_migration_tests.rs"]
+mod migration_contract_tests;

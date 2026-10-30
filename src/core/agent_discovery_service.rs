@@ -229,14 +229,22 @@ impl AgentDiscoveryService {
             .unwrap_or(EntryState::Idle);
         let outcome = async {
             let enabled = entry.enabled();
-            let available = if enabled {
-                entry.is_available().await
+            let availability = if enabled {
+                entry.availability_result().await
             } else {
-                false
+                Ok(false)
             };
+            // Shutdown owns cleanup/reason classification after a pending lookup.
             if self.stopping.load(Ordering::SeqCst) {
                 return;
             }
+            let available = match availability {
+                Ok(available) => available,
+                Err(error) => {
+                    self.fail_entry(id, &error.to_string()).await;
+                    return;
+                }
+            };
             let should_run = enabled && available;
             if !should_run && state == EntryState::Idle {
                 logger("AgentDiscoveryService").debug(
@@ -254,7 +262,10 @@ impl AgentDiscoveryService {
                     Some(&fields(serde_json::json!({ "id": entry.id() }))),
                 );
                 if let Err(err) = entry.start().await {
-                    self.fail_entry(id, &err.to_string());
+                    if self.stopping.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    self.fail_entry(id, &err.to_string()).await;
                     return;
                 }
                 if self.stopping.load(Ordering::SeqCst) {
@@ -300,7 +311,11 @@ impl AgentDiscoveryService {
                 if let Some(rt) = self.runtimes.lock().expect("runtimes").get_mut(id) {
                     rt.consecutive_unavailable = 0;
                 }
-                let _ = entry.start().await;
+                if let Err(error) = entry.start().await {
+                    if !self.stopping.load(Ordering::SeqCst) {
+                        self.fail_entry(id, &error.to_string()).await;
+                    }
+                }
             } else if should_run && state == EntryState::Running {
                 if let Some(rt) = self.runtimes.lock().expect("runtimes").get_mut(id) {
                     rt.consecutive_unavailable = 0;
@@ -310,7 +325,7 @@ impl AgentDiscoveryService {
         outcome.await;
     }
 
-    fn fail_entry(&self, id: &str, error: &str) {
+    async fn fail_entry(&self, id: &str, error: &str) {
         logger("AgentDiscoveryService").error(
             "processEntry failed",
             Some(&fields(serde_json::json!({ "id": id, "error": error }))),
@@ -320,16 +335,14 @@ impl AgentDiscoveryService {
             .lock()
             .expect("runtimes")
             .get(id)
-            .map(|rt| rt.state == EntryState::Running)
-            .unwrap_or(false);
-        if let Some(rt) = self.runtimes.lock().expect("runtimes").get_mut(id) {
-            rt.state = EntryState::Idle;
-        }
+            .is_some_and(|runtime| runtime.state == EntryState::Running);
         if was_running {
-            self.emit(AgentDiscoveryEvent::Stopped(
-                id.to_string(),
-                AgentStopReason::Unexpected,
-            ));
+            // Cancel the live input before publishing Idle; do not leave an
+            // untracked collector behind after a failed availability probe.
+            self.stop_entry(id, AgentStopReason::Unexpected).await;
+        } else if let Some(runtime) = self.runtimes.lock().expect("runtimes").get_mut(id) {
+            runtime.consecutive_unavailable = 0;
+            runtime.state = EntryState::Idle;
         }
     }
 
@@ -1033,5 +1046,228 @@ mod migration_lifecycle_tests {
         assert_eq!(agent.stops.load(Ordering::SeqCst), 0);
         assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
         no_timers(&service);
+    }
+}
+
+#[cfg(test)]
+mod migration_availability_result_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::sync::{Notify, Semaphore};
+
+    struct CheckedDetection {
+        fail_lookup: AtomicBool,
+        fail_start: AtomicBool,
+        fail_stop: AtomicBool,
+        active: bool,
+        starts: AtomicUsize,
+        stops: AtomicUsize,
+        lookups: AtomicUsize,
+        next_lookup_gate: Mutex<Option<Arc<Semaphore>>>,
+        entered: Notify,
+    }
+    impl CheckedDetection {
+        fn new(active: bool) -> Arc<Self> {
+            Arc::new(Self {
+                fail_lookup: AtomicBool::new(false),
+                fail_start: AtomicBool::new(false),
+                fail_stop: AtomicBool::new(false),
+                active,
+                starts: AtomicUsize::new(0),
+                stops: AtomicUsize::new(0),
+                lookups: AtomicUsize::new(0),
+                next_lookup_gate: Mutex::new(None),
+                entered: Notify::new(),
+            })
+        }
+    }
+    #[async_trait]
+    impl AgentDetection for CheckedDetection {
+        fn id(&self) -> &str {
+            "checked"
+        }
+        fn type_name(&self) -> &str {
+            "native-checked-fixture"
+        }
+        fn enabled(&self) -> bool {
+            true
+        }
+        fn watch_paths(&self) -> &[String] {
+            &[]
+        }
+        fn poll_interval_ms(&self) -> u64 {
+            60000
+        }
+        fn run_on_active(&self) -> bool {
+            self.active
+        }
+        async fn is_available(&self) -> bool {
+            true
+        }
+        async fn availability_result(&self) -> anyhow::Result<bool> {
+            self.lookups.fetch_add(1, Ordering::SeqCst);
+            let gate = { self.next_lookup_gate.lock().unwrap().take() };
+            if let Some(gate) = gate {
+                self.entered.notify_one();
+                gate.acquire().await.unwrap().forget();
+            }
+            if self.fail_lookup.load(Ordering::SeqCst) {
+                anyhow::bail!("synthetic lookup error");
+            }
+            Ok(true)
+        }
+        async fn start(&self) -> anyhow::Result<()> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            if self.fail_start.load(Ordering::SeqCst) {
+                anyhow::bail!("synthetic active restart error");
+            }
+            Ok(())
+        }
+        async fn stop(&self) -> anyhow::Result<()> {
+            self.stops.fetch_add(1, Ordering::SeqCst);
+            if self.fail_stop.load(Ordering::SeqCst) {
+                anyhow::bail!("synthetic cleanup error");
+            }
+            Ok(())
+        }
+    }
+    fn setup(
+        agent: Arc<CheckedDetection>,
+    ) -> (
+        Arc<AgentDiscoveryService>,
+        Arc<Mutex<Vec<AgentDiscoveryEvent>>>,
+    ) {
+        let service = Arc::new(AgentDiscoveryService::new(vec![agent]));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let slot = events.clone();
+        service.on_event(move |event| slot.lock().unwrap().push(event));
+        (service, events)
+    }
+    fn unexpected_count(events: &Mutex<Vec<AgentDiscoveryEvent>>) -> usize {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| {
+                **e == AgentDiscoveryEvent::Stopped("checked".into(), AgentStopReason::Unexpected)
+            })
+            .count()
+    }
+    #[tokio::test]
+    async fn idle_lookup_error_keeps_idle_without_start_or_unexpected_stop_and_can_recover() {
+        let agent = CheckedDetection::new(false);
+        agent.fail_lookup.store(true, Ordering::SeqCst);
+        let (service, events) = setup(agent.clone());
+        service.refresh("lookup-error").await;
+        assert_eq!(agent.lookups.load(Ordering::SeqCst), 1);
+        assert_eq!(service.get_states()["checked"], EntryState::Idle);
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 0);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 0);
+        assert!(events.lock().unwrap().is_empty());
+        agent.fail_lookup.store(false, Ordering::SeqCst);
+        service.refresh("recovered").await;
+        assert_eq!(service.get_states()["checked"], EntryState::Running);
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 1);
+        service.stop().await;
+    }
+    #[tokio::test]
+    async fn running_lookup_error_stops_once_emits_unexpected_and_allows_a_later_restart() {
+        let agent = CheckedDetection::new(false);
+        let (service, events) = setup(agent.clone());
+        service.refresh("startup").await;
+        agent.fail_lookup.store(true, Ordering::SeqCst);
+        service.refresh("lookup-error").await;
+        assert_eq!(service.get_states()["checked"], EntryState::Idle);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(unexpected_count(&events), 1);
+        service.refresh("still-error").await;
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(unexpected_count(&events), 1);
+        agent.fail_lookup.store(false, Ordering::SeqCst);
+        service.refresh("recovered").await;
+        assert_eq!(service.get_states()["checked"], EntryState::Running);
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 2);
+        service.stop().await;
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 2);
+    }
+    #[tokio::test]
+    async fn active_restart_failure_is_not_discarded_or_classified_as_unavailable() {
+        let agent = CheckedDetection::new(true);
+        let (service, events) = setup(agent.clone());
+        service.refresh("startup").await;
+        agent.fail_start.store(true, Ordering::SeqCst);
+        service.refresh("active").await;
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 2);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(service.get_states()["checked"], EntryState::Idle);
+        assert_eq!(unexpected_count(&events), 1);
+        assert!(!events.lock().unwrap().iter().any(|e| matches!(
+            e,
+            AgentDiscoveryEvent::Stopped(_, AgentStopReason::Unavailable)
+        )));
+        service.stop().await;
+    }
+    #[tokio::test]
+    async fn lookup_error_racing_shutdown_preserves_shutdown_reason_without_late_start() {
+        let agent = CheckedDetection::new(false);
+        let (service, events) = setup(agent.clone());
+        service.refresh("startup").await;
+        let gate = Arc::new(Semaphore::new(0));
+        *agent.next_lookup_gate.lock().unwrap() = Some(gate.clone());
+        agent.fail_lookup.store(true, Ordering::SeqCst);
+        let refreshing = {
+            let service = service.clone();
+            tokio::spawn(async move { service.refresh("blocked-lookup").await })
+        };
+        tokio::time::timeout(Duration::from_secs(1), agent.entered.notified())
+            .await
+            .unwrap();
+        let stopping = {
+            let service = service.clone();
+            tokio::spawn(async move { service.stop().await })
+        };
+        tokio::task::yield_now().await;
+        assert!(service.stopping.load(Ordering::SeqCst));
+        gate.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), refreshing)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), stopping)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(service.get_states()["checked"], EntryState::Idle);
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 1);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(unexpected_count(&events), 0);
+        assert_eq!(
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| **e
+                    == AgentDiscoveryEvent::Stopped("checked".into(), AgentStopReason::Shutdown))
+                .count(),
+            1
+        );
+        assert!(service.global_poll.lock().unwrap().is_none());
+        service.refresh("late").await;
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn cleanup_error_does_not_resurrect_a_running_entry_after_lookup_failure() {
+        let agent = CheckedDetection::new(false);
+        let (service, events) = setup(agent.clone());
+        service.refresh("startup").await;
+        agent.fail_lookup.store(true, Ordering::SeqCst);
+        agent.fail_stop.store(true, Ordering::SeqCst);
+        service.refresh("error-with-cleanup-error").await;
+        assert_eq!(service.get_states()["checked"], EntryState::Idle);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(unexpected_count(&events), 1);
+        service.stop().await;
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
     }
 }

@@ -271,6 +271,7 @@ pub fn normalize_event_name(value: Option<&Value>) -> AgentEventName {
         Some("skill.use" | "skill_use") => AgentEventName::SkillUse,
         Some("tool.approve") => AgentEventName::ToolApprove,
         Some("agent.input") => AgentEventName::AgentInput,
+        Some("react.step") => AgentEventName::ReactStep,
         _ => AgentEventName::Other,
     }
 }

@@ -67,6 +67,7 @@ str_enum!(AgentEventName {
     SkillUse = "skill.use",
     ToolApprove = "tool.approve",
     AgentInput = "agent.input",
+    ReactStep = "react.step",
     Other = "other",
 });
 

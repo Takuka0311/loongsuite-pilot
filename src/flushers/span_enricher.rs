@@ -1,12 +1,10 @@
-//! Port of `src/flushers/span-enricher.ts`.
-//!
-//! Patch validation matches the TypeScript runner: synchronous object patches,
-//! scalar or homogeneous arrays, and rejection of `__proto__` / `constructor` /
-//! `prototype`. Loading `.mjs` plugins cannot run inside this process. Paths
-//! are recorded and skipped with the same warning the TypeScript loader emits
-//! when a module fails to load. In-process [`SpanEnricher`] implementations
-//! can be registered with [`SpanEnricherRunner::from_plugins`].
+//! Native pre-export enrichers, including persistent embedded-JS workers.
+//! Configured trusted .mjs modules keep main's ESM and synchronous patch contract.
+mod client;
+mod worker;
+pub use worker::run_span_enricher_worker;
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -45,30 +43,28 @@ struct LoadedEnricher {
 
 pub struct SpanEnricherRunner {
     plugins: Vec<LoadedEnricher>,
+    paths: Vec<String>,
+    executable: Option<PathBuf>,
+    scripts: tokio::sync::OnceCell<Vec<Arc<client::ScriptPlugin>>>,
 }
 
-pub const LEGACY_ENRICHER_ERROR: &str = "spanEnrichers/spanEnricherPaths 不再支持外部脚本；请将扩展实现为 Rust SpanEnricher 并加入编译期注册表，确认迁移后手动移除旧配置";
-
-pub fn validate_legacy_enricher_paths(paths: &[String]) -> Result<(), String> {
-    if !paths.is_empty() {
-        return Err(LEGACY_ENRICHER_ERROR.into());
-    }
-    Ok(())
-}
-
-/// 扩展在此显式注册，发行包不动态加载脚本或本机库。
+/// 内建扩展在此注册；配置的 ESM 脚本由隔离的原生 worker 执行。
 fn builtin_enrichers() -> Vec<(String, Arc<dyn SpanEnricher>)> {
     Vec::new()
 }
 
 impl SpanEnricherRunner {
     pub fn new(paths: &[String]) -> Result<Self, String> {
-        validate_legacy_enricher_paths(paths)?;
-        Ok(Self::from_plugins(builtin_enrichers()))
+        let mut runner = Self::from_plugins(builtin_enrichers());
+        runner.paths = paths.to_vec();
+        Ok(runner)
     }
 
     pub fn from_plugins(plugins: Vec<(String, Arc<dyn SpanEnricher>)>) -> Self {
         Self {
+            paths: Vec::new(),
+            executable: None,
+            scripts: tokio::sync::OnceCell::new(),
             plugins: plugins
                 .into_iter()
                 .map(|(path, plugin)| LoadedEnricher {
@@ -80,15 +76,84 @@ impl SpanEnricherRunner {
         }
     }
 
+    /// Tests and embedded callers can name the same native executable explicitly.
+    /// Production defaults to current_exe; it never searches for node/python.
+    pub fn with_worker_executable(mut self, executable: impl AsRef<Path>) -> Self {
+        self.executable = Some(executable.as_ref().to_owned());
+        self
+    }
+
+    async fn load_scripts(&self) -> Vec<Arc<client::ScriptPlugin>> {
+        let mut scripts = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for path in self.paths.iter().take(16) {
+            let canonical = if path.ends_with(".mjs") {
+                tokio::fs::canonicalize(path).await.ok()
+            } else {
+                None
+            };
+            match canonical {
+                Some(path) if seen.insert(path.clone()) => {
+                    scripts.push(Arc::new(client::ScriptPlugin::new(path)))
+                }
+                Some(_) => {}
+                None => create_logger("span-enricher").warn(
+                    "Cannot resolve span enricher; skipping",
+                    serde_json::json!({"path":path}).as_object(),
+                ),
+            }
+        }
+        // main loads modules concurrently: 16 pending modules still consume one
+        // five-second loading window, not sixteen sequential windows.
+        let mut tasks = tokio::task::JoinSet::new();
+        for script in &scripts {
+            let script = Arc::clone(script);
+            let executable = self.executable.clone();
+            tasks.spawn(async move {
+                script.load(executable.as_deref()).await;
+            });
+        }
+        while tasks.join_next().await.is_some() {}
+        scripts
+    }
+
     pub async fn enrich(
         &self,
         spans: Vec<ReadableSpan>,
         context: SpanEnricherContext,
     ) -> Vec<ReadableSpan> {
-        spans
+        let mut spans: Vec<_> = spans
             .into_iter()
             .map(|span| self.enrich_one(span, &context))
-            .collect()
+            .collect();
+        if self.paths.is_empty() {
+            return spans;
+        }
+        let scripts = self.scripts.get_or_init(|| self.load_scripts()).await;
+        for span in &mut spans {
+            for script in scripts {
+                let view = SpanView {
+                    name: span.name.clone(),
+                    trace_id: span.trace_id.clone(),
+                    span_id: span.span_id.clone(),
+                    attributes: snapshot_attributes(&span.attributes),
+                };
+                if let Some(patch) = script.enrich(&view, &context).await {
+                    if apply_patch(&mut span.attributes, &patch).is_err() {
+                        script.warn_patch();
+                    }
+                }
+            }
+        }
+        spans
+    }
+
+    pub async fn shutdown(&self) {
+        if let Some(scripts) = self.scripts.get() {
+            for script in scripts {
+                script.stop().await;
+            }
+        }
     }
 
     fn enrich_one(&self, mut span: ReadableSpan, context: &SpanEnricherContext) -> ReadableSpan {
@@ -353,11 +418,11 @@ mod tests {
     }
 
     #[test]
-    fn script_paths_require_explicit_migration() {
+    fn script_paths_are_loaded_lazily_without_rejecting_legacy_configuration() {
         assert!(SpanEnricherRunner::new(&[]).is_ok());
         for path in ["/tmp/plugin.mjs", "/tmp/nope.js", " "] {
-            let error = SpanEnricherRunner::new(&[path.into()]).err().unwrap();
-            assert_eq!(error, LEGACY_ENRICHER_ERROR);
+            let runner = SpanEnricherRunner::new(&[path.into()]).unwrap();
+            assert!(runner.scripts.get().is_none());
         }
     }
 }

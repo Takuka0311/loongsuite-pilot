@@ -35,6 +35,22 @@ tokio::task_local! {
     pub static HTTP_HANDLER: HttpHandler;
 }
 
+/// Keep an explicitly installed transport context across processor work tasks.
+/// Without a scoped handler, requests retain the production reqwest path.
+pub(crate) fn spawn_with_http_context<F>(work: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let handler = HTTP_HANDLER.try_with(Arc::clone).ok();
+    tokio::spawn(async move {
+        match handler {
+            Some(handler) => HTTP_HANDLER.scope(handler, work).await,
+            None => work.await,
+        }
+    })
+}
+
 pub fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers
         .iter()

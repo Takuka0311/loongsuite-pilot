@@ -885,12 +885,12 @@ fn installation_applies_agent_selection_before_real_hook_injection() {
 }
 
 #[test]
-fn config_preview_rejects_runtime_incompatibility_without_install_state() {
+fn config_preview_rejects_invalid_privacy_without_install_state() {
     let fixture = Fixture::new();
     fixture.package();
     let path = fixture.data.join("config.json");
     let original =
-        b"\xef\xbb\xbf{\"userId\":\"never-print\",\"spanEnricherPaths\":[\"legacy.mjs\"]}\r\n";
+        b"\xef\xbb\xbf{\"userId\":\"never-print\",\"privacy\":{\"excludeWorkspaces\":[\"relative\"]}}\r\n";
     fs::write(&path, original).unwrap();
     let mut options = fixture.runtime_options(&fixture.candidate);
     options["configOptions"] = json!({"userId":"replacement-test-secret"});
@@ -1051,15 +1051,25 @@ fn unix_runtime_bridge_stages_and_syncs_without_external_runtimes() {
 #[cfg(unix)]
 #[test]
 fn install_preflight_and_confirmation_finish_before_any_service_stop() {
-    for scenario in ["new", "cancel", "legacy-enricher", "bad-resource"] {
+    for scenario in [
+        "new",
+        "cancel",
+        "invalid-privacy",
+        "supported-enricher",
+        "bad-resource",
+    ] {
         let fixture = Fixture::new();
         fixture.package();
         let data = fixture.root.path().join("首次安装主流程 🚀");
-        if scenario == "legacy-enricher" {
+        if matches!(scenario, "invalid-privacy" | "supported-enricher") {
             fs::create_dir_all(&data).unwrap();
             fs::write(
                 data.join("config.json"),
-                "{\"spanEnricherPaths\":[\"old.mjs\"]}",
+                if scenario == "invalid-privacy" {
+                    r#"{"privacy":{"excludeWorkspaces":["relative"]}}"#
+                } else {
+                    r#"{"otlpTrace":{"spanEnrichers":["optional.mjs"]}}"#
+                },
             )
             .unwrap();
         }
@@ -1113,20 +1123,23 @@ cmd_install
         assert_eq!(
             output.status.code(),
             Some(match scenario {
-                "new" => 17,
+                "new" | "supported-enricher" => 17,
                 "cancel" => 0,
                 _ => 1,
             }),
             "{scenario}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert_eq!(stop.exists(), scenario == "new");
+        assert_eq!(
+            stop.exists(),
+            matches!(scenario, "new" | "supported-enricher")
+        );
         assert!(!fixture.root.path().join("cache/current").exists());
         assert!(!fixture.root.path().join(".local").exists());
-        if scenario != "legacy-enricher" {
+        if !matches!(scenario, "invalid-privacy" | "supported-enricher") {
             assert!(!data.exists());
         }
-        if scenario != "new" {
+        if !matches!(scenario, "new" | "supported-enricher") {
             assert!(!fixture.root.path().join("cache").exists());
         }
     }
@@ -1363,7 +1376,13 @@ try {
 fn windows_install_preflight_and_cancel_precede_task_and_service_operations() {
     for shell in windows_shells() {
         for constrained in [false, true] {
-            for scenario in ["new", "cancel", "legacy-enricher", "bad-resource"] {
+            for scenario in [
+                "new",
+                "cancel",
+                "invalid-privacy",
+                "supported-enricher",
+                "bad-resource",
+            ] {
                 let fixture = Fixture::new();
                 fixture.package();
                 let data = fixture.root.path().join("Windows 安装主流程 🚀");

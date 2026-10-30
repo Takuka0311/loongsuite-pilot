@@ -6,6 +6,26 @@ Trace 输出会将 GenAI 活动导出为 OpenTelemetry Trace。适用于在 Trac
 
 Trace 输出和日志输出是分开的。SLS、JSONL、HTTP 接收事件记录；OTLP Trace 输出会将这些记录转换为 Trace spans。
 
+## Codex 子 Agent
+
+Codex 按实际子 session/turn 独立缓冲和导出，确认父工具上下文后生成
+`父 AGENT → 委派 TOOL → 子 AGENT → 子 STEP → LLM/TOOL`。子虚拟 ENTRY
+透明，LLM/TOOL 使用日志预留的实际 Span ID，session/turn/step 不改为父值。
+父 turn 完成不关闭后台子工作，也不延长工具时间；同一 Trace 可以跨多个 session。
+未确认挂载或已独立输出的轮次保留独立根结构，不重发旧 Span 冒充更新。
+
+incoming invocation 随实际工作传播，outgoing invocation 仅属于对应委派工具，
+不会复制到同 turn 的所有 Span。标准模型/工具事件在转换入口兼容短名；
+Agent invoke/result 是审计事件，不额外生成 Span、STEP 或 token。
+启用 OTLP 时，待终态 Codex 轮次保存在 `logs/codex-pending-turns/`，输入
+checkpoint 等待持久接收，退出不导出半轮。确认记录保留最近 10,000 轮；网络
+回执不确定时仍可能重试相同稳定 ID。journal 读失败阻止启动，写失败后需修复
+存储并重启，从最后持久游标恢复。Codex 的 SLS/HTTP 日志发送等待实际网络成功回执，
+而非仅进入内存队列，才允许保存输入游标；失败会冻结共享 checkpoint，修复输出后
+需重启恢复。多目标部分成功或回执不确定仍可能重发相同 ID，不能保证恰好一次。
+校验器按各 AGENT 自身执行范围检查身份、步骤和用量，允许异步子工作晚于父工具结束。
+源码能力与安装态、云端验收分开，见[Codex 验证记录](codex-subagent-verification.md)。
+
 ## 通用 OTLP Trace 输出
 
 ```json
@@ -48,16 +68,42 @@ Trace 输出和日志输出是分开的。SLS、JSONL、HTTP 接收事件记录�
 
 ## 自定义 Span 属性补齐
 
-Rust 版不再动态加载 `.mjs` Span enricher。非空 `spanEnrichers` / `spanEnricherPaths` 会使配置检查及候选激活预检失败；不会静默跳过，也不会自动删除用户配置。
+`otlpTrace.spanEnrichers` 保留显式配置的可信本地 `.mjs` 插件。Rust 二进制通过内嵌 JavaScript 引擎执行标准 ESM，不需要安装 Node/npm/Python，也无需删除旧插件路径或改为编译期注册。
 
-迁移步骤：
-1. 将扩展实现为 [`SpanEnricher`](../../src/flushers/span_enricher.rs)，通过 `builtin_enrichers()` 显式注册并重新编译。默认注册表为空，不会自动将旧脚本转换成 Rust。
-2. `enrich(&SpanView, &SpanEnricherContext)` 同步返回 `Result<Option<Map<String, Value>>, String>`；只处理允许采集及脱敏后的属性快照，不能恢复缺失内容。
-3. 确认替代扩展及输出行为后，手动移除旧路径配置并运行 `loongsuite-pilot check --json`。
+```json
+{
+  "otlpTrace": {
+    "spanEnrichers": ["$PILOT_DATA/span-enrichers/tool-skill.mjs"]
+  }
+}
+```
 
-属性补丁支持字符串、有限数值、布尔值及同类型数组，不支持嵌套对象或删除属性。无效补丁整体忽略，返回错误只记一次告警且不输出工具内容。多个扩展按注册顺序执行。此接口不是 OpenTelemetry `SpanProcessor.onEnd`，也不是隔离沙箱；不得引入敏感信息或阻塞执行。
+模块默认导出包含同步 `enrich(span, context)` 方法的对象：
 
-Agent 宿主内的 OpenClaw 等 JS 插件仍保留，与 Pilot 内部 Span enricher 是两种不同扩展。
+```js
+export default {
+  enrich(span, context) {
+    const attrs = span.attributes;
+    if (attrs['gen_ai.span.kind'] !== 'TOOL') return;
+    const raw = attrs['gen_ai.tool.call.arguments'];
+    if (typeof raw !== 'string') return;
+    const args = JSON.parse(raw);
+    if (typeof args.command !== 'string' || !args.command.startsWith('npm test')) return;
+    return { 'gen_ai.skill.name': 'run-tests', 'gen_ai.skill.id': 'run-tests' };
+  },
+};
+```
+
+执行顺序为 `事件转换 → 内置属性补齐 → 自定义 enrichers → debug/失败记录和 OTLP 导出`。不同服务名分别转换时，`context.serviceName` 是该次转换最终使用的服务名，`context.agentType` 是 Agent 类型。
+
+- `span` 提供只读的 `name`、`traceId`、`spanId`、`attributes`，属性数组和 `context` 也只读；不提供原始事件、SDK Span 或 resource 修改接口。
+- 返回属性对象或 `undefined`。支持字符串、有限数值、布尔值及同类型数组，数组可含 `null`/`undefined`。不支持嵌套对象、删除属性或异步 `enrich`；Promise/thenable 与其他无效补丁整体忽略。多个插件按配置顺序执行，后者可读取并覆盖前者的补丁。
+- 支持绝对路径、`~/`、`$PILOT_DATA/`，相对路径以 `config.json` 所在目录为基准。最多取前 16 个路径，再按真实路径去重；不扫描目录。支持标准 ESM、本地相对/绝对导入、`file:` URL 和 `import.meta.url`。模块状态跨调用保留，修改插件后需重启 Pilot。
+- 首次转换惰性并发加载，单插件加载和调用各有 5 秒上限。加载失败、异常、只读快照修改失败或超时会忽略该插件的补丁，继续导出其他 Trace。回调错误每插件仅告警一次，不记录可能包含工具参数的异常文本。卡住的插件 worker 会被终止，其他插件的模块状态保留。
+- 当前内嵌环境提供标准 ESM 与本地模块导入；`node:` 内置 API、Node 全局对象、CommonJS 和 npm 包解析尚未兼容。这些导入失败会被隔离，不能据此认为依赖这些 API 的旧插件已经等价迁移。
+- 插件只看到采集和隐私设置保留的属性，不能恢复缺失或已脱敏内容；新增属性不会再次经过输入侧脱敏。只配置可信、快速的属性映射。这是 Pilot 的导出前转换接口，未调用 `SpanProcessor.onEnd`、`forceFlush` 或 `shutdown` 等 SDK 插件生命周期方法。
+
+原生 Rust `SpanEnricher` 仍可用于编译期扩展。Agent 宿主中的 OpenClaw 等插件由各自宿主执行，与此接口独立。
 
 ## ARMS/CMS 兼容 Trace 输出
 

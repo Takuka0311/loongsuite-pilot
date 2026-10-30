@@ -53,6 +53,13 @@ pub struct DshLogInput {
 }
 
 impl DshLogInput {
+    pub(crate) fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        crate::inputs::base::InputRuntimeInfo {
+            poll_interval_ms: self.poll.interval_ms(),
+            source_paths: vec![self.session_dir.clone()],
+        }
+    }
+
     pub fn new(opts: SessionInputOptions) -> Self {
         let logger = create_logger("DshLogInput");
         let state_store = Arc::clone(&opts.state_store);

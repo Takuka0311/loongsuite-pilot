@@ -41,7 +41,7 @@ pub use log_retention_service::{
     OUTPUT_RETENTION_MAX_TOTAL_BYTES, OUTPUT_RETENTION_PRESSURE_MIN_KEEP_DAYS,
     SLS_FAILURE_RETENTION_MAX_TOTAL_BYTES,
 };
-pub use orchestrator::Orchestrator;
+pub use orchestrator::{Orchestrator, OrchestratorEvent};
 pub use updater_watchdog::{
     UpdaterWatchdog, UpdaterWatchdogOptions, UpdaterWatchdogResult, UpdaterWatchdogStatus,
 };

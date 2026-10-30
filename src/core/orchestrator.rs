@@ -184,6 +184,20 @@ impl WorkerSupervisor for ProbeSupervisor {
     }
 }
 
+/// Collector lifecycle and admission notifications for native embedders.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrchestratorEvent {
+    Starting,
+    Started,
+    StartFailed(String),
+    ComponentFailure { component: String, error: String },
+    MultimodalReady { storage_base_path: Option<String> },
+    Stopped,
+    Agent(AgentDiscoveryEvent),
+}
+
+type OrchestratorListener = Arc<dyn Fn(OrchestratorEvent) + Send + Sync>;
+
 pub struct Orchestrator {
     config: AnalyticsConfig,
     data_dir: String,
@@ -219,6 +233,11 @@ pub struct Orchestrator {
     signal_stamp: Mutex<Option<(SystemTime, Vec<u8>)>>,
     relayed_alarms: Mutex<HashSet<String>>,
     running: Mutex<bool>,
+    listeners: Mutex<Vec<OrchestratorListener>>,
+    #[cfg(test)]
+    test_interceptor_port: Option<u16>,
+    #[cfg(test)]
+    test_detection_entries: Mutex<Vec<Arc<dyn AgentDetection>>>,
 }
 
 impl Orchestrator {
@@ -266,6 +285,11 @@ impl Orchestrator {
             signal_stamp: Mutex::new(None),
             relayed_alarms: Mutex::new(HashSet::new()),
             running: Mutex::new(false),
+            listeners: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            test_interceptor_port: None,
+            #[cfg(test)]
+            test_detection_entries: Mutex::new(Vec::new()),
             config,
         }
     }
@@ -279,6 +303,27 @@ impl Orchestrator {
             logger("Orchestrator").warn("already running", None);
             return Ok(());
         }
+        self.emit(OrchestratorEvent::Starting);
+        match self.start_components().await {
+            Ok(()) => {
+                self.emit(OrchestratorEvent::Started);
+                Ok(())
+            }
+            Err(error) => {
+                // A failure after opening the state store can leave retention,
+                // flushers or discovery alive before running is published.
+                let partial = self.state_store.lock().expect("state").is_some();
+                if partial {
+                    *self.running.lock().expect("running") = true;
+                    self.stop_components().await;
+                }
+                self.emit(OrchestratorEvent::StartFailed(error.to_string()));
+                Err(error)
+            }
+        }
+    }
+
+    async fn start_components(self: &Arc<Self>) -> anyhow::Result<()> {
         logger("Orchestrator").info("starting orchestrator", None);
         // 在启动输出、后台任务及任何 Agent 部署之前，先拒绝损坏或未提交的安装报告。
         let hook_report = crate::deployment::read_committed_hook_install_report(
@@ -411,35 +456,19 @@ impl Orchestrator {
         let deploy_entries = self.deploy_detection_entries(&deployment);
         let mut entries = detection;
         entries.extend(deploy_entries);
+        #[cfg(test)]
+        entries.extend(
+            self.test_detection_entries
+                .lock()
+                .expect("test entries")
+                .drain(..),
+        );
+
         let discovery = Arc::new(AgentDiscoveryService::new(entries));
-        let alarm_for_events = Arc::clone(&alarm);
-        discovery.on_event(move |event| match event {
-            AgentDiscoveryEvent::Started(id) => logger("Orchestrator").info(
-                "agent detected and started",
-                Some(&fields(serde_json::json!({ "id": id }))),
-            ),
-            AgentDiscoveryEvent::Stopped(id, AgentStopReason::Unexpected) => {
-                logger("Orchestrator").warn(
-                    "agent stopped unexpectedly",
-                    Some(&fields(serde_json::json!({ "id": id }))),
-                );
-                alarm_for_events.record(
-                    "INPUT_STOP_ALARM",
-                    "3",
-                    &format!("input {id} stopped unexpectedly (reason=unexpected)"),
-                    Some(AlarmContext {
-                        input_name: Some(id),
-                        endpoint_name: None,
-                    }),
-                );
-            }
-            AgentDiscoveryEvent::Stopped(id, reason) => {
-                logger("Orchestrator").debug(
-                    "agent stopped",
-                    Some(&fields(
-                        serde_json::json!({ "id": id, "reason": reason.as_str() }),
-                    )),
-                );
+        let owner = Arc::downgrade(self);
+        discovery.on_event(move |event| {
+            if let Some(owner) = owner.upgrade() {
+                owner.handle_discovery_event(event);
             }
         });
         discovery.start().await;
@@ -567,30 +596,37 @@ impl Orchestrator {
                 Some(&fields(serde_json::json!({ "error": err }))),
             );
         }
+        if let Some(error) = dashboard.last_start_error() {
+            self.emit(OrchestratorEvent::ComponentFailure {
+                component: "dashboard".into(),
+                error,
+            });
+        }
         *self.dashboard.lock().expect("dashboard") = Some(dashboard);
         let inputs_for_prompt = Arc::clone(&self.inputs);
-        match start_interceptor_service(StartInterceptorServiceOptions {
-            data_dir: self.data_dir.clone(),
-            version: package_version.clone(),
-            git_commit: if package_git.is_empty() {
-                None
-            } else {
-                Some(package_git)
-            },
-            verdict_store: Some(verdicts),
-            emit_blocked_prompt: Some(Arc::new(move |entry| {
-                let inputs = Arc::clone(&inputs_for_prompt);
-                tokio::spawn(async move {
-                    if let Err(err) = inputs.flush_prepared_entries(vec![entry]).await {
-                        logger("Orchestrator").warn(
-                            "blocked prompt flush failed",
-                            Some(&fields(serde_json::json!({ "error": err }))),
-                        );
-                    }
-                });
-            })),
-        })
-        .await
+        match self
+            .start_collector_interceptor(StartInterceptorServiceOptions {
+                data_dir: self.data_dir.clone(),
+                version: package_version.clone(),
+                git_commit: if package_git.is_empty() {
+                    None
+                } else {
+                    Some(package_git)
+                },
+                verdict_store: Some(verdicts),
+                emit_blocked_prompt: Some(Arc::new(move |entry| {
+                    let inputs = Arc::clone(&inputs_for_prompt);
+                    tokio::spawn(async move {
+                        if let Err(err) = inputs.flush_prepared_entries(vec![entry]).await {
+                            logger("Orchestrator").warn(
+                                "blocked prompt flush failed",
+                                Some(&fields(serde_json::json!({ "error": err }))),
+                            );
+                        }
+                    });
+                })),
+            })
+            .await
         {
             Ok(service) => {
                 *self.interceptor.lock().expect("interceptor") = Some(service);
@@ -639,6 +675,11 @@ impl Orchestrator {
         if !*self.running.lock().expect("running") {
             return;
         }
+        self.stop_components().await;
+        self.emit(OrchestratorEvent::Stopped);
+    }
+
+    async fn stop_components(&self) {
         logger("Orchestrator").info("stopping orchestrator", None);
         // 先取出组件再等待停止，避免回调或后台任务访问同一同步锁时死锁。
         let pipeline = self.pipeline.lock().expect("pipeline").take();
@@ -652,6 +693,10 @@ impl Orchestrator {
                     "status bar app stop failed during orchestrator shutdown",
                     Some(&fields(serde_json::json!({ "error": err }))),
                 );
+                self.emit(OrchestratorEvent::ComponentFailure {
+                    component: "status-bar".into(),
+                    error: err,
+                });
             }
         }
         if let Some(dashboard) = self.dashboard.lock().expect("dashboard").take() {
@@ -725,14 +770,78 @@ impl Orchestrator {
         }
         let flusher = self.flusher.lock().expect("flusher").clone();
         if let Some(flusher) = flusher {
-            let _ = flusher.shutdown().await;
+            if let Err(error) = flusher.shutdown().await {
+                self.emit(OrchestratorEvent::ComponentFailure {
+                    component: "flusher".into(),
+                    error: error.to_string(),
+                });
+            }
         }
         let store = self.state_store.lock().expect("state").clone();
         if let Some(store) = store {
-            let _ = store.save().await;
+            if let Err(error) = store.save().await {
+                self.emit(OrchestratorEvent::ComponentFailure {
+                    component: "checkpoint".into(),
+                    error: error.to_string(),
+                });
+            }
         }
         *self.running.lock().expect("running") = false;
         logger("Orchestrator").info("orchestrator stopped", None);
+    }
+
+    /// Set the asynchronously resolved fallback identity. Explicit configured
+    /// and invocation identities keep their existing precedence.
+    pub fn set_user_id(&self, user_id: impl Into<String>) {
+        self.inputs.set_user_id(user_id);
+    }
+
+    pub fn on_event(&self, listener: impl Fn(OrchestratorEvent) + Send + Sync + 'static) {
+        self.listeners
+            .lock()
+            .expect("listeners")
+            .push(Arc::new(listener));
+    }
+
+    fn emit(&self, event: OrchestratorEvent) {
+        // Callbacks may inspect the collector or register another callback.
+        let listeners = self.listeners.lock().expect("listeners").clone();
+        for listener in listeners {
+            listener(event.clone());
+        }
+    }
+
+    fn handle_discovery_event(&self, event: AgentDiscoveryEvent) {
+        match &event {
+            AgentDiscoveryEvent::Started(id) => logger("Orchestrator").info(
+                "agent detected and started",
+                Some(&fields(serde_json::json!({ "id": id }))),
+            ),
+            AgentDiscoveryEvent::Stopped(id, AgentStopReason::Unexpected) => {
+                logger("Orchestrator").warn(
+                    "agent stopped unexpectedly",
+                    Some(&fields(serde_json::json!({ "id": id }))),
+                );
+                if let Some(alarm) = self.alarm_manager() {
+                    alarm.record(
+                        "INPUT_STOP_ALARM",
+                        "3",
+                        &format!("input {id} stopped unexpectedly (reason=unexpected)"),
+                        Some(AlarmContext {
+                            input_name: Some(id.clone()),
+                            endpoint_name: None,
+                        }),
+                    );
+                }
+            }
+            AgentDiscoveryEvent::Stopped(id, reason) => logger("Orchestrator").debug(
+                "agent stopped",
+                Some(&fields(
+                    serde_json::json!({ "id": id, "reason": reason.as_str() }),
+                )),
+            ),
+        }
+        self.emit(OrchestratorEvent::Agent(event));
     }
 
     pub fn input_manager(&self) -> &InputManager {
@@ -740,6 +849,18 @@ impl Orchestrator {
     }
     pub fn alarm_manager(&self) -> Option<Arc<AlarmManager>> {
         self.alarm.lock().expect("alarm").clone()
+    }
+
+    async fn start_collector_interceptor(
+        &self,
+        options: StartInterceptorServiceOptions,
+    ) -> std::io::Result<InterceptorService> {
+        #[cfg(test)]
+        if let Some(port) = self.test_interceptor_port {
+            return crate::interceptor::daemon::start_interceptor_service_at_port(options, port)
+                .await;
+        }
+        start_interceptor_service(options).await
     }
 
     async fn start_multimodal(&self) {
@@ -823,8 +944,10 @@ impl Orchestrator {
                 }
             },
         };
+        let storage_base_path = processor.storage_base_path();
         self.inputs.set_multimodal_processor(processor);
         *self.multimodal_ready.lock().expect("multimodal") = true;
+        self.emit(OrchestratorEvent::MultimodalReady { storage_base_path });
         logger("Orchestrator").info(
             "multimodal processor enabled",
             Some(&fields(
@@ -2472,6 +2595,8 @@ impl Orchestrator {
                 })
             },
         );
+        let observed = Arc::clone(&input);
+        live.set_runtime_probe(move || observed.runtime_info());
         let id = live.id.clone();
         self.inputs.register_input(Arc::clone(&live));
         let manager = Arc::clone(&self.inputs);
@@ -2583,6 +2708,8 @@ impl Orchestrator {
                 })
             },
         );
+        let observed = Arc::clone(&input);
+        live.set_runtime_probe(move || observed.runtime_info());
         let id = live.id.clone();
         self.inputs.register_input(Arc::clone(&live));
         let manager = Arc::clone(&self.inputs);
@@ -2882,6 +3009,7 @@ fn counter_to_snapshot(counter: &InputCounter, agent: &str, running: bool) -> In
 }
 
 trait HostedSurface: Send + Sync {
+    fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo;
     fn collector_running(&self) -> bool;
     fn start(
         &self,
@@ -2899,6 +3027,7 @@ trait HostedSurface: Send + Sync {
 macro_rules! hosted_surface {
     ($ty:ty) => {
         impl HostedSurface for $ty {
+            fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo { self.collector_runtime_info() }
             fn collector_running(&self) -> bool { self.collector_running() }
             fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> { Box::pin(self.start()) }
             fn stop(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> { Box::pin(self.stop()) }
@@ -2926,6 +3055,7 @@ hosted_surface!(WukongInput);
 hosted_surface!(WorkBuddyInput);
 
 trait HookSurface: Send + Sync {
+    fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo;
     fn collection_method_name(&self) -> String;
     fn surface_running(&self) -> bool;
     fn surface_start(&self)
@@ -2936,7 +3066,14 @@ trait HookSurface: Send + Sync {
 
 macro_rules! hook_surface {
     ($ty:ty) => {
+        hook_surface!($ty, |input: &$ty| std::ops::Deref::deref(input)
+            .runtime_info());
+    };
+    ($ty:ty, $runtime:expr) => {
         impl HookSurface for $ty {
+            fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+                ($runtime)(self)
+            }
             fn collection_method_name(&self) -> String {
                 self.collection_method().as_str().to_string()
             }
@@ -2973,7 +3110,7 @@ hook_surface!(MimoCodeLogInput);
 hook_surface!(QwenCodeCliLogInput);
 hook_surface!(OpenClawPluginInput);
 hook_surface!(HermesLogInput);
-hook_surface!(DshLogInput);
+hook_surface!(DshLogInput, DshLogInput::runtime_info);
 
 fn live_from_parts<T: Send + Sync + 'static>(
     id: &str,
@@ -3376,5 +3513,1545 @@ mod tests {
         };
         assert!(scope_allows(&bits, "codex"));
         assert!(!scope_allows(&bits, "cursor"));
+    }
+
+    fn local_output_orchestrator(data: &Path) -> Arc<Orchestrator> {
+        let mut config = isolated_orchestrator(data).config.clone();
+        config.flushers = crate::types::FlusherConfig::default();
+        config.collect_log = false;
+        config.collect_trace = false;
+        config.otlp_trace = None;
+        config.inner_trace = None;
+        Arc::new(Orchestrator::new(config))
+    }
+
+    async fn install_local_output(orchestrator: &Orchestrator) -> Arc<dyn BaseFlusher> {
+        let attributes = Arc::new(Mutex::new(GlobalAttributesProvider::new(
+            &serde_json::Map::new(),
+            orchestrator.data_dir_join("span-attributes.json"),
+        )));
+        let (flusher, sls, otlp) = orchestrator.build_flusher(attributes).await.unwrap();
+        assert!(sls.is_none());
+        assert!(otlp.is_none());
+        orchestrator.inputs.set_flusher(flusher.clone());
+        *orchestrator.flusher.lock().unwrap() = Some(flusher.clone());
+        flusher
+    }
+
+    fn fixture_entry(id: &str, user: &str) -> AgentActivityEntry {
+        AgentActivityEntry {
+            event_id: id.into(),
+            agent_type: "orchestrator-fixture".into(),
+            user_id: user.into(),
+            session_id: "isolated-fixture-session".into(),
+            ..Default::default()
+        }
+    }
+
+    fn output_rows(data: &Path) -> Vec<serde_json::Value> {
+        let mut rows: Vec<serde_json::Value> = Vec::new();
+        for path in std::fs::read_dir(data.join("logs/output")).unwrap() {
+            let path = path.unwrap().path();
+            assert!(path.starts_with(data));
+            if path.extension().is_some_and(|ext| ext == "jsonl") {
+                for line in std::fs::read_to_string(path).unwrap().lines() {
+                    rows.push(serde_json::from_str(line).unwrap());
+                }
+            }
+        }
+        rows.sort_by_key(|row| row["event.id"].as_str().unwrap().to_string());
+        rows
+    }
+
+    #[tokio::test]
+    async fn disabled_destinations_write_real_jsonl_fallback_in_configured_data_dir() {
+        let root = tempfile::tempdir().unwrap();
+        let orchestrator = local_output_orchestrator(root.path());
+        let output = install_local_output(&orchestrator).await;
+        assert_eq!(output.name(), "jsonl");
+        output
+            .send(fixture_entry("fallback", ""), None)
+            .await
+            .unwrap();
+        output.shutdown().await.unwrap();
+        let rows = output_rows(root.path());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["event.id"], "fallback");
+        assert_eq!(rows[0]["gen_ai.agent.type"], "orchestrator-fixture");
+    }
+
+    #[tokio::test]
+    async fn fallback_user_identity_updates_real_manager_output_without_overriding_configured_identity(
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let orchestrator = local_output_orchestrator(root.path());
+        let output = install_local_output(&orchestrator).await;
+        // A deliberately inert fixture source; acceptance still traverses the real
+        // registered manager queue, identity normalization, projection and writer.
+        orchestrator.inputs.register_input(LiveInput::new(
+            "identity-fixture",
+            "orchestrator-fixture",
+            "fixture",
+            || false,
+            || Box::pin(async { Ok(()) }),
+            || Box::pin(async {}),
+        ));
+        orchestrator.set_user_id("fallback-one");
+        orchestrator
+            .inputs
+            .accept_entries("identity-fixture", vec![fixture_entry("a", "")])
+            .await
+            .unwrap();
+        orchestrator.set_user_id("fallback-two");
+        orchestrator
+            .inputs
+            .accept_entries(
+                "identity-fixture",
+                vec![fixture_entry("b", ""), fixture_entry("c", "native-user")],
+            )
+            .await
+            .unwrap();
+        orchestrator
+            .inputs
+            .set_configured_user_id("configured-user");
+        orchestrator.set_user_id("fallback-three");
+        orchestrator
+            .inputs
+            .accept_entries("identity-fixture", vec![fixture_entry("d", "")])
+            .await
+            .unwrap();
+        output.shutdown().await.unwrap();
+        let rows = output_rows(root.path());
+        assert_eq!(
+            rows.iter()
+                .map(|v| v["user.id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "fallback-one",
+                "fallback-two",
+                "native-user",
+                "configured-user"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn lifecycle_notifications_report_start_failure_and_running_guards_without_io() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("last-hook-install.json"), "broken").unwrap();
+        let orchestrator = isolated_orchestrator(root.path());
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        let weak = Arc::downgrade(&orchestrator);
+        orchestrator.on_event(move |event| {
+            let owner = weak.upgrade().unwrap();
+            assert!(owner.listeners.try_lock().is_ok());
+            assert!(owner.running.try_lock().is_ok());
+            received.lock().unwrap().push(event);
+        });
+        assert!(orchestrator.start().await.is_err());
+        let observed = events.lock().unwrap().clone();
+        assert_eq!(observed.len(), 2);
+        assert_eq!(observed[0], OrchestratorEvent::Starting);
+        assert!(
+            matches!(&observed[1], OrchestratorEvent::StartFailed(message) if !message.is_empty())
+        );
+        assert!(!root.path().join("logs").exists());
+        // Already-running start must return before even reading the invalid report.
+        *orchestrator.running.lock().unwrap() = true;
+        orchestrator.start().await.unwrap();
+        assert_eq!(events.lock().unwrap().len(), 2);
+        orchestrator.stop().await;
+        orchestrator.stop().await;
+        assert_eq!(
+            events.lock().unwrap().last(),
+            Some(&OrchestratorEvent::Stopped)
+        );
+        assert_eq!(events.lock().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn discovery_notifications_only_aggregate_unexpected_stop_alarms() {
+        let root = tempfile::tempdir().unwrap();
+        let orchestrator = isolated_orchestrator(root.path());
+        let alarm = Arc::new(AlarmManager::new(
+            "127.0.0.1",
+            "fixture-version",
+            "configured-user",
+        ));
+        *orchestrator.alarm.lock().unwrap() = Some(alarm.clone());
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        orchestrator.on_event(move |event| received.lock().unwrap().push(event));
+        orchestrator.handle_discovery_event(AgentDiscoveryEvent::Started("fixture-source".into()));
+        assert!(alarm.serialize().is_empty());
+        for reason in [
+            AgentStopReason::Unavailable,
+            AgentStopReason::Disabled,
+            AgentStopReason::Shutdown,
+        ] {
+            orchestrator.handle_discovery_event(AgentDiscoveryEvent::Stopped(
+                "fixture-source".into(),
+                reason,
+            ));
+            assert!(alarm.serialize().is_empty());
+        }
+        orchestrator.handle_discovery_event(AgentDiscoveryEvent::Stopped(
+            "fixture-source".into(),
+            AgentStopReason::Unexpected,
+        ));
+        let alarms = alarm.serialize();
+        assert_eq!(alarms.len(), 1);
+        assert_eq!(alarms[0].alarm_type, "INPUT_STOP_ALARM");
+        assert_eq!(alarms[0].alarm_level, "3");
+        assert_eq!(alarms[0].input_name.as_deref(), Some("fixture-source"));
+        assert_eq!(
+            alarms[0].alarm_message,
+            "input fixture-source stopped unexpectedly (reason=unexpected)"
+        );
+        assert_eq!(alarms[0].user_id, "configured-user");
+        assert_eq!(events.lock().unwrap().len(), 5);
+    }
+
+    type FixtureLifecycleCheck = Arc<dyn Fn() + Send + Sync>;
+
+    struct FixtureBody {
+        start_check: Option<FixtureLifecycleCheck>,
+        stop_check: Option<FixtureLifecycleCheck>,
+        starts: Arc<std::sync::atomic::AtomicUsize>,
+        stops: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl crate::inputs::base::InputBody for FixtureBody {
+        fn id(&self) -> &str {
+            "fixture-listener"
+        }
+        fn agent_type(&self) -> ClientType {
+            ClientType::CodexCliHook
+        }
+        fn collection_method(&self) -> CollectionMethod {
+            CollectionMethod::HookJsonl
+        }
+        async fn on_start(&self, _: &crate::inputs::base::InputRuntime) -> anyhow::Result<()> {
+            self.starts
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(check) = &self.start_check {
+                check();
+            }
+
+            Ok(())
+        }
+        async fn collect(
+            &self,
+            _: &crate::inputs::base::InputRuntime,
+        ) -> anyhow::Result<Vec<AgentActivityEntry>> {
+            Ok(Vec::new())
+        }
+        async fn on_stop(&self, _: &crate::inputs::base::InputRuntime) -> anyhow::Result<()> {
+            self.stops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(check) = &self.stop_check {
+                check();
+            }
+
+            Ok(())
+        }
+    }
+
+    struct FixtureSurface {
+        inner: Arc<crate::inputs::base::HostedInput<FixtureBody>>,
+        wait_for_cancel: Option<Arc<tokio::sync::Notify>>,
+    }
+
+    impl HostedSurface for FixtureSurface {
+        fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+            self.inner.runtime.runtime_info()
+        }
+        fn collector_running(&self) -> bool {
+            self.inner.running()
+        }
+        fn start(
+            &self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>>
+        {
+            Box::pin(async move {
+                self.inner.start().await?;
+                if let Some(cancelled) = &self.wait_for_cancel {
+                    cancelled.notified().await;
+                }
+                Ok(())
+            })
+        }
+        fn stop(
+            &self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>>
+        {
+            Box::pin(self.inner.stop())
+        }
+        fn bind_collector(
+            &self,
+            on_entries: impl Fn(&[AgentActivityEntry]) + Send + Sync + 'static,
+            on_delta: impl Fn(&InputRuntimeDelta) + Send + Sync + 'static,
+        ) {
+            self.inner.on_entries(on_entries);
+            self.inner.on_runtime_delta(on_delta);
+        }
+    }
+
+    fn fixture_source(store: Arc<StateStore>) -> FixtureSurface {
+        FixtureSurface {
+            inner: crate::inputs::base::HostedInput::new(
+                FixtureBody {
+                    start_check: None,
+                    stop_check: None,
+                    starts: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                    stops: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                },
+                "IsolatedOrchestratorFixture",
+                store,
+                Some(300_000),
+            ),
+            wait_for_cancel: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn admission_reload_starts_and_stops_real_registered_hosted_input() {
+        use std::sync::atomic::Ordering;
+        let root = tempfile::tempdir().unwrap();
+        let mut config = local_output_orchestrator(root.path()).config.clone();
+        config.listeners.insert(
+            "fixture-listener".into(),
+            crate::types::ListenerConfig {
+                enabled: true,
+                poll_interval: 1234,
+            },
+        );
+        let orchestrator = Arc::new(Orchestrator::new(config));
+        let source = fixture_source(Arc::new(StateStore::new(root.path().join("state.json"))));
+        let inner = source.inner.clone();
+        let mut entries = Vec::new();
+        orchestrator
+            .add_hosted(
+                &mut entries,
+                HostedInputSpec::new("fixture-listener", "orchestrator-fixture", "fixture", 2),
+                source,
+                Vec::new(),
+                || async { true },
+            )
+            .await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].poll_interval_ms(), 1234);
+        assert_eq!(entries[0].unavailable_threshold(), 2);
+        let live = orchestrator.inputs.get_input("fixture-listener").unwrap();
+        assert_eq!(
+            live.runtime_info().unwrap().poll_interval_ms,
+            inner.runtime.poll_interval_ms()
+        );
+        inner.runtime.force_poll_interval_ms(7654);
+        assert_eq!(live.runtime_info().unwrap().poll_interval_ms, 7654);
+
+        assert!(orchestrator.inputs.get_input("fixture-listener").is_some());
+        let discovery = Arc::new(AgentDiscoveryService::new(entries));
+        let weak = Arc::downgrade(&orchestrator);
+        discovery.on_event(move |event| weak.upgrade().unwrap().handle_discovery_event(event));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        orchestrator.on_event(move |event| received.lock().unwrap().push(event));
+        discovery.start().await;
+        assert!(inner.running());
+        assert_eq!(inner.body.starts.load(Ordering::SeqCst), 1);
+        for (mode, running, starts, stops) in [("off", false, 1, 1), ("on", true, 2, 1)] {
+            std::fs::write(
+                root.path().join("agent-control.json"),
+                serde_json::to_vec(
+                    &serde_json::json!({"version":3,"tools":{"fixture-listener":mode}}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            orchestrator.load_agent_control().await;
+            discovery.refresh("fixture-config-update").await;
+            assert_eq!(inner.running(), running);
+            assert_eq!(inner.body.starts.load(Ordering::SeqCst), starts);
+            assert_eq!(inner.body.stops.load(Ordering::SeqCst), stops);
+        }
+        *orchestrator.discovery.lock().unwrap() = Some(discovery);
+        *orchestrator.running.lock().unwrap() = true;
+        orchestrator.stop().await;
+        assert!(!inner.running());
+        assert_eq!(inner.body.stops.load(Ordering::SeqCst), 2);
+        let events = events.lock().unwrap();
+        assert!(
+            events.contains(&OrchestratorEvent::Agent(AgentDiscoveryEvent::Stopped(
+                "fixture-listener".into(),
+                AgentStopReason::Disabled
+            )))
+        );
+        assert!(
+            events.contains(&OrchestratorEvent::Agent(AgentDiscoveryEvent::Stopped(
+                "fixture-listener".into(),
+                AgentStopReason::Shutdown
+            )))
+        );
+        assert_eq!(events.last(), Some(&OrchestratorEvent::Stopped));
+    }
+
+    struct PendingAcceptance {
+        entered: tokio::sync::Notify,
+        cancelled: Arc<tokio::sync::Notify>,
+        dropped: Arc<std::sync::atomic::AtomicBool>,
+        stops: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    struct AcceptanceDrop {
+        cancelled: Arc<tokio::sync::Notify>,
+        dropped: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl Drop for AcceptanceDrop {
+        fn drop(&mut self) {
+            self.dropped
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            self.cancelled.notify_one();
+        }
+    }
+
+    #[async_trait]
+    impl BaseFlusher for PendingAcceptance {
+        fn name(&self) -> &str {
+            "fixture-pending-acceptance"
+        }
+        async fn send(
+            &self,
+            entry: AgentActivityEntry,
+            _: Option<f64>,
+        ) -> Result<(), crate::flushers::FlushError> {
+            self.send_batch(vec![entry], None).await
+        }
+        async fn send_batch(
+            &self,
+            entries: Vec<AgentActivityEntry>,
+            _: Option<Vec<f64>>,
+        ) -> Result<(), crate::flushers::FlushError> {
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].agent_type, "orchestrator-fixture");
+            let _drop = AcceptanceDrop {
+                cancelled: self.cancelled.clone(),
+                dropped: self.dropped.clone(),
+            };
+            self.entered.notify_one();
+            std::future::pending().await
+        }
+        async fn flush(&self) -> Result<(), crate::flushers::FlushError> {
+            Ok(())
+        }
+        async fn shutdown(&self) -> Result<(), crate::flushers::FlushError> {
+            assert!(self.dropped.load(std::sync::atomic::Ordering::SeqCst));
+            assert_eq!(self.stops.load(std::sync::atomic::Ordering::SeqCst), 1);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_manager_output_before_waiting_for_discovery_startup_gate() {
+        let root = tempfile::tempdir().unwrap();
+        let orchestrator = local_output_orchestrator(root.path());
+        let state_path = root.path().join("state.json");
+        let store = Arc::new(StateStore::new(&state_path));
+        store.set_offset("fixture-listener", 0.0);
+        store.save().await.unwrap();
+        let mut source = fixture_source(store.clone());
+        let inner = source.inner.clone();
+        let cancelled = Arc::new(tokio::sync::Notify::new());
+        source.wait_for_cancel = Some(cancelled.clone());
+        let output = Arc::new(PendingAcceptance {
+            entered: tokio::sync::Notify::new(),
+            cancelled,
+            dropped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            stops: inner.body.stops.clone(),
+        });
+        orchestrator.inputs.set_state_store(store.clone());
+        orchestrator.inputs.set_flusher(output.clone());
+        *orchestrator.flusher.lock().unwrap() = Some(output.clone());
+        *orchestrator.state_store.lock().unwrap() = Some(store.clone());
+        let mut entries = Vec::new();
+        // The cancellation lane is selected by source metadata; the only payload
+        // remains the deliberately non-Agent fixture type.
+        orchestrator
+            .add_hosted_when(
+                &mut entries,
+                HostedInputSpec::new("fixture-listener", "codex", "fixture", 1),
+                source,
+                Vec::new(),
+                || async { true },
+                || true,
+            )
+            .await;
+        let discovery = Arc::new(AgentDiscoveryService::new(entries));
+        *orchestrator.discovery.lock().unwrap() = Some(discovery.clone());
+        *orchestrator.running.lock().unwrap() = true;
+        let startup = tokio::spawn(async move { discovery.start().await });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !inner.running() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        store.set_offset("fixture-listener", 9.0);
+        let manager = orchestrator.inputs.clone();
+        let pending = tokio::spawn(async move {
+            manager
+                .accept_entries("fixture-listener", vec![fixture_entry("pending", "")])
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(3), output.entered.notified())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), orchestrator.stop())
+            .await
+            .expect("output cancellation must happen before discovery waits for its startup gate");
+        startup.await.unwrap();
+        assert!(pending.await.unwrap().is_err());
+        assert!(store.save_failed());
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(state_path).unwrap()).unwrap();
+        assert_eq!(persisted["fixture-listener"]["lastOffset"], 0.0);
+        assert!(!inner.running());
+    }
+
+    #[tokio::test]
+    async fn failed_start_after_state_initialization_cleans_components_and_emits_one_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = local_output_orchestrator(root.path()).config.clone();
+        config.privacy = Some(crate::types::PrivacyConfig {
+            exclude_workspaces: vec!["relative-is-invalid".into()],
+        });
+        let orchestrator = Arc::new(Orchestrator::new(config));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        orchestrator.on_event(move |event| received.lock().unwrap().push(event));
+        let error = orchestrator.start().await.unwrap_err().to_string();
+        assert!(error.contains("absolute"));
+        assert!(!*orchestrator.running.lock().unwrap());
+        assert!(orchestrator.flusher.lock().unwrap().is_none());
+        assert!(orchestrator.discovery.lock().unwrap().is_none());
+        assert!(orchestrator.runtime_task.lock().unwrap().is_none());
+        assert!(orchestrator.summary_task.lock().unwrap().is_none());
+        let store = orchestrator.state_store.lock().unwrap().clone().unwrap();
+        assert!(
+            !root.path().join("logs/input-state.json").exists(),
+            "empty unchanged state must not be spuriously created during failed startup"
+        );
+        assert!(!store.save_failed());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                OrchestratorEvent::Starting,
+                OrchestratorEvent::StartFailed(error)
+            ]
+        );
+        orchestrator.stop().await;
+        assert_eq!(events.lock().unwrap().len(), 2);
+    }
+
+    // This test launches itself with a fresh environment instead of changing
+    // HOME while unrelated tests or already-created async tasks are running.
+    #[tokio::test]
+    async fn full_start_and_registration_are_isolated_in_temp_home_subprocess() {
+        const CHILD: &str = "PILOT_ORCHESTRATOR_FIXTURE_CHILD";
+        if let Ok(mode) = std::env::var(CHILD) {
+            let home = std::path::PathBuf::from(std::env::var("HOME").unwrap());
+            let data = home.join("pilot-data");
+            assert!(home.starts_with(std::env::temp_dir()));
+            let mut config = local_output_orchestrator(&data).config.clone();
+            config.pipeline.enabled = false;
+            config.retention.enabled = false;
+            config.hook_watchdog.enabled = false;
+            config.upstream_link.enabled = false;
+            config.status_bar.enabled = false;
+            config.dashboard.port = 0;
+            config.status_bar.runtime_refresh_interval_ms = 300_000;
+            config.status_bar.metrics_summary_interval_ms = 300_000;
+            let mut agents = serde_json::Map::new();
+            for agent in [
+                "qoder",
+                "qoder-cn",
+                "qoder-work",
+                "qoder-work-cn",
+                "qwen-work-cn",
+                "cursor",
+                "claude-code",
+                "grok-build",
+                "codex",
+                "github-copilot",
+                "copilot",
+                "kiro-cli",
+                "opencode",
+                "pi-coding-agent",
+                "mimo-code",
+                "qwen-code-cli",
+                "hermes-agent",
+                "openclaw",
+                "dsh",
+                "wukong",
+                "workbuddy",
+            ] {
+                agents.insert(agent.into(), serde_json::json!({"enabled":false}));
+            }
+            config.agents = serde_json::from_value(serde_json::Value::Object(agents)).unwrap();
+            if mode == "opencode-home" {
+                config.agents.get_mut("opencode").unwrap().enabled = Some(true);
+                assert!(!home.join(".config/opencode/opencode.jsonc").exists());
+            }
+
+            let excluded = home.join("excluded-workspace");
+            std::fs::create_dir_all(&excluded).unwrap();
+            config.privacy = Some(crate::types::PrivacyConfig {
+                exclude_workspaces: vec![excluded.to_string_lossy().into_owned()],
+            });
+            config.mask = crate::types::MaskConfig {
+                mode: crate::types::MaskMode::All,
+                types: Vec::new(),
+                replacement_mode: Some(crate::types::MaskReplacementMode::Placeholder),
+            };
+            let occupied = if mode == "dashboard-occupied" {
+                let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+                config.dashboard.port = listener.local_addr().unwrap().port();
+                Some(listener)
+            } else {
+                None
+            };
+            for id in ["cursor-hook", "codex-transcript", "qoder-cn-sqlite"] {
+                config.listeners.insert(
+                    id.into(),
+                    crate::types::ListenerConfig {
+                        enabled: false,
+                        poll_interval: 30_000,
+                    },
+                );
+            }
+            for (id, interval) in [
+                ("opencode-log", 1000),
+                ("qoder-cn-trace", 1000),
+                ("openclaw-plugin-log", 1234),
+            ] {
+                config.listeners.insert(
+                    id.into(),
+                    crate::types::ListenerConfig {
+                        enabled: false,
+                        poll_interval: interval,
+                    },
+                );
+            }
+            if mode == "ordered-start" {
+                config.listeners.insert(
+                    "fixture-listener".into(),
+                    crate::types::ListenerConfig {
+                        enabled: false,
+                        poll_interval: 300_000,
+                    },
+                );
+                std::fs::create_dir_all(data.join("logs")).unwrap();
+                let seed = Arc::new(StateStore::new(data.join("logs/input-state.json")));
+                seed.set_offset("restored-before-discovery", 73.0);
+                seed.save().await.unwrap();
+                std::fs::write(
+                    data.join("agent-control.json"),
+                    r#"{"version":3,"tools":{"fixture-listener":"on"}}"#,
+                )
+                .unwrap();
+            }
+            config.user_id = "configured-user".into();
+            let mut collector = Orchestrator::new(config);
+            collector.test_interceptor_port = Some(0);
+            let orchestrator = Arc::new(collector);
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let received = events.clone();
+            orchestrator.on_event(move |event| received.lock().unwrap().push(event));
+            let start_gate = if mode == "ordered-start" {
+                let entered = Arc::new(tokio::sync::Notify::new());
+                let release = Arc::new(tokio::sync::Notify::new());
+                let mut source = fixture_source(Arc::new(StateStore::new(
+                    home.join("fixture-source-state.json"),
+                )));
+                source.wait_for_cancel = Some(release.clone());
+                let owner = Arc::downgrade(&orchestrator);
+                let observed = entered.clone();
+                Arc::get_mut(&mut source.inner).unwrap().body.start_check =
+                    Some(Arc::new(move || {
+                        let owner = owner.upgrade().unwrap();
+                        assert!(Path::new(&owner.data_dir_join("logs")).is_dir());
+                        let store = owner.state_store.lock().unwrap().clone().unwrap();
+                        assert_eq!(store.get_offset("restored-before-discovery"), 73.0,
+                        "actual StateStore.load must finish before discovery invokes the source");
+                        assert_eq!(
+                            owner.control.lock().unwrap().get_mode("fixture-listener"),
+                            crate::types::AgentControlMode::On
+                        );
+                        assert_eq!(
+                            owner.bits.lock().unwrap().modes.get("fixture-listener"),
+                            Some(&crate::types::AgentControlMode::On)
+                        );
+                        assert!(owner.flusher.lock().unwrap().is_some());
+                        assert!(owner.metrics.lock().unwrap().is_none());
+                        assert!(!*owner.running.lock().unwrap());
+                        observed.notify_one();
+                    }));
+                let owner = Arc::downgrade(&orchestrator);
+                Arc::get_mut(&mut source.inner).unwrap().body.stop_check =
+                    Some(Arc::new(move || {
+                        let owner = owner.upgrade().unwrap();
+                        assert!(
+                            owner.metrics.lock().unwrap().is_some(),
+                            "discovery/source stop must precede final metrics stop"
+                        );
+                        let disk: serde_json::Value = serde_json::from_slice(
+                            &std::fs::read(owner.data_dir_join("logs/input-state.json")).unwrap(),
+                        )
+                        .unwrap();
+                        assert_eq!(
+                            disk["restored-before-discovery"]["lastOffset"], 73.0,
+                            "final shared state save must follow discovery/source stop"
+                        );
+                        assert_eq!(
+                            owner
+                                .state_store
+                                .lock()
+                                .unwrap()
+                                .as_ref()
+                                .unwrap()
+                                .get_offset("restored-before-discovery"),
+                            99.0
+                        );
+                    }));
+                let mut entries = Vec::new();
+                orchestrator
+                    .add_hosted(
+                        &mut entries,
+                        HostedInputSpec::new(
+                            "fixture-listener",
+                            "orchestrator-fixture",
+                            "fixture",
+                            1,
+                        ),
+                        source,
+                        Vec::new(),
+                        || async { true },
+                    )
+                    .await;
+                *orchestrator.test_detection_entries.lock().unwrap() = entries;
+                Some((entered, release))
+            } else {
+                None
+            };
+            if let Some((entered, release)) = start_gate {
+                let owner = orchestrator.clone();
+                let startup = owner.start();
+                tokio::pin!(startup);
+                tokio::select! {
+                    result = &mut startup => panic!("startup completed before release: {result:?}"),
+                    result = tokio::time::timeout(Duration::from_secs(3), entered.notified()) => result.unwrap(),
+                }
+                assert!(!*orchestrator.running.lock().unwrap());
+                assert!(orchestrator.metrics.lock().unwrap().is_none());
+                assert!(orchestrator.summary_task.lock().unwrap().is_none());
+                assert!(!events.lock().unwrap().contains(&OrchestratorEvent::Started));
+                release.notify_one();
+                tokio::time::timeout(Duration::from_secs(10), startup)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            } else {
+                tokio::time::timeout(Duration::from_secs(10), orchestrator.start())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            }
+            assert!(*orchestrator.running.lock().unwrap());
+            let initial_events = events.lock().unwrap().clone();
+            assert_eq!(initial_events.first(), Some(&OrchestratorEvent::Starting));
+            assert_eq!(initial_events.last(), Some(&OrchestratorEvent::Started));
+            assert_eq!(
+                initial_events
+                    .iter()
+                    .filter(|event| **event == OrchestratorEvent::Starting)
+                    .count(),
+                1
+            );
+            assert_eq!(
+                initial_events
+                    .iter()
+                    .filter(|event| **event == OrchestratorEvent::Started)
+                    .count(),
+                1
+            );
+            if mode == "dashboard-occupied" {
+                assert!(initial_events.iter().any(|event| matches!(event,
+                    OrchestratorEvent::ComponentFailure {component,error}
+                    if component == "dashboard" && error.contains("AddrInUse"))));
+                assert!(orchestrator
+                    .dashboard
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .last_start_error()
+                    .is_some());
+            } else {
+                assert!(!initial_events
+                    .iter()
+                    .any(|event| matches!(event, OrchestratorEvent::ComponentFailure { .. })));
+            }
+            if mode == "opencode-home" {
+                let path = home.join(".config/opencode/opencode.jsonc");
+                let document = std::fs::read_to_string(&path).unwrap();
+                let document =
+                    crate::utils::parse_json_document(&document, crate::utils::JsonSyntax::Jsonc)
+                        .unwrap();
+                assert_eq!(
+                    document["plugin"],
+                    serde_json::json!([format!(
+                        "file://{}/plugins/opencode",
+                        data.to_string_lossy().replace('\\', "/")
+                    )])
+                );
+                assert!(data.join("plugins/opencode/index.js").is_file());
+                assert!(data.join("plugins/opencode/plugin.mjs").is_file());
+                assert!(data.join("plugins/shared/resource-context.mjs").is_file());
+                assert!(data.join("deployed-agents.json").is_file());
+                assert!(path.starts_with(&home));
+                assert!(!home
+                    .join("decoy-home/.config/opencode/opencode.jsonc")
+                    .exists());
+            }
+            let events_after_start = initial_events.len();
+            assert!(orchestrator.status_bar.lock().unwrap().is_none());
+            assert!(orchestrator.summary_writer.lock().unwrap().is_some());
+            assert!(orchestrator.summary_task.lock().unwrap().is_some());
+            assert!(orchestrator.metrics.lock().unwrap().is_some());
+            let bound = orchestrator
+                .dashboard
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .address();
+            assert_eq!(bound.is_none(), occupied.is_some());
+            if mode == "ordered-start" {
+                assert_eq!(
+                    orchestrator.inputs.get_active_input_ids(),
+                    ["fixture-listener"]
+                );
+            } else {
+                assert!(
+                    orchestrator.inputs.get_active_input_ids().is_empty(),
+                    "disabled real Agents must stay stopped"
+                );
+            }
+            for id in [
+                "opencode-log",
+                "qoder-cn-trace",
+                "codex-transcript",
+                "cursor-hook",
+                "qwen-work-cn-trace",
+                "qwen-work-cn-hook",
+                "openclaw-plugin-log",
+            ] {
+                assert!(
+                    orchestrator.inputs.get_input(id).is_some(),
+                    "missing real registration: {id}"
+                );
+            }
+            for (id, configured) in [
+                ("cursor-hook", 30_000),
+                ("codex-transcript", 30_000),
+                ("qoder-cn-sqlite", 30_000),
+                ("opencode-log", 1000),
+                ("qoder-cn-trace", 1000),
+                ("openclaw-plugin-log", 1234),
+            ] {
+                let live = orchestrator.inputs.get_input(id).unwrap();
+                let actual = live
+                    .runtime_info()
+                    .unwrap_or_else(|| panic!("missing runtime probe: {id}"));
+                let expected = if mode == "poll-env" { 3000 } else { configured };
+                assert_eq!(
+                    actual.poll_interval_ms, expected,
+                    "real constructor interval for {id}"
+                );
+                if id == "openclaw-plugin-log" {
+                    assert_eq!(
+                        actual.source_paths,
+                        [data.join("logs/openclaw").to_string_lossy().into_owned()]
+                    );
+                    assert_eq!(live.agent_type, "openclaw");
+                }
+                if id == "opencode-log" {
+                    assert_eq!(
+                        actual.source_paths,
+                        [data.join("logs/opencode").to_string_lossy().into_owned()]
+                    );
+                }
+            }
+            let mut registration_config = orchestrator.config.clone();
+            registration_config
+                .agents
+                .get_mut("qwen-work-cn")
+                .unwrap()
+                .enabled = Some(true);
+            for (listener, enabled, poll_interval) in [
+                ("opencode-log", true, 1000),
+                ("qoder-cn-trace", true, 1000),
+                ("qwen-work-cn-trace", false, 30_000),
+                ("qwen-work-cn-hook", true, 1234),
+                ("openclaw-plugin-log", true, 1234),
+            ] {
+                registration_config.listeners.insert(
+                    listener.into(),
+                    crate::types::ListenerConfig {
+                        enabled,
+                        poll_interval,
+                    },
+                );
+            }
+            let registration = Arc::new(Orchestrator::new(registration_config));
+            let entries = registration
+                .register_all_inputs(&Arc::new(StateStore::new(
+                    home.join("registration-state.json"),
+                )))
+                .await;
+            let find = |id: &str| entries.iter().find(|entry| entry.id() == id).unwrap();
+            let history = data
+                .join("logs/qwen-work-cn/history")
+                .to_string_lossy()
+                .into_owned();
+            assert_eq!(
+                find("qwen-work-cn-trace").watch_paths(),
+                [
+                    history.clone(),
+                    home.join(".qwenworkcn/logs/sessions")
+                        .to_string_lossy()
+                        .into_owned(),
+                ]
+            );
+            assert_eq!(find("qwen-work-cn-hook").watch_paths(), [history]);
+            assert!(!find("qwen-work-cn-trace").enabled());
+            assert!(find("qwen-work-cn-hook").enabled());
+            assert_eq!(find("qwen-work-cn-hook").poll_interval_ms(), 1234);
+            assert_eq!(
+                find("openclaw-plugin-log").watch_paths(),
+                [data.join("logs/openclaw").to_string_lossy().into_owned(),]
+            );
+            assert_eq!(find("openclaw-plugin-log").poll_interval_ms(), 1234);
+            assert_eq!(find("opencode-log").poll_interval_ms(), 1000);
+            assert_eq!(find("qoder-cn-trace").poll_interval_ms(), 1000);
+            // start() must already have installed configured identity, privacy
+            // and masking on the production manager before any fixture is accepted.
+            orchestrator.inputs.register_input(LiveInput::new(
+                "privacy-fixture",
+                "orchestrator-fixture",
+                "fixture",
+                || false,
+                || Box::pin(async { Ok(()) }),
+                || Box::pin(async {}),
+            ));
+            orchestrator.set_user_id("fallback-user");
+            let key = format!("AKIA{}", "IOSFODNN7EXAMPLE");
+            let mut included = fixture_entry("included", "");
+            included.event_name = Some(crate::types::AgentEventName::Other);
+            included.workspace_current_root =
+                Some(home.join("included").to_string_lossy().into_owned());
+            included.extra.insert(
+                "workspace.path".into(),
+                serde_json::json!(home.join("included")),
+            );
+            included.input_messages =
+                Some(serde_json::json!([{"role":"user","content":format!("use {key}")}]));
+            let mut blocked = included.clone();
+            blocked.event_id = "excluded".into();
+            blocked.session_id = "excluded-fixture-session".into();
+            blocked.workspace_current_root = Some(excluded.to_string_lossy().into_owned());
+            blocked
+                .extra
+                .insert("workspace.path".into(), serde_json::json!(excluded));
+            orchestrator
+                .inputs
+                .accept_entries("privacy-fixture", vec![included, blocked])
+                .await
+                .unwrap();
+            let rows = output_rows(&data)
+                .into_iter()
+                .filter(|row| row["gen_ai.agent.type"] == "orchestrator-fixture")
+                .collect::<Vec<_>>();
+            assert_eq!(
+                rows.len(),
+                2,
+                "original Other plus exactly one standard agent.input"
+            );
+            let expected_ids = std::collections::HashSet::from([
+                "included".to_owned(),
+                crate::normalization::derive_agent_input_event_id("included"),
+            ]);
+            let observed_ids = rows
+                .iter()
+                .map(|row| row["event.id"].as_str().unwrap().to_owned())
+                .collect::<std::collections::HashSet<_>>();
+            assert_eq!(observed_ids, expected_ids);
+            assert!(rows.iter().all(|row| row["user.id"] == "configured-user"));
+            let serialized = serde_json::to_string(&rows).unwrap();
+            assert!(!serialized.contains(&key));
+            assert!(serialized.contains("[ACCESSKEY_MASKED]"));
+            let summary = orchestrator.summary_writer.lock().unwrap().take().unwrap();
+            summary.refresh().await;
+            *orchestrator.summary_writer.lock().unwrap() = Some(summary);
+            assert!(data.join("logs/metrics-summary.json").is_file());
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !data.join("logs/runtime.json").exists() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let discovery = orchestrator.discovery.lock().unwrap().clone().unwrap();
+            let task = orchestrator
+                .runtime_task
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .abort_handle();
+            orchestrator.start().await.unwrap();
+            assert!(Arc::ptr_eq(
+                &discovery,
+                orchestrator.discovery.lock().unwrap().as_ref().unwrap()
+            ));
+            assert_eq!(events.lock().unwrap().len(), events_after_start);
+            orchestrator
+                .state_store
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .set_offset("full-start-checkpoint", 42.0);
+            if mode == "ordered-start" {
+                orchestrator
+                    .state_store
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .set_offset("restored-before-discovery", 99.0);
+            }
+            tokio::time::timeout(Duration::from_secs(5), orchestrator.stop())
+                .await
+                .unwrap();
+            assert!(!*orchestrator.running.lock().unwrap());
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !task.is_finished() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(orchestrator.runtime_task.lock().unwrap().is_none());
+            assert!(orchestrator.summary_task.lock().unwrap().is_none());
+            assert!(orchestrator.signal_task.lock().unwrap().is_none());
+            assert!(orchestrator.dashboard.lock().unwrap().is_none());
+            assert!(orchestrator.interceptor.lock().unwrap().is_none());
+            assert!(!data.join("logs/runtime.json").exists());
+            assert!(data.join("logs/input-state.json").is_file());
+            let saved: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(data.join("logs/input-state.json")).unwrap())
+                    .unwrap();
+            assert_eq!(saved["full-start-checkpoint"]["lastOffset"], 42.0);
+            if mode == "ordered-start" {
+                let disk: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(data.join("logs/input-state.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(disk["restored-before-discovery"]["lastOffset"], 99.0);
+            }
+
+            assert_eq!(
+                events.lock().unwrap().last(),
+                Some(&OrchestratorEvent::Stopped)
+            );
+            let events_after_stop = events.lock().unwrap().len();
+            orchestrator.stop().await;
+            assert_eq!(events.lock().unwrap().len(), events_after_stop);
+            return;
+        }
+        for mode in [
+            "success",
+            "dashboard-occupied",
+            "poll-env",
+            "opencode-home",
+            "ordered-start",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let home = root.path().join("home");
+            let resources = root.path().join("resources");
+            std::fs::create_dir_all(home.join(".loongsuite-pilot")).unwrap();
+            std::fs::create_dir_all(resources.join("agents.d")).unwrap();
+            std::fs::create_dir_all(resources.join("assets/dashboard")).unwrap();
+            std::fs::write(resources.join("runtime-manifest.json"), "{}").unwrap();
+            std::fs::write(
+                resources.join("assets/dashboard/index.html"),
+                "<!doctype html><title>fixture</title>",
+            )
+            .unwrap();
+            std::fs::write(home.join(".loongsuite-pilot/config.json"), "{}").unwrap();
+
+            if mode == "opencode-home" {
+                use sha2::Digest;
+                std::fs::create_dir_all(home.join(".config/opencode")).unwrap();
+                std::fs::create_dir_all(home.join("decoy-home")).unwrap();
+                std::fs::write(
+                    resources.join("agents.d/opencode.json"),
+                    include_str!("../../agents.d/opencode.json"),
+                )
+                .unwrap();
+                let assets: [(&str, &[u8]); 5] = [
+                    (
+                        "opencode/index.js",
+                        include_bytes!("../../assets/plugins/opencode/index.js"),
+                    ),
+                    (
+                        "opencode/package.json",
+                        include_bytes!("../../assets/plugins/opencode/package.json"),
+                    ),
+                    (
+                        "opencode/plugin.mjs",
+                        include_bytes!("../../assets/plugins/opencode/plugin.mjs"),
+                    ),
+                    (
+                        "opencode/v2.mjs",
+                        include_bytes!("../../assets/plugins/opencode/v2.mjs"),
+                    ),
+                    (
+                        "shared/resource-context.mjs",
+                        include_bytes!("../../assets/plugins/shared/resource-context.mjs"),
+                    ),
+                ];
+                let mut entries = Vec::new();
+                for (relative, bytes) in assets {
+                    let path = format!("assets/plugins/{relative}");
+                    let destination = resources.join(&path);
+                    std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+                    std::fs::write(destination, bytes).unwrap();
+                    entries.push(serde_json::json!({"path":path,"sha256":hex::encode(sha2::Sha256::digest(bytes))}));
+                }
+                std::fs::write(
+                    resources.join("runtime-manifest.json"),
+                    serde_json::to_vec(&serde_json::json!({
+                        "schema":1,"runtime":"rust","version":"2.0.0-fixture","gitCommit":"fixture",
+                        "target":crate::utils::runtime_paths::build_target(),"edition":"opensource",
+                        "binary":"fixture-unused","resources":entries
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+            }
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "core::orchestrator::tests::full_start_and_registration_are_isolated_in_temp_home_subprocess", "--nocapture"])
+                .env_clear()
+                .env(CHILD, mode).env("HOME", &home).env("USERPROFILE", &home)
+                .env("PATH", &home).env("LOONGSUITE_PILOT_RESOURCE_ROOT", &resources)
+                .current_dir(&home).stdin(std::process::Stdio::null());
+            for key in [
+                "SystemRoot",
+                "WINDIR",
+                "TEMP",
+                "TMP",
+                "ComSpec",
+                "ProgramFiles",
+                "ProgramFiles(x86)",
+                "ProgramW6432",
+                "PATHEXT",
+            ] {
+                if let Some(value) = std::env::var_os(key) {
+                    command.env(key, value);
+                }
+            }
+            command
+                .env("TMPDIR", std::env::temp_dir())
+                .env("TMP", std::env::temp_dir())
+                .env("TEMP", std::env::temp_dir());
+            if mode == "poll-env" {
+                command.env("LOONGSUITE_PILOT_POLL_INTERVAL_MS", "3000");
+            }
+            let result = command.output().unwrap();
+            assert!(
+                result.status.success(),
+                "isolated {mode} failed:\n{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn actual_menu_stop_failure_notifies_and_preserves_final_state_save() {
+        let root = tempfile::tempdir().unwrap();
+        let orchestrator = local_output_orchestrator(root.path());
+        let mut ops = ProcessOps::inert(true);
+        let executable = root
+            .path()
+            .join("fixture-menu-app")
+            .to_string_lossy()
+            .into_owned();
+        let owned = executable.clone();
+        ops.read_command = Arc::new(move |pid| (pid == 424242).then(|| owned.clone()));
+        ops.alive = Arc::new(|pid| pid == 424242);
+        let signals = Arc::new(Mutex::new(Vec::new()));
+        let sent = signals.clone();
+        ops.signal =
+            Arc::new(move |pid, signal| sent.lock().unwrap().push((pid, signal.to_string())));
+        let mut status = StatusBarAppManager::new(root.path().to_string_lossy(), "fixture", ops);
+        status.set_cache_dir(root.path().join("cache").to_string_lossy());
+        std::fs::create_dir(root.path().join("logs")).unwrap();
+        std::fs::write(
+            status.runtime_record_path(),
+            serde_json::to_vec(&serde_json::json!({
+                "executablePath": executable, "packageVersion":"fixture", "pid":424242,
+                "updatedAt":"2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let runtime = status.runtime_record_path();
+        *orchestrator.status_bar.lock().unwrap() = Some(status);
+        let store = Arc::new(StateStore::new(root.path().join("state.json")));
+        store.set_offset("shutdown-fixture", 42.0);
+        *orchestrator.state_store.lock().unwrap() = Some(store);
+        let sink = Arc::new(ShutdownLockProbe {
+            owner: Arc::downgrade(&orchestrator),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            fail: false,
+        });
+        *orchestrator.flusher.lock().unwrap() = Some(sink.clone());
+        *orchestrator.running.lock().unwrap() = true;
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        orchestrator.on_event(move |event| received.lock().unwrap().push(event));
+        tokio::time::timeout(Duration::from_secs(8), orchestrator.stop())
+            .await
+            .unwrap();
+        assert_eq!(
+            signals.lock().unwrap().as_slice(),
+            [(424242, "SIGTERM".into()), (424242, "SIGKILL".into())]
+        );
+        assert!(
+            Path::new(&runtime).is_file(),
+            "failed menu stop must retain its real runtime breadcrumb"
+        );
+        assert!(!*orchestrator.running.lock().unwrap());
+        assert_eq!(sink.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let state: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.path().join("state.json")).unwrap())
+                .unwrap();
+        assert_eq!(state["shutdown-fixture"]["lastOffset"], 42.0);
+        let events = events.lock().unwrap();
+        assert!(
+            matches!(&events[0], OrchestratorEvent::ComponentFailure { component, error }
+            if component == "status-bar" && error.contains("did not stop"))
+        );
+        assert_eq!(events.last(), Some(&OrchestratorEvent::Stopped));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn actual_multimodal_factory_reports_direct_and_discovered_storage_and_cold_waiting() {
+        use crate::multimodal::http::{HttpHandler, HttpReply, HTTP_HANDLER};
+        for kind in ["sls", "delegated-ready", "delegated-cold"] {
+            let root = tempfile::tempdir().unwrap();
+            let mut config = local_output_orchestrator(root.path()).config.clone();
+            config.agents = serde_json::from_value(serde_json::json!({
+                "codex":{"multimodal":{"uploadMode":"all"}}
+            }))
+            .unwrap();
+            config.multimodal = Some(serde_json::from_value(serde_json::json!({
+                "storage":{
+                    "type":if kind == "sls" {"sls"} else {"delegatedOss"},
+                    "target":{"endpoint":"https://cn-hangzhou.log.aliyuncs.com","project":"fixture-proj","logstore":"fixture-store"},
+                    "auth":{"mode":"ak","accessKeyId":"synthetic-ak","accessKeySecret":"synthetic-sk"}
+                },
+                "storageBasePath":"sls://fixture-proj/fixture-store"
+            })).unwrap());
+            let orchestrator = Arc::new(Orchestrator::new(config));
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let received = events.clone();
+            orchestrator.on_event(move |event| received.lock().unwrap().push(event));
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let requests = calls.clone();
+            let mode = kind.to_string();
+            let transport: HttpHandler = Arc::new(move |call| {
+                assert_eq!(call.method, "POST");
+                assert!(call.url.ends_with("/presign"));
+                requests.lock().unwrap().push(call);
+                let ready = mode == "delegated-ready";
+                Box::pin(async move {
+                    Ok(HttpReply {
+                    status: if ready {200} else {401}, headers:Vec::new(), error:None,
+                    body: serde_json::to_vec(&if ready {
+                        serde_json::json!({"url":"https://fixture-bucket.oss-cn-hangzhou.aliyuncs.com/fixture-proj/fixture-store/probe?signature=synthetic"})
+                    } else { serde_json::json!({"error":"synthetic startup refusal"}) }).unwrap(),
+                })
+                })
+            });
+            HTTP_HANDLER
+                .scope(transport, async {
+                    orchestrator.start_multimodal().await;
+                    // Let the cold retry task register its real sleep before it
+                    // is closed and the paused clock is advanced.
+                    tokio::task::yield_now().await;
+                    assert!(orchestrator.inputs_have_multimodal());
+                    let storage_base_path = match kind {
+                        "sls" => Some("sls://fixture-proj/fixture-store".into()),
+                        "delegated-ready" => {
+                            Some("oss://fixture-bucket/fixture-proj/fixture-store".into())
+                        }
+                        _ => None,
+                    };
+                    assert_eq!(
+                        events.lock().unwrap().as_slice(),
+                        [OrchestratorEvent::MultimodalReady { storage_base_path }]
+                    );
+                    assert_eq!(calls.lock().unwrap().len(), usize::from(kind != "sls"));
+                    // No blobs or fake Agent events: do not spawn an upload. Closing
+                    // the real installed manager processor also closes its uploader
+                    // before the cold retry timer is allowed to wake.
+                    orchestrator.inputs.stop_all().await;
+                    tokio::time::advance(Duration::from_secs(2)).await;
+                    tokio::task::yield_now().await;
+                    assert_eq!(calls.lock().unwrap().len(), usize::from(kind != "sls"));
+                })
+                .await;
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn delegated_cold_processor_recovers_live_through_actual_retry_scheduler_and_factory() {
+        use crate::multimodal::http::{HttpHandler, HttpReply, HTTP_HANDLER};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let root = tempfile::tempdir().unwrap();
+        let mut config = local_output_orchestrator(root.path()).config.clone();
+        config.agents = serde_json::from_value(serde_json::json!({
+            "codex":{"multimodal":{"uploadMode":"all"}}
+        }))
+        .unwrap();
+        config.multimodal = Some(serde_json::from_value(serde_json::json!({
+            "storage":{"type":"delegatedOss",
+                "target":{"endpoint":"https://cn-hangzhou.log.aliyuncs.com","project":"fixture-proj","logstore":"fixture-store"},
+                "auth":{"mode":"ak","accessKeyId":"synthetic-ak","accessKeySecret":"synthetic-sk"}},
+            "storageBasePath":"sls://fixture-proj/fixture-store"
+        })).unwrap());
+        let orchestrator = Arc::new(Orchestrator::new(config));
+        let healthy = Arc::new(AtomicBool::new(false));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let (ready, count) = (healthy.clone(), requests.clone());
+        let transport: HttpHandler = Arc::new(move |call| {
+            assert_eq!(call.method, "POST");
+            assert!(call.url.ends_with("/presign"));
+            let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+            assert_eq!(body["method"], "PUT");
+            count.fetch_add(1, Ordering::SeqCst);
+            let ready = ready.load(Ordering::SeqCst);
+            Box::pin(async move {
+                Ok(HttpReply {
+                status:if ready {200} else {401}, headers:Vec::new(), error:None,
+                body:serde_json::to_vec(&if ready {
+                    serde_json::json!({"url":"https://recovered-fixture.oss-cn-hangzhou.aliyuncs.com/fixture-proj/fixture-store/probe?signature=synthetic"})
+                } else {serde_json::json!({"error":"synthetic initial refusal"})}).unwrap()
+            })
+            })
+        });
+        HTTP_HANDLER
+            .scope(transport, async {
+                orchestrator.start_multimodal().await;
+                assert!(orchestrator.inputs_have_multimodal());
+                assert_eq!(orchestrator.inputs.multimodal_storage_base_path(), None);
+                assert_eq!(requests.load(Ordering::SeqCst), 1);
+                // The actual processor owns the delayed retry. No replacement
+                // callback, storage setter or reconstructed processor is involved.
+                tokio::task::yield_now().await;
+                healthy.store(true, Ordering::SeqCst);
+                tokio::time::advance(Duration::from_millis(1000)).await;
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    while orchestrator.inputs.multimodal_storage_base_path().is_none() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("actual delegated retry did not establish a usable origin");
+                assert_eq!(requests.load(Ordering::SeqCst), 2);
+                assert_eq!(
+                    orchestrator
+                        .inputs
+                        .multimodal_storage_base_path()
+                        .as_deref(),
+                    Some("oss://recovered-fixture/fixture-proj/fixture-store")
+                );
+                orchestrator.inputs.stop_all().await;
+                assert_eq!(orchestrator.inputs.multimodal_storage_base_path(), None);
+                tokio::time::advance(Duration::from_secs(120)).await;
+                tokio::task::yield_now().await;
+                assert_eq!(
+                    requests.load(Ordering::SeqCst),
+                    2,
+                    "closed processor must not restart sniffing"
+                );
+            })
+            .await;
+    }
+
+    struct OrderedFailureSink {
+        owner: std::sync::Weak<Orchestrator>,
+        metrics_attempts: Arc<std::sync::atomic::AtomicUsize>,
+        source_stops: Arc<std::sync::atomic::AtomicUsize>,
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Semaphore,
+    }
+
+    #[async_trait]
+    impl BaseFlusher for OrderedFailureSink {
+        fn name(&self) -> &str {
+            "ordered-fixture-failure"
+        }
+        async fn send(
+            &self,
+            _: AgentActivityEntry,
+            _: Option<f64>,
+        ) -> Result<(), crate::flushers::FlushError> {
+            panic!("ordering fixture must not emit Agent payloads")
+        }
+        async fn send_batch(
+            &self,
+            _: Vec<AgentActivityEntry>,
+            _: Option<Vec<f64>>,
+        ) -> Result<(), crate::flushers::FlushError> {
+            panic!("ordering fixture must not emit Agent payloads")
+        }
+        async fn flush(&self) -> Result<(), crate::flushers::FlushError> {
+            Ok(())
+        }
+        async fn shutdown(&self) -> Result<(), crate::flushers::FlushError> {
+            let owner = self.owner.upgrade().unwrap();
+            assert_eq!(
+                self.source_stops.load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
+            assert_eq!(
+                self.metrics_attempts
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                2
+            );
+            assert!(owner.metrics.lock().unwrap().is_none());
+            assert!(!Path::new(&owner.data_dir_join("state.json")).exists());
+            self.entered.notify_one();
+            self.release.acquire().await.unwrap().forget();
+            Err(crate::flushers::FlushError::new(
+                "synthetic sink shutdown refusal",
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn metrics_snapshot_failure_during_actual_stop_does_not_skip_sink_or_checkpoint() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let root = tempfile::tempdir().unwrap();
+        let orchestrator = local_output_orchestrator(root.path());
+        let source = fixture_source(Arc::new(StateStore::new(
+            root.path().join("source-state.json"),
+        )));
+        let stops = source.inner.body.stops.clone();
+        let mut entries = Vec::new();
+        orchestrator
+            .add_hosted_when(
+                &mut entries,
+                HostedInputSpec::new("fixture-listener", "orchestrator-fixture", "fixture", 1),
+                source,
+                Vec::new(),
+                || async { true },
+                || true,
+            )
+            .await;
+        let discovery = Arc::new(AgentDiscoveryService::new(entries));
+        discovery.start().await;
+        assert_eq!(stops.load(Ordering::SeqCst), 0);
+        *orchestrator.discovery.lock().unwrap() = Some(discovery);
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let mut options = MetricsWriterOptions::new(
+            root.path().to_string_lossy(),
+            "fixture",
+            "fixture-user",
+            DataflowSnapshot::default,
+        );
+        let observed = attempts.clone();
+        let stopped = stops.clone();
+        options.get_snapshot = Arc::new(move || {
+            let before = observed.fetch_add(1, Ordering::SeqCst);
+            if before == 0 {
+                assert_eq!(stopped.load(Ordering::SeqCst), 0);
+            } else {
+                assert_eq!(
+                    stopped.load(Ordering::SeqCst),
+                    1,
+                    "discovery/input must stop before final metrics snapshot"
+                );
+            }
+            Err("synthetic actual metrics snapshot refusal".into())
+        });
+        let metrics = Arc::new(MetricsWriter::new(options));
+        metrics.start().await;
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        *orchestrator.metrics.lock().unwrap() = Some(metrics);
+        let sink = Arc::new(OrderedFailureSink {
+            owner: Arc::downgrade(&orchestrator),
+            metrics_attempts: attempts.clone(),
+            source_stops: stops,
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Semaphore::new(0),
+        });
+        *orchestrator.flusher.lock().unwrap() = Some(sink.clone());
+        let state = Arc::new(StateStore::new(root.path().join("state.json")));
+        state.set_offset("ordered-fixture", 42.0);
+        *orchestrator.state_store.lock().unwrap() = Some(state);
+        *orchestrator.running.lock().unwrap() = true;
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        orchestrator.on_event(move |event| received.lock().unwrap().push(event));
+        let owner = orchestrator.clone();
+        let stopping = tokio::spawn(async move { owner.stop().await });
+        tokio::time::timeout(Duration::from_secs(3), sink.entered.notified())
+            .await
+            .unwrap();
+        assert!(!stopping.is_finished());
+        assert!(
+            !root.path().join("state.json").exists(),
+            "final save must wait for sink shutdown settlement"
+        );
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "Stopped cannot precede final cleanup"
+        );
+        sink.release.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(3), stopping)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.path().join("state.json")).unwrap())
+                .unwrap();
+        assert_eq!(persisted["ordered-fixture"]["lastOffset"], 42.0);
+        let events = events.lock().unwrap();
+        assert!(
+            matches!(&events[0], OrchestratorEvent::ComponentFailure {component,error}
+            if component == "flusher" && error.contains("shutdown refusal"))
+        );
+        assert_eq!(events.last(), Some(&OrchestratorEvent::Stopped));
     }
 }

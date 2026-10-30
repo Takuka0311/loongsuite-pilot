@@ -137,15 +137,6 @@ pub fn assemble_config(
 ) -> anyhow::Result<AnalyticsConfig> {
     if let Some(file) = file {
         warn_ignored_capture(file);
-        for scope in [Some(file), file.get("otlpTrace")].into_iter().flatten() {
-            for key in ["spanEnrichers", "spanEnricherPaths"] {
-                if let Some(value) = scope.get(key).filter(|value| !value.is_null()) {
-                    if !value.as_array().is_some_and(Vec::is_empty) {
-                        anyhow::bail!(crate::flushers::LEGACY_ENRICHER_ERROR);
-                    }
-                }
-            }
-        }
     }
     let data_dir = pick_data_dir(
         env_get(sources, "LOONGSUITE_PILOT_DATA_DIR").as_deref(),
@@ -155,11 +146,8 @@ pub fn assemble_config(
         .or_else(|| json_str(file.and_then(|value| value.get("userId"))).map(str::to_string))
         .or_else(|| json_str(file.and_then(|value| value.get("user.id"))).map(str::to_string))
         .unwrap_or_else(|| sources.hostname.to_string());
-    let service_name = non_empty(
-        env_get(sources, "LOONGSUITE_PILOT_SERVICE_NAME").or_else(|| {
-            json_str(file.and_then(|value| value.get("serviceName"))).map(str::to_string)
-        }),
-    );
+    let service_name = non_empty(env_get(sources, "LOONGSUITE_PILOT_SERVICE_NAME"))
+        .or_else(|| non_empty(json_string(file.and_then(|value| value.get("serviceName")))));
     let service_name_prefix = env_get(sources, "LOONGSUITE_PILOT_SERVICE_NAME_PREFIX")
         .or_else(|| {
             json_str(file.and_then(|value| value.get("serviceNamePrefix"))).map(str::to_string)
@@ -170,23 +158,32 @@ pub fn assemble_config(
             env_get(sources, key)
         });
     let mask = ensure_mask_covers_interceptor(&build_mask_config(file, sources), &interceptor);
-    let privacy_raw = file
+    let privacy_raw = match file
         .and_then(|value| value.get("privacy"))
         .and_then(|value| value.get("excludeWorkspaces"))
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    {
+        None => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str().map(str::to_string).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "privacy.excludeWorkspaces must be an array of absolute local directories"
+                    )
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?,
+        Some(_) => anyhow::bail!(
+            "privacy.excludeWorkspaces must be an array of absolute local directories"
+        ),
+    };
     let exclude = crate::pipeline::workspace_policy::validate_excluded_workspaces(&privacy_raw)
         .map_err(|err| anyhow::anyhow!(err))?;
     let auto_update =
         build_auto_update_config_with(file, sources.platform, |key| sources.env.get(key).cloned());
     Ok(AnalyticsConfig {
+        source_config_path: (!sources.config_path.is_empty())
+            .then(|| sources.config_path.to_owned()),
         privacy: Some(PrivacyConfig {
             exclude_workspaces: exclude,
         }),
@@ -389,7 +386,10 @@ pub fn build_otlp_trace_config_with(
         span_enricher_paths: Some(resolve_span_enricher_paths(
             otlp.span_enrichers.clone(),
             &config.data_dir,
-            &crate::utils::config_json_path(),
+            config
+                .source_config_path
+                .as_deref()
+                .unwrap_or(&crate::utils::config_json_path()),
         )),
         enabled: true,
         endpoints: deduped,
@@ -455,7 +455,19 @@ fn resolve_span_enricher_paths(
             trimmed.to_string()
         };
         let resolved = config_dir.join(resolve_home(&expanded));
-        let text = resolved.to_string_lossy().into_owned();
+        let absolute = std::path::absolute(&resolved).unwrap_or(resolved);
+        let mut normalized = std::path::PathBuf::new();
+        for component in absolute.components() {
+            match component {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    // Absolute roots cannot be escaped by additional parents.
+                    normalized.pop();
+                }
+                other => normalized.push(other.as_os_str()),
+            }
+        }
+        let text = normalized.to_string_lossy().into_owned();
         if !paths.contains(&text) {
             paths.push(text);
         }
@@ -1248,23 +1260,37 @@ fn build_otlp_trace_raw(file: Option<&Value>) -> Option<OtlpTraceRawConfig> {
     if !raw.is_object() {
         return None;
     }
-    serde_json::from_value(raw.clone()).ok()
+    // A malformed optional extension list must not disable trace destinations.
+    // Resolve valid string paths later using the existing config/data roots.
+    let mut raw = raw.clone();
+    raw.as_object_mut()?.remove("captureMessageContent");
+    if let Some(value) = raw.get("spanEnrichers").cloned() {
+        let paths: Vec<_> = value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        if !value.is_null() && !value.is_array() {
+            logger("ConfigLoader").warn("otlpTrace.spanEnrichers must be an array; ignoring", None);
+        }
+        raw["spanEnrichers"] = serde_json::json!(paths);
+    }
+    serde_json::from_value(raw).ok()
 }
 
 fn build_mask_config(file: Option<&Value>, sources: &ConfigSources<'_>) -> MaskConfig {
     let mask = file.and_then(|value| value.get("mask"));
-    let raw_replacement = non_empty(
-        env_get(sources, "LOONGSUITE_PILOT_MASK_REPLACEMENT_MODE")
-            .or_else(|| json_string(mask.and_then(|value| value.get("replacementMode")))),
-    );
+    let raw_replacement = non_empty(env_get(sources, "LOONGSUITE_PILOT_MASK_REPLACEMENT_MODE"))
+        .or_else(|| json_string(mask.and_then(|value| value.get("replacementMode"))));
     let replacement_mode = raw_replacement
         .as_deref()
         .and_then(|value| value.parse::<MaskReplacementMode>().ok())
         .unwrap_or(MaskReplacementMode::Placeholder);
-    if raw_replacement
-        .as_ref()
-        .is_some_and(|value| value.parse::<MaskReplacementMode>().ok() != Some(replacement_mode))
-    {
+    if raw_replacement.as_ref().is_some_and(|value| {
+        !value.is_empty() && value.parse::<MaskReplacementMode>().ok() != Some(replacement_mode)
+    }) {
         logger("ConfigLoader").warn(
             "invalid mask replacement mode, using placeholder",
             Some(&fields(
@@ -1354,7 +1380,7 @@ fn build_agents(file: Option<&Value>, inner: Option<&Value>) -> AgentsConfig {
                 if !multimodal.is_some_and(Value::is_object) {
                     logger("ConfigLoader").warn(
                         "Ignoring managed agent policy without valid multimodal settings",
-                        Some(&fields(serde_json::json!({ "agentType": agent_type, "type": json_type_name(multimodal.unwrap_or(&Value::Null)), "ignoredFields": ignored.iter().map(|key| key.as_str()).collect::<Vec<_>>() }))),
+                        Some(&fields(serde_json::json!({ "agentType": agent_type, "type": multimodal.map(json_type_name).unwrap_or("undefined"), "ignoredFields": ignored.iter().map(|key| key.as_str()).collect::<Vec<_>>() }))),
                     );
                     continue;
                 }
@@ -2094,30 +2120,33 @@ mod tests {
     }
 
     #[test]
-    fn legacy_enrichers_are_rejected_without_modifying_config() {
-        for key in ["spanEnrichers", "spanEnricherPaths"] {
-            for value in [
-                serde_json::json!(["old.mjs"]),
-                serde_json::json!("old.mjs"),
-                serde_json::json!([" "]),
-            ] {
-                for nested in [false, true] {
-                    let mut file = serde_json::json!({});
-                    if nested {
-                        file["otlpTrace"] = serde_json::json!({key: value});
-                    } else {
-                        file[key] = value.clone();
-                    }
-                    let before = file.clone();
-                    let error = assemble_config(Some(&file), None, &sources(&empty())).unwrap_err();
-                    assert!(error.to_string().contains("Rust SpanEnricher"));
-                    assert_eq!(file, before);
-                }
-            }
-            for value in [serde_json::Value::Null, serde_json::json!([])] {
-                let file = serde_json::json!({key: value});
-                assert!(assemble_config(Some(&file), None, &sources(&empty())).is_ok());
-            }
+    fn legacy_enrichers_remain_optional_and_never_disable_trace_or_mutate_config() {
+        let valid_path = std::env::current_dir()
+            .unwrap()
+            .join("synthetic-skill.mjs")
+            .to_string_lossy()
+            .into_owned();
+        for value in [
+            serde_json::json!([valid_path, 42, "bad.ts"]),
+            serde_json::json!("old.mjs"),
+            serde_json::json!(null),
+            serde_json::json!([]),
+        ] {
+            let file = serde_json::json!({
+                "collectTrace":true,
+                "otlpTrace":{"endpoint":"http://127.0.0.1:4318","spanEnrichers":value}
+            });
+            let before = file.clone();
+            let config = assemble_config(Some(&file), None, &sources(&empty())).unwrap();
+            let trace = build_otlp_trace_config(&config).unwrap();
+            assert_eq!(trace.endpoints.len(), 1);
+            let expected = if value.is_array() && !value.as_array().unwrap().is_empty() {
+                vec![valid_path.clone()]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(trace.span_enricher_paths.unwrap(), expected);
+            assert_eq!(file, before);
         }
     }
 
@@ -2319,6 +2348,7 @@ mod privacy_migration_contract_tests {
             global_poll_ms: None,
         };
         for invalid in [
+            json!(null),
             json!("private"),
             json!([null]),
             json!([12]),
@@ -2624,11 +2654,19 @@ mod migration_managed_multimodal_tests {
                 },
             )
             .unwrap();
-            assert_eq!(
-                serde_json::to_value(&config.multimodal).unwrap(),
-                row["expectedMultimodal"],
-                "{id}: resolved storage"
-            );
+            let expected_raw = &row["expectedMultimodal"];
+            if matches!(
+                config.multimodal.as_ref().map(|config| &config.storage),
+                Some(MultimodalStorage::Oss { .. })
+            ) {
+                assert_eq!(
+                    expected_raw["storage"]["auth"]["mode"], "ak",
+                    "{id}: OSS auth must remain AK"
+                );
+            }
+            let expected: Option<MultimodalRuntimeConfig> =
+                serde_json::from_value(expected_raw.clone()).unwrap();
+            assert_eq!(config.multimodal, expected, "{id}: resolved typed storage");
             if let Some(expected) = row.get("expectedAgents") {
                 assert_eq!(
                     serde_json::to_value(&config.agents).unwrap(),
@@ -2734,5 +2772,406 @@ mod migration_managed_multimodal_tests {
     #[tokio::test]
     async fn managed_invalid_policy_diagnostics_keep_exact_messages_fields_and_safe_defaults() {
         run("warnings").await;
+    }
+}
+
+#[cfg(test)]
+mod migration_config_advanced_tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    fn choose(root: Option<&Value>, path: &[Value], id: &str) -> Option<Value> {
+        let mut selected = root.cloned();
+        for segment in path {
+            let value = selected?;
+            selected = match segment {
+                Value::String(key) => value.get(key).cloned(),
+                Value::Number(index) => value.get(index.as_u64().unwrap() as usize).cloned(),
+                Value::Object(query) => {
+                    let items = value
+                        .as_array()
+                        .unwrap_or_else(|| panic!("{id}: expected array before selector"));
+                    let member_path = query["path"].as_array().cloned().unwrap_or_default();
+                    let matches = |item: &Value| {
+                        let actual = choose(Some(item), &member_path, id);
+                        if query["unset"] == true {
+                            actual.is_none()
+                        } else {
+                            actual.as_ref() == Some(&query["expected"])
+                        }
+                    };
+                    Some(match query["op"].as_str().unwrap() {
+                        "map" => Value::Array(
+                            items
+                                .iter()
+                                .map(|item| {
+                                    choose(Some(item), &member_path, id).unwrap_or(Value::Null)
+                                })
+                                .collect(),
+                        ),
+                        // Old tests dereference these named results; missing a backend
+                        // must fail instead of making an undefined child field pass.
+                        "find" => items
+                            .iter()
+                            .find(|item| matches(item))
+                            .unwrap_or_else(|| panic!("{id}: named backend missing"))
+                            .clone(),
+                        "every" => json!(items.iter().all(matches)),
+                        "some" => json!(items.iter().any(matches)),
+                        "sort" => {
+                            let mut sorted = items.clone();
+                            sorted.sort_by_key(Value::to_string);
+                            Value::Array(sorted)
+                        }
+                        _ => panic!("{id}: invalid fixture selector"),
+                    })
+                }
+                _ => panic!("{id}: invalid fixture path"),
+            };
+        }
+        selected
+    }
+    fn subset(actual: &Value, expected: &Value) -> bool {
+        match expected {
+            Value::Object(fields) => fields
+                .iter()
+                .all(|(key, value)| actual.get(key).is_some_and(|actual| subset(actual, value))),
+            _ => actual == expected,
+        }
+    }
+    fn project_home(value: &mut Value) {
+        match value {
+            Value::String(text) if text.contains("$TEST_HOME") => {
+                *text = text.replace("$TEST_HOME", &std::env::var("HOME").unwrap_or_default());
+            }
+            Value::Array(values) => {
+                for value in values {
+                    project_home(value);
+                }
+            }
+            Value::Object(fields) => {
+                for value in fields.values_mut() {
+                    project_home(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn assert_contract(config: &Value, built: &Value, logs: &[Value], assertion: &Value, id: &str) {
+        let base = match assertion["base"].as_str().unwrap() {
+            "config" => config,
+            "built" => built,
+            "logs" => &Value::Null,
+            _ => panic!("invalid fixture base"),
+        };
+        let path = assertion["path"].as_array().unwrap();
+        let actual = choose(Some(base), path, id);
+        let expected = &assertion["expected"];
+        let passed = match assertion["op"].as_str().unwrap() {
+            "toEqual" | "toBe" => actual.as_ref() == Some(expected),
+            "toMatchObject" => actual
+                .as_ref()
+                .is_some_and(|actual| subset(actual, expected)),
+            "toBeUndefined" => actual.as_ref().is_none_or(Value::is_null),
+            "toBeDefined" => actual.as_ref().is_some_and(|actual| !actual.is_null()),
+            "toHaveLength" => actual
+                .as_ref()
+                .and_then(Value::as_array)
+                .is_some_and(|items| Some(items.len() as u64) == expected.as_u64()),
+            "toContain" | "toContainEqual" => actual.as_ref().is_some_and(|actual| {
+                actual
+                    .as_array()
+                    .is_some_and(|items| items.contains(expected))
+                    || actual
+                        .as_str()
+                        .zip(expected.as_str())
+                        .is_some_and(|(text, part)| text.contains(part))
+            }),
+            "toHaveProperty" => {
+                let key = assertion["property"].as_str().unwrap();
+                let property = choose(
+                    actual.as_ref(),
+                    &key.split('.').map(|part| json!(part)).collect::<Vec<_>>(),
+                    id,
+                );
+                property.is_some()
+                    && (assertion["hasExpected"] != true || property.as_ref() == Some(expected))
+            }
+            "toHaveBeenCalled" => logs
+                .iter()
+                .any(|event| event["level"] == "WARN" && event["tag"] == "ConfigLoader"),
+            "toHaveBeenCalledWith" => {
+                let expected = expected.as_array().unwrap();
+                logs.iter().any(|event| {
+                    if event["level"] != "WARN" || event["tag"] != "ConfigLoader" {
+                        return false;
+                    }
+                    let message = expected[0]
+                        .as_str()
+                        .is_some_and(|text| event["msg"] == text)
+                        || expected[0]
+                            .get("$stringContaining")
+                            .and_then(Value::as_str)
+                            .is_some_and(|part| {
+                                event["msg"]
+                                    .as_str()
+                                    .is_some_and(|text| text.contains(part))
+                            });
+                    message && (expected.len() < 2 || subset(event, &expected[1]))
+                })
+            }
+            _ => panic!("{id}: unsupported fixture assertion"),
+        };
+        assert_eq!(
+            passed,
+            assertion["negate"] != true,
+            "{id}: {:?} at {:?} expected={expected:?} actual={actual:?}",
+            assertion["op"],
+            path
+        );
+    }
+    async fn run(group: &str) {
+        // Capture actual structured production diagnostics without sharing global
+        // logger state with another test thread.
+        if !crate::utils::isolated_env_test() {
+            return;
+        }
+        unsafe {
+            std::env::set_var("LOG_LEVEL", "trace");
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let logdir = directory.path().join("logs");
+        crate::utils::init_file_logging(logdir.join("advanced.log").to_str().unwrap())
+            .await
+            .unwrap();
+        let mut cases: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/config-advanced-cases.json"
+        ))
+        .unwrap();
+        project_home(&mut cases);
+        let mut count = 0;
+        let mut previous_lines = 0;
+        for case in cases
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|case| case["group"] == group)
+        {
+            count += 1;
+            let id = case["id"].as_str().unwrap();
+            let env: HashMap<String, String> = serde_json::from_value(case["env"].clone()).unwrap();
+            let file = &case["user"];
+            let inner = &case["inner"];
+            let config = assemble_config(
+                (!file.is_null()).then_some(file),
+                (!inner.is_null()).then_some(inner),
+                &ConfigSources {
+                    env: &env,
+                    platform: Platform::current(),
+                    hostname: "synthetic",
+                    config_path: "not-read.json",
+                    global_poll_ms: None,
+                },
+            )
+            .unwrap();
+            let mut config_json = serde_json::to_value(&config).unwrap();
+            if matches!(
+                config.multimodal.as_ref().map(|c| &c.storage),
+                Some(MultimodalStorage::Oss { .. })
+            ) {
+                // OSS's typed variant fixes AK auth, whereas the old JS view
+                // included a redundant discriminator in its plain object.
+                config_json["multimodal"]["storage"]["auth"]["mode"] = json!("ak");
+            }
+            let assertions = case["assertions"].as_array().unwrap();
+            let built = if assertions
+                .iter()
+                .any(|assertion| assertion["base"] == "built")
+            {
+                serde_json::to_value(build_otlp_trace_config_with(
+                    &config,
+                    &env,
+                    Platform::current(),
+                ))
+                .unwrap()
+            } else {
+                Value::Null
+            };
+            crate::utils::flush_logs_sync();
+            let logs: Vec<Value> = std::fs::read_dir(&logdir)
+                .unwrap()
+                .flat_map(|entry| {
+                    std::fs::read_to_string(entry.unwrap().path())
+                        .unwrap()
+                        .lines()
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|line| !line.is_empty())
+                .map(|line| serde_json::from_str(&line).unwrap())
+                .collect();
+            for assertion in assertions {
+                assert_contract(&config_json, &built, &logs[previous_lines..], assertion, id);
+            }
+            previous_lines = logs.len();
+        }
+        assert!(count > 0);
+    }
+    #[tokio::test]
+    async fn remaining_sls_destination_and_service_override_contracts() {
+        run("outputs").await;
+    }
+    #[tokio::test]
+    async fn remaining_agent_policy_content_and_multimodal_field_contracts() {
+        run("agents").await;
+    }
+    #[tokio::test]
+    async fn multimodal_storage_validation_auth_inference_and_target_reuse_contracts() {
+        run("multimodal").await;
+    }
+    #[tokio::test]
+    async fn otlp_and_managed_cms_union_headers_resources_and_dedup_contracts() {
+        run("otlp").await;
+    }
+    #[tokio::test]
+    async fn interceptor_defaults_types_environment_and_mask_union_contracts() {
+        run("interceptor").await;
+    }
+}
+
+#[cfg(test)]
+mod migration_config_edge_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn valid_workspace_exclusions_are_preserved_and_relative_rules_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let private = directory.path().join("private-project");
+        let env = HashMap::new();
+        let sources = ConfigSources {
+            env: &env,
+            platform: Platform::current(),
+            hostname: "synthetic",
+            config_path: "not-read.json",
+            global_poll_ms: None,
+        };
+        let valid = json!({"privacy":{"excludeWorkspaces":[private]}});
+        let config = assemble_config(Some(&valid), None, &sources).unwrap();
+        assert_eq!(
+            config.privacy.unwrap().exclude_workspaces,
+            vec![private.to_string_lossy().into_owned()]
+        );
+        let invalid = json!({"privacy":{"excludeWorkspaces":["relative"]}});
+        let error = assemble_config(Some(&invalid), None, &sources).unwrap_err();
+        assert!(error.to_string().contains("absolute local directories"));
+    }
+    #[test]
+    fn span_enricher_paths_resolve_config_home_and_data_with_lexical_deduplication() {
+        let root = tempfile::tempdir().unwrap();
+        let config_dir = root.path().join("config");
+        let data = root.path().join("data");
+        let config_path = config_dir.join("config.json");
+        let env = HashMap::new();
+        let sources = ConfigSources {
+            env: &env,
+            platform: Platform::current(),
+            hostname: "synthetic",
+            config_path: config_path.to_str().unwrap(),
+            global_poll_ms: None,
+        };
+        let file = json!({
+            "dataDir":data,"collectTrace":true,
+            "otlpTrace":{"endpoint":"http://127.0.0.1:4318","spanEnrichers":[
+                "./skill.mjs",config_dir.join("skill.mjs"),"~/home.mjs",
+                "$PILOT_DATA/plugins/skill.mjs",42,"bad.ts",
+                "./unused/../skill.mjs"
+            ]}
+        });
+        let before = file.clone();
+        let config = assemble_config(Some(&file), None, &sources).unwrap();
+        let trace = build_otlp_trace_config(&config).unwrap();
+        assert_eq!(
+            trace.span_enricher_paths.unwrap(),
+            vec![
+                config_dir.join("skill.mjs").to_string_lossy().into_owned(),
+                resolve_home("~/home.mjs"),
+                data.join("plugins/skill.mjs")
+                    .to_string_lossy()
+                    .into_owned(),
+            ]
+        );
+        assert_eq!(trace.endpoints.len(), 1);
+        assert_eq!(file, before);
+    }
+
+    #[test]
+    fn span_enricher_count_is_capped_without_disabling_cms_only_trace_export() {
+        let root = tempfile::tempdir().unwrap();
+        let env = HashMap::new();
+        let config_path = root.path().join("config.json");
+        let sources = ConfigSources {
+            env: &env,
+            platform: Platform::current(),
+            hostname: "synthetic",
+            config_path: config_path.to_str().unwrap(),
+            global_poll_ms: None,
+        };
+        let paths: Vec<_> = (0..20)
+            .map(|i| root.path().join(format!("{i}.mjs")))
+            .collect();
+        let file = json!({
+            "collectTrace":true,
+            "cms":{"licenseKey":"synthetic","endpoint":"http://127.0.0.1:4318"},
+            "otlpTrace":{"spanEnrichers":paths}
+        });
+        let before = file.clone();
+        let trace = build_otlp_trace_config(&assemble_config(Some(&file), None, &sources).unwrap())
+            .unwrap();
+        assert_eq!(
+            trace.span_enricher_paths.unwrap(),
+            paths[..16]
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(trace.endpoints.len(), 1);
+        assert_eq!(trace.endpoints[0].name, "user-cms");
+        assert_eq!(file, before);
+    }
+
+    #[test]
+    fn dashboard_port_preserves_every_numeric_boundary_and_invalid_value_fallback() {
+        let env = HashMap::new();
+        let sources = ConfigSources {
+            env: &env,
+            platform: Platform::current(),
+            hostname: "synthetic",
+            config_path: "not-read.json",
+            global_poll_ms: None,
+        };
+        // NaN is not a serde_json Number. Its JSON representation is null,
+        // which must take the same invalid-port fallback as the legacy mock.
+        let nan = serde_json::to_value(f64::NAN).unwrap();
+        assert!(nan.is_null());
+        for (port, expected) in [
+            (None, 8765),
+            (Some(json!(1)), 1),
+            (Some(json!(8765)), 8765),
+            (Some(json!(65535)), 65535),
+            (Some(json!(0)), 8765),
+            (Some(json!(65536)), 8765),
+            (Some(json!(-1)), 8765),
+            (Some(json!(1.5)), 8765),
+            (Some(json!("9000")), 8765),
+            (Some(nan), 8765),
+        ] {
+            let file = port
+                .map(|port| json!({"dashboard":{"port":port}}))
+                .unwrap_or_else(|| json!({}));
+            let before = file.clone();
+            let config = assemble_config(Some(&file), None, &sources).unwrap();
+            assert_eq!(config.dashboard.port, expected);
+            assert_eq!(file, before);
+        }
     }
 }

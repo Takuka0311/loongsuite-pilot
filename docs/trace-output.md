@@ -6,6 +6,31 @@ Trace output exports GenAI activity as OpenTelemetry traces. Use it when you wan
 
 Trace output is separate from log output. SLS, JSONL, and HTTP receive event records; OTLP trace output converts those records into trace spans.
 
+## Codex subagents
+
+Codex child turns buffer and export independently with their own session, turn
+and step IDs. Confirmed delegation attaches the child AGENT under the actual
+reserved parent TOOL span, followed by the child's STEP and LLM/TOOL spans.
+Only the child's virtual ENTRY is transparent. Parent completion neither ends
+background child work nor stretches the tool interval.
+
+An unresolved or already independently emitted turn keeps its own root; late
+correlation does not replay exported spans as updates. Incoming invocation is
+scoped to actual work; outgoing invocation belongs to its delegation tool.
+Standard and short model/tool event names are adapted at the trace boundary;
+Agent invoke/result audit records do not add spans, steps or usage.
+With OTLP enabled, pending Codex turns persist in `logs/codex-pending-turns/`
+before input checkpoints advance; shutdown does not export partial turns.
+Export acknowledgements retain the latest 10,000 turns. Uncertain network
+delivery may still retry stable IDs. Journal read failures prevent startup;
+after a write failure, repair storage and restart from the durable cursor.
+Codex SLS/HTTP log sends await actual network success before allowing input
+checkpoints to advance. A failed delivery holds the shared checkpoint until
+the output is repaired and the collector restarts. Partial multi-output success
+or uncertain acknowledgements can still repeat stable IDs; this is at least once.
+See [verification status](zh-CN/codex-subagent-verification.md) for separate
+source, output, installed-runtime and cloud evidence.
+
 ## Generic OTLP Trace Output
 
 ```json
@@ -48,15 +73,42 @@ Environment variables:
 
 ## Custom Span Enrichment
 
-The Rust runtime does not dynamically load `.mjs` enrichers. Non-empty `spanEnrichers` / `spanEnricherPaths` settings fail configuration and candidate activation checks; they are neither silently ignored nor automatically removed.
+`otlpTrace.spanEnrichers` retains explicitly configured trusted local `.mjs` modules. The Rust binary runs standard ESM with its embedded JavaScript engine; no external Node, npm or Python installation is needed. Existing paths do not need to be removed or replaced with a compile-time registration.
 
-1. Implement [`SpanEnricher`](../src/flushers/span_enricher.rs), register it explicitly in `builtin_enrichers()`, and rebuild. The default registry is empty; scripts are not automatically translated.
-2. The synchronous `enrich(&SpanView, &SpanEnricherContext)` returns `Result<Option<Map<String, Value>>, String>` and only sees attributes retained by collection and privacy settings.
-3. Verify equivalent output, manually remove the legacy path settings, then run `loongsuite-pilot check --json`.
+```json
+{
+  "otlpTrace": {
+    "spanEnrichers": ["$PILOT_DATA/span-enrichers/tool-skill.mjs"]
+  }
+}
+```
 
-Patches support strings, finite numbers, booleans, and homogeneous arrays; nested objects and attribute deletion are unsupported. Invalid patches are discarded atomically; returned errors are warned once without tool content. Extensions execute in registration order. This is not OpenTelemetry `SpanProcessor.onEnd` or a sandbox. Keep implementations fast and do not reintroduce sensitive information.
+The default export is an object with a synchronous `enrich(span, context)` method:
 
-Agent-hosted JS plugins such as OpenClaw remain supported; they are separate from Pilot's internal Span enricher interface.
+```js
+export default {
+  enrich(span, context) {
+    const attrs = span.attributes;
+    if (attrs['gen_ai.span.kind'] !== 'TOOL') return;
+    const raw = attrs['gen_ai.tool.call.arguments'];
+    if (typeof raw !== 'string') return;
+    const args = JSON.parse(raw);
+    if (typeof args.command !== 'string' || !args.command.startsWith('npm test')) return;
+    return { 'gen_ai.skill.name': 'run-tests', 'gen_ai.skill.id': 'run-tests' };
+  },
+};
+```
+
+Execution order is `conversion → built-in enrichment → custom enrichers → debug/failure files and OTLP export`. For separate conversions by service name, `context.serviceName` contains the final service name for that conversion and `context.agentType` identifies the agent.
+
+- `span` exposes readonly `name`, `traceId`, `spanId` and `attributes`. Attribute arrays and `context` are readonly too. Raw events, the SDK Span and resource mutation are not exposed.
+- Return an attribute object or `undefined`. Supported values are strings, finite numbers, booleans and homogeneous arrays; array entries may include `null`/`undefined`. Nested objects, attribute deletion and asynchronous `enrich` callbacks are unsupported. Promise/thenable returns and other invalid patches are discarded atomically. Plugins execute in configured order; later plugins can read and replace earlier patches.
+- Paths may be absolute, `~/` or `$PILOT_DATA/`; relative paths use the directory containing `config.json`. The first 16 paths are deduplicated by real path; directories are not scanned. Standard ESM, local relative/absolute imports, `file:` URLs and `import.meta.url` are supported. Module state persists across calls; restart Pilot after editing a module.
+- Loading is lazy and concurrent on first conversion. Each plugin load and invocation has a five-second limit. Load failures, exceptions, readonly-view errors and timeouts leave normal trace export running. Callback errors warn once per plugin without exception text. A stuck worker is terminated while other plugin states remain intact.
+- The embedded environment currently supplies standard ESM and local module imports. `node:` APIs, Node globals, CommonJS and npm package resolution are not yet compatible. These import failures are isolated; this does not establish equivalent migration for scripts requiring those APIs.
+- Plugins see only attributes retained by collection/privacy settings; they cannot restore omitted or masked data. Added attributes do not pass through input masking again. Configure trusted, fast mappings. This is a Pilot pre-export transform, not an SDK `SpanProcessor.onEnd`; plugin SDK lifecycle methods are not invoked.
+
+Native Rust `SpanEnricher` implementations remain available as compile-time extensions. Agent-hosted plugins such as OpenClaw execute in their own hosts and are independent of this interface.
 
 ## ARMS/CMS-Compatible Trace Output
 

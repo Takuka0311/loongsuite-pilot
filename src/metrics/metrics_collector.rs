@@ -568,14 +568,15 @@ impl MetricsCollector {
         let flushers = self.collect_flusher_rows(snapshot, &identity);
         let hooks: Vec<_> = timings
             .iter()
+            .filter(|row| row.calls > 0)
             .map(|row| HookFlowMetrics {
                 row_type: "hook".into(),
                 identity: identity.clone(),
                 agent: row.agent.clone(),
                 hook_event: row.hook_event.clone(),
                 calls: row.calls.to_string(),
-                total_duration_ms: row.total_duration_ms.to_string(),
-                max_duration_ms: row.max_duration_ms.to_string(),
+                total_duration_ms: js_round(row.total_duration_ms).to_string(),
+                max_duration_ms: js_round(row.max_duration_ms).to_string(),
             })
             .collect();
         self.l2_last_collect_time = now;

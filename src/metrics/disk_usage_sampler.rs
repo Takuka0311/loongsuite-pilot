@@ -186,6 +186,11 @@ impl DiskUsageSampler {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_is_scheduled(&self) -> bool {
+        self.task.lock().expect("disk task").is_some()
+    }
+
     pub fn get_snapshot(&self) -> DiskUsageSnapshot {
         let state = self.state.lock().expect("disk sampler");
         let mut snapshot = state.snapshot.clone();

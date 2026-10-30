@@ -42,6 +42,13 @@ pub struct StartInterceptorServiceOptions {
 pub async fn start_interceptor_service(
     opts: StartInterceptorServiceOptions,
 ) -> std::io::Result<InterceptorService> {
+    start_interceptor_service_at_port(opts, INTERCEPTOR_DEFAULT_PORT).await
+}
+
+pub(crate) async fn start_interceptor_service_at_port(
+    opts: StartInterceptorServiceOptions,
+    port: u16,
+) -> std::io::Result<InterceptorService> {
     let logger = create_logger("InterceptorDaemon");
     let interceptor_config = load_interceptor_config(None).await;
     let engine = RuleEngine::new(
@@ -72,7 +79,7 @@ pub async fn start_interceptor_service(
         }),
         emit_blocked_prompt: opts.emit_blocked_prompt,
     });
-    let port = match server.listen(INTERCEPTOR_DEFAULT_PORT).await {
+    let port = match server.listen(port).await {
         Ok(port) => port,
         Err(err) => {
             server.close().await;
@@ -164,15 +171,56 @@ mod tests {
 
     #[tokio::test]
     async fn listens_writes_runtime_and_releases_the_port() {
+        const CHILD: &str = "PILOT_INTERCEPTOR_LIFECYCLE_FIXTURE";
+        if std::env::var_os(CHILD).is_none() {
+            // Keep listener descriptors out of unrelated concurrent tests'
+            // fork/pre_exec windows, and never read the developer's real HOME.
+            let home = tempfile::tempdir().unwrap();
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child.env_clear().args([
+                "--exact",
+                "interceptor::daemon::lifecycle::tests::listens_writes_runtime_and_releases_the_port",
+            ]).env(CHILD, "1")
+                .env("HOME", home.path()).env("USERPROFILE", home.path())
+                .env("APPDATA", home.path().join("appdata"))
+                .env("LOCALAPPDATA", home.path().join("localappdata"))
+                .env("XDG_CONFIG_HOME", home.path().join("config"))
+                .env("LOONGSUITE_PILOT_DATA_DIR", home.path().join("data"))
+                .env("PATH", home.path().join("empty-path"))
+                .env("TMPDIR", home.path()).env("TMP", home.path()).env("TEMP", home.path());
+            for key in [
+                "SystemRoot",
+                "WINDIR",
+                "ComSpec",
+                "ProgramData",
+                "ProgramFiles",
+                "ProgramFiles(x86)",
+                "ProgramW6432",
+                "PATHEXT",
+            ] {
+                if let Some(value) = std::env::var_os(key) {
+                    child.env(key, value);
+                }
+            }
+            let output = child.output().unwrap();
+            assert!(
+                output.status.success(),
+                "isolated interceptor lifecycle failed: {output:?}"
+            );
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let data_dir = dir.path().to_string_lossy().to_string();
-        let service = start_interceptor_service(StartInterceptorServiceOptions {
-            data_dir: data_dir.clone(),
-            version: "9.9.9".into(),
-            git_commit: Some("abc123".into()),
-            verdict_store: None,
-            emit_blocked_prompt: None,
-        })
+        let service = start_interceptor_service_at_port(
+            StartInterceptorServiceOptions {
+                data_dir: data_dir.clone(),
+                version: "9.9.9".into(),
+                git_commit: Some("abc123".into()),
+                verdict_store: None,
+                emit_blocked_prompt: None,
+            },
+            0,
+        )
         .await
         .unwrap();
         let runtime: Value = serde_json::from_str(

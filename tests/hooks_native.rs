@@ -240,7 +240,7 @@ fn every_shell_entry_has_valid_syntax_and_no_legacy_runtime_fallback() {
         }
         count += 1;
     }
-    assert_eq!(count, 14);
+    assert_eq!(count, 15, "including the native Copilot CLI launch bridge");
 }
 
 #[cfg(windows)]

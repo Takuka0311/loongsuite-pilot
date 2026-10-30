@@ -30,6 +30,7 @@ use super::workspace_policy::WorkspacePolicy;
 use super::{fields, logger};
 
 pub type BoxFuture<T> = Pin<Box<dyn std::future::Future<Output = T> + Send>>;
+type RuntimeProbe = Arc<dyn Fn() -> crate::inputs::base::InputRuntimeInfo + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct InputCounter {
@@ -63,6 +64,7 @@ pub struct LiveInput {
     running: Arc<dyn Fn() -> bool + Send + Sync>,
     start: Arc<dyn Fn() -> BoxFuture<Result<(), String>> + Send + Sync>,
     stop: Arc<dyn Fn() -> BoxFuture<()> + Send + Sync>,
+    runtime_probe: Mutex<Option<RuntimeProbe>>,
 }
 
 impl LiveInput {
@@ -81,7 +83,21 @@ impl LiveInput {
             running: Arc::new(running),
             start: Arc::new(start),
             stop: Arc::new(stop),
+            runtime_probe: Mutex::new(None),
         })
+    }
+
+    /// Current scheduler/source facts, when exposed by the concrete collector.
+    pub fn runtime_info(&self) -> Option<crate::inputs::base::InputRuntimeInfo> {
+        let probe = self.runtime_probe.lock().expect("runtime probe").clone();
+        probe.map(|probe| probe())
+    }
+
+    pub(crate) fn set_runtime_probe(
+        &self,
+        probe: impl Fn() -> crate::inputs::base::InputRuntimeInfo + Send + Sync + 'static,
+    ) {
+        *self.runtime_probe.lock().expect("runtime probe") = Some(Arc::new(probe));
     }
 
     pub fn running(&self) -> bool {
@@ -228,6 +244,12 @@ impl InputManager {
             }
         }
         *slot = Some(processor);
+    }
+
+    /// Actual usable multimodal origin; delegated discovery may still be waiting.
+    pub fn multimodal_storage_base_path(&self) -> Option<String> {
+        let processor = self.multimodal.lock().expect("multimodal").clone();
+        processor.and_then(|processor| processor.storage_base_path())
     }
 
     pub fn on_flushed(&self, listener: impl Fn(usize, u64) + Send + Sync + 'static) {
@@ -1535,6 +1557,435 @@ mod migration_content_mask_tests {
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod migration_remaining_contracts {
+    use super::migration_pipeline_tests::{all_mask, entry, flattened, register, Sink};
+    use super::*;
+    use crate::checkpoints::StateStore;
+    use crate::flushers::{FlushError, FlushErrorKind, MultiFlusher};
+    use crate::inputs::base::{HostedInput, InputBody, InputRuntime};
+    use crate::types::{AgentEventName, ClientType, CollectionMethod, GuardrailAction};
+    use async_trait::async_trait;
+    use serde_json::{json, Value};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+    use tokio::sync::{Notify, Semaphore};
+
+    struct EmitsOnce(AtomicBool);
+    #[async_trait]
+    impl InputBody for EmitsOnce {
+        fn id(&self) -> &str {
+            "bound-fixture"
+        }
+        fn agent_type(&self) -> ClientType {
+            ClientType::Qoder
+        }
+        fn collection_method(&self) -> CollectionMethod {
+            CollectionMethod::HookJsonl
+        }
+        async fn collect(&self, _: &InputRuntime) -> anyhow::Result<Vec<AgentActivityEntry>> {
+            if self.0.swap(true, Ordering::SeqCst) {
+                return Ok(Vec::new());
+            }
+            let mut event = entry("actual-hosted-event", AgentEventName::Other);
+            event.agent_type = "input-manager-fixture".into();
+            Ok(vec![event])
+        }
+    }
+
+    #[tokio::test]
+    async fn hosted_entries_subscription_reaches_actual_manager_queue_and_flusher() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Arc::new(InputManager::new());
+        let source = HostedInput::new(
+            EmitsOnce(AtomicBool::new(false)),
+            "BoundFixture",
+            Arc::new(StateStore::new(root.path().join("source.json"))),
+            Some(300_000),
+        );
+        let (running, start, stop) = (source.clone(), source.clone(), source.clone());
+        manager.register_input(LiveInput::new(
+            "bound-fixture",
+            "input-manager-fixture",
+            "hook-jsonl",
+            move || running.running(),
+            move || {
+                let source = start.clone();
+                Box::pin(async move { source.start().await })
+            },
+            move || {
+                let source = stop.clone();
+                Box::pin(async move {
+                    source.stop().await.unwrap();
+                })
+            },
+        ));
+        let output = Sink::new();
+        manager.set_flusher(output.clone());
+        let receiver = manager.clone();
+        source.on_entries(move |batch| receiver.bind_entries("bound-fixture", batch.to_vec()));
+        manager.start_input("bound-fixture").await;
+        tokio::time::timeout(Duration::from_secs(3), manager.stop_all())
+            .await
+            .unwrap();
+        assert!(!source.running());
+        let rows = flattened(&output);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].event_id, "actual-hosted-event");
+        assert_eq!(manager.get_input_counters()["bound-fixture"].in_events, 1);
+        assert_eq!(manager.get_input_counters()["bound-fixture"].out_events, 1);
+    }
+
+    #[tokio::test]
+    async fn all_codex_completion_interrupt_and_subagent_paths_receive_workspace_context() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("workspace");
+        std::fs::create_dir(&cwd).unwrap();
+        let manager = InputManager::new();
+        register(&manager, "codex-transcript", "codex");
+        let output = Sink::new();
+        manager.set_flusher(output.clone());
+        let mut rows = Vec::new();
+        for status in ["completed", "interrupted", "subagent"] {
+            let mut row = entry(status, AgentEventName::Other);
+            row.agent_type = "codex".into();
+            row.git_repo = Some("synthetic/repo".into());
+            row.git_branch = Some("synthetic-branch".into());
+            row.extra.insert("agent.codex.cwd".into(), json!(cwd));
+            if status == "subagent" {
+                row.extra
+                    .insert("gen_ai.agent.scope".into(), json!("subagent"));
+            } else {
+                row.extra
+                    .insert("agent.codex.turn_status".into(), json!(status));
+            }
+            rows.push(row);
+        }
+        manager
+            .accept_entries("codex-transcript", rows)
+            .await
+            .unwrap();
+        let rows = flattened(&output);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.event_id.as_str())
+                .collect::<Vec<_>>(),
+            ["completed", "interrupted", "subagent"]
+        );
+        assert!(rows
+            .iter()
+            .all(|row| row.workspace_path.as_deref() == cwd.to_str()));
+    }
+
+    #[tokio::test]
+    async fn native_correlation_precedes_invocation_identity_and_metadata_cannot_consume_it() {
+        use crate::core::{CorrelationStore, TraceLinker};
+        use crate::normalization::INVOCATION_SESSION_ID_FIELD;
+        let root = tempfile::tempdir().unwrap();
+        let native = "native-fixture-session";
+        let customer = "customer-fixture-session";
+        let trace = "4bf92f3577b34da6a3ce929d0e0e4736";
+        let span = "00f067aa0ba902b7";
+        std::fs::write(root.path().join(format!("{native}.jsonl")),
+            json!({"type":"session","sessionId":native,"traceparent":format!("00-{trace}-{span}-01")}).to_string()+"\n").unwrap();
+        let decoy=json!({"type":"session","sessionId":customer,"traceparent":"00-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-cccccccccccccccc-01"}).to_string()+"\n";
+        std::fs::write(root.path().join(format!("{customer}.jsonl")), &decoy).unwrap();
+        let manager = InputManager::new();
+        register(&manager, "linked", "opencode");
+        manager.set_trace_linker(Arc::new(TraceLinker::with_retry(
+            CorrelationStore::new(root.path()),
+            0,
+            0,
+        )));
+        let output = Sink::new();
+        manager.set_flusher(output.clone());
+        let mut metadata = entry("metadata", AgentEventName::Other);
+        metadata.session_id = native.into();
+        metadata.turn_id = Some(format!("{native}:t1"));
+        metadata.trace_id = Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into());
+        metadata
+            .extra
+            .insert(INVOCATION_SESSION_ID_FIELD.into(), json!(customer));
+        manager
+            .accept_entries("linked", vec![metadata.clone()])
+            .await
+            .unwrap();
+        assert_eq!(
+            flattened(&output)[0].trace_id.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        let mut input = metadata;
+        input.event_id = "input".into();
+        input.input_messages_delta = Some(
+            json!([{"role":"user","parts":[{"type":"text","content":"synthetic input evidence"}]}]),
+        );
+        manager.accept_entries("linked", vec![input]).await.unwrap();
+        let rows = flattened(&output);
+        let linked = rows.iter().find(|row| row.event_id == "input").unwrap();
+        assert_eq!(linked.session_id, customer);
+        assert_eq!(linked.trace_id.as_deref(), Some(trace));
+        assert_eq!(linked.parent_span_id.as_deref(), Some(span));
+        assert!(!linked.extra.contains_key(INVOCATION_SESSION_ID_FIELD));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(format!("{customer}.jsonl"))).unwrap(),
+            decoy
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations() {
+        for configured in [None, Some(false), Some(true)] {
+            let manager = InputManager::new();
+            for id in ["cursor-hook", "cursor-sqlite"] {
+                register(&manager, id, "cursor");
+            }
+            if let Some(value) = configured {
+                let agents: AgentsConfig =
+                    serde_json::from_value(json!({"cursor":{"captureMessageContent":value}}))
+                        .unwrap();
+                manager.set_agents_config(&agents);
+            }
+            let sinks = [Sink::new(), Sink::new(), Sink::new()];
+            manager.set_flusher(Arc::new(MultiFlusher::new(
+                sinks
+                    .iter()
+                    .map(|sink| sink.clone() as Arc<dyn BaseFlusher>)
+                    .collect(),
+            )));
+            for id in ["cursor-hook", "cursor-sqlite"] {
+                let mut source = entry(id, AgentEventName::Other);
+                source.extra.insert(
+                    "input.messages".into(),
+                    json!([{"role":"user","content":format!("{id} prompt")}]),
+                );
+                source.extra.insert(
+                    "output.messages".into(),
+                    json!([{"type":"text","content":"synthetic response"}]),
+                );
+                source.extra.insert(
+                    "tool.result.payload".into(),
+                    json!({"output":"synthetic tool output"}),
+                );
+                source
+                    .extra
+                    .insert("content".into(), json!("synthetic legacy source"));
+                source
+                    .extra
+                    .insert("inlineDiffMessage".into(), json!("synthetic diff"));
+                manager.accept_entries(id, vec![source]).await.unwrap();
+            }
+            for sink in sinks {
+                let rows = flattened(&sink);
+                assert_eq!(rows.len(), 2);
+                for (row, id) in rows.iter().zip(["cursor-hook", "cursor-sqlite"]) {
+                    assert_eq!(
+                        row.extra["input.messages"],
+                        json!([{"role":"user","content":format!("{id} prompt")}])
+                    );
+                    assert_eq!(
+                        row.extra["output.messages"],
+                        json!([{"type":"text","content":"synthetic response"}])
+                    );
+                    assert_eq!(
+                        row.extra["tool.result.payload"],
+                        json!({"output":"synthetic tool output"})
+                    );
+                    assert_eq!(row.extra["content"], "synthetic legacy source");
+                    assert_eq!(row.extra["inlineDiffMessage"], "synthetic diff");
+                    assert_eq!(row.agent_type, "cursor");
+                    assert_eq!(row.event_name, Some(AgentEventName::Other));
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn shared_turn_boundaries_are_inferred_once_and_identical_for_every_destination() {
+        let manager = InputManager::new();
+        register(&manager, "boundaries", "cursor");
+        let sinks = [Sink::new(), Sink::new(), Sink::new()];
+        manager.set_flusher(Arc::new(MultiFlusher::new(
+            sinks
+                .iter()
+                .map(|sink| sink.clone() as Arc<dyn BaseFlusher>)
+                .collect(),
+        )));
+        let request = entry("request", AgentEventName::LlmRequest);
+        let mut response = entry("response", AgentEventName::LlmResponse);
+        response.finish_reasons = Some(vec!["stop".into()]);
+        manager
+            .accept_entries("boundaries", vec![request, response])
+            .await
+            .unwrap();
+        let expected = flattened(&sinks[0]);
+        assert_eq!(expected.len(), 2);
+        assert_eq!(expected[0].event_id, "request");
+        assert_eq!(expected[0].turn_start, Some(true));
+        assert_eq!(expected[1].event_id, "response");
+        assert_eq!(expected[1].turn_end, Some(true));
+        for sink in sinks {
+            assert_eq!(flattened(&sink), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn actual_blocked_prompt_builder_flows_through_identity_mask_and_shared_output() {
+        use crate::interceptor::{build_blocked_qoder_prompt_entry, HookRequest};
+        let root = tempfile::tempdir().unwrap();
+        for opted_out in [false, true] {
+            let manager = InputManager::new();
+            manager.set_configured_user_id("configured-user");
+            manager.set_mask_config(all_mask());
+            if opted_out {
+                manager.set_agents_config(
+                    &serde_json::from_value(json!({"qoder":{"captureMessageContent":false}}))
+                        .unwrap(),
+                );
+            }
+            let sinks = [Sink::new(), Sink::new()];
+            manager.set_flusher(Arc::new(MultiFlusher::new(
+                sinks
+                    .iter()
+                    .map(|sink| sink.clone() as Arc<dyn BaseFlusher>)
+                    .collect(),
+            )));
+            let key = format!("sk-{}", "1234567890abcdefghijklmnop");
+            let request: HookRequest = serde_json::from_value(json!({
+                "agent":if opted_out {"qodercli"} else {"qoder"},
+                "event":"UserPromptSubmit","prompt":format!("token {key}"),
+                "sessionId":"synthetic-blocked","cwd":root.path()
+            }))
+            .unwrap();
+            let mut source = build_blocked_qoder_prompt_entry(&request, Some(1_700_000_000_000));
+            // Avoid probing any global git configuration; workspace enrichment is
+            // still performed by the real production function before masking.
+            source.git_repo = Some("synthetic/repo".into());
+            source.git_branch = Some("fixture".into());
+            manager.flush_prepared_entries(vec![source]).await.unwrap();
+            for sink in sinks {
+                let rows = flattened(&sink);
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].user_id, "configured-user");
+                assert_eq!(
+                    rows[0].input_messages,
+                    Some(
+                        json!([{"role":"user","parts":[{"type":"text","content":"token [APIKEY_MASKED]"}]}])
+                    )
+                );
+                assert_eq!(rows[0].guardrail_action, Some(GuardrailAction::Block));
+                assert_eq!(rows[0].trace_id, None);
+                assert_eq!(rows[0].turn_start, None);
+                assert!(!serde_json::to_string(&rows).unwrap().contains(&key));
+            }
+        }
+    }
+
+    struct DurabilityGate {
+        failure: Option<FlushErrorKind>,
+        entered: Notify,
+        release: Semaphore,
+    }
+    #[async_trait]
+    impl BaseFlusher for DurabilityGate {
+        fn name(&self) -> &str {
+            "controlled-durability"
+        }
+        async fn send(&self, row: AgentActivityEntry, _: Option<f64>) -> Result<(), FlushError> {
+            self.send_batch(vec![row], None).await
+        }
+        async fn send_batch(
+            &self,
+            rows: Vec<AgentActivityEntry>,
+            _: Option<Vec<f64>>,
+        ) -> Result<(), FlushError> {
+            assert_eq!(rows.len(), 1);
+            self.entered.notify_one();
+            self.release.acquire().await.unwrap().forget();
+            match self.failure {
+                Some(FlushErrorKind::CodexTurnJournal) => {
+                    Err(FlushError::codex_journal("synthetic journal refusal"))
+                }
+                Some(FlushErrorKind::CodexOutputDurability) => {
+                    Err(FlushError::codex_output("synthetic backend"))
+                }
+                _ => Ok(()),
+            }
+        }
+        async fn flush(&self) -> Result<(), FlushError> {
+            Ok(())
+        }
+        async fn shutdown(&self) -> Result<(), FlushError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn shared_codex_checkpoint_waits_for_all_destinations_and_freezes_both_durability_failures(
+    ) {
+        for failure in [
+            None,
+            Some(FlushErrorKind::CodexTurnJournal),
+            Some(FlushErrorKind::CodexOutputDurability),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let path = root.path().join("state.json");
+            let store = Arc::new(StateStore::new(&path));
+            store.set_offset("codex", 1.0);
+            store.save().await.unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let manager = Arc::new(InputManager::new());
+            register(&manager, "codex-checkpoint", "codex");
+            manager.set_state_store(store.clone());
+            let gate = Arc::new(DurabilityGate {
+                failure,
+                entered: Notify::new(),
+                release: Semaphore::new(0),
+            });
+            let healthy = Sink::new();
+            manager.set_flusher(Arc::new(MultiFlusher::new(vec![
+                gate.clone(),
+                healthy.clone(),
+            ])));
+            store.set_offset("codex", 2.0);
+            store.set_offset("other-input", 3.0);
+            manager.bind_entries(
+                "codex-checkpoint",
+                vec![entry("durable-input", AgentEventName::Other)],
+            );
+            let saving_store = store.clone();
+            let saving = tokio::spawn(async move { saving_store.save().await });
+            tokio::time::timeout(Duration::from_secs(3), gate.entered.notified())
+                .await
+                .unwrap();
+            assert!(store.waiting_for_output());
+            assert!(!saving.is_finished());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            gate.release.add_permits(1);
+            let saved = tokio::time::timeout(Duration::from_secs(3), saving)
+                .await
+                .unwrap()
+                .unwrap();
+            if failure.is_some() {
+                assert!(saved.is_err());
+                assert!(store.save().await.is_err());
+                assert!(store.save_failed());
+                assert_eq!(std::fs::read(&path).unwrap(), before);
+            } else {
+                saved.unwrap();
+                assert!(!store.save_failed());
+                let disk: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                assert_eq!(disk["codex"]["lastOffset"], 2.0);
+                assert_eq!(disk["other-input"]["lastOffset"], 3.0);
+            }
+            tokio::time::timeout(Duration::from_secs(3), manager.stop_all())
+                .await
+                .unwrap();
+            assert_eq!(flattened(&healthy).len(), 1);
         }
     }
 }

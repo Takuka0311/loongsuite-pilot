@@ -58,6 +58,7 @@ Pilot is designed to answer practical questions:
 | ------------- | ------------------------- | ------------ | ---------- | ----------- | ------------------------- |
 | Claude Code   | Hook                      | Yes          | Yes        | Yes         | Yes                       |
 | Codex         | Hook                      | Yes          | Yes        | Yes         | Yes                       |
+| GitHub Copilot CLI | Native plugin + transcript / native OTel | Yes | Yes | Yes (native OTel) | Yes |
 | Cursor        | Hook                      | Yes          | Yes        | Yes         | Yes                       |
 | Cursor CLI    | Shared Cursor hook        | Yes          | Yes        | Yes         | Yes                       |
 | DeepSeek Harness | YAML patch plugin + local JSONL polling | Yes | Yes | Yes | Yes |
@@ -78,6 +79,8 @@ Pilot is designed to answer practical questions:
 | Qwen Work CN  | Hook / local data polling | Yes          | Yes        | Yes         | Yes                       |
 | Wukong        | CLI API polling           | Yes          | Yes        | Yes         | Yes                       |
 | WorkBuddy     | Hook wakeup + local transcript watch/poll fallback | Yes          | Yes        | Yes         | Yes                       |
+
+GitHub Copilot CLI automatic deployment supports Unix shells. Exact per-call token usage requires native OTel; transcript-only collection omits unavailable usage. Windows and subagents are not supported. See [telemetry details](docs/zh-CN/copilot-native-telemetry.md).
 
 OpenClaw integration supports 2026.3.8 or later with automatic version detection. Before 2026.5.12, model-call timing is inferred from legacy hooks; see [compatibility details](docs/agents.md#openclaw-compatibility-and-lifecycle).
 
@@ -174,8 +177,8 @@ Link collected agent spans to an **upstream** trace so each turn's span tree rep
 
 When enabled, the upstream `traceparent` reaches Pilot via one of two schemes and is stamped onto collected records (`trace_id` on the turn, `parent_span_id` on the user-input event):
 
-- **Correlation file** (per-turn): the caller writes `{sessionId, contentHash, contentPrefix, traceparent}` to `~/.loongsuite-pilot/acp-correlate/<sessionId>.jsonl` when it sends a prompt. Linking is protocol-agnostic — the only requirement is that `sessionId` matches the `gen_ai.session.id` Pilot collects for that turn, and the content (hash or prefix) matches the collected user text. ACP clients satisfy this naturally (the `session/new` id flows into collection), so ACP is the primary case.
-- **Environment** (`TRACEPARENT` on the agent process): applied to the session's first turn, via the agent's hook. Use this when the caller cannot obtain a per-turn `sessionId` up front.
+- **Correlation file** (per-turn): the caller writes `{sessionId, contentHash, contentPrefix, traceparent}` to `~/.loongsuite-pilot/acp-correlate/<sessionId>.jsonl` when it sends a prompt. Linking is protocol-agnostic, but requires a supported collector/plugin that emits the turn's user-input event. `sessionId` must match the native `gen_ai.session.id` Pilot collects, and the content hash or prefix must match that input. OpenClaw and Hermes require the collector fixes in [PR #508](https://github.com/alibaba/loongsuite-pilot/pull/508); Hermes also requires updating its deployed Pilot plugin and restarting Hermes. See the [per-turn setup and deployment requirements](docs/zh-CN/upstream-trace-correlation.md). ACP clients satisfy this naturally (the `session/new` id flows into collection), so ACP is the primary case.
+- **Environment** (`TRACEPARENT` on the agent process): applied to the session's first turn only when a supported Pilot hook calls `recordUpstreamContextOnce` to write a session record. The OpenClaw and Hermes plugins do not read `TRACEPARENT` directly. Use this scheme with a supported hook when the caller cannot obtain a per-turn `sessionId` up front.
 
 For Claude Code, enabling both `upstreamLink.enabled` and `propagateToTools` passes context into main-agent `Bash` calls. Pilot's `PreToolUse(Bash)` hook reserves the TOOL span id, prepends `TRACEPARENT` (and valid `TRACESTATE`, when present) to the Bash command, then reuses that id when the Stop hook builds the TOOL span. Optionally enable `generateTraceWhenMissing` so turns without upstream context generate and propagate a local trace. Set `LOONGSUITE_PILOT_RESOURCE_ATTRIBUTES` on the Claude Code process to have Pilot map it to standard `OTEL_RESOURCE_ATTRIBUTES` for the downstream CLI. Prefer `config.json` for the `upstreamLink` switches: environment variables affect only processes that inherit them, and `loongsuite-pilot restart` alone does not change an already-running Claude Code hook environment. The downstream CLI must extract Trace Context and configure its own exporter. This capability is fail-open and currently does not cover ACP-only downstream trace propagation, subagents, PowerShell, MCP tools, or non-Bash tools.
 
@@ -269,6 +272,22 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked --all-features
 ```
+
+GNU release artifacts retain a glibc 2.34 baseline. On an older Linux development
+host, build the verification image and run the same locked workspace tests with
+Rust 1.99.1 inside it:
+
+```bash
+docker build -f scripts/testing/containers/glibc234.Dockerfile -t pilot-dev-glibc234:20261030 scripts/testing/containers
+PILOT_TEST_RUST_ROOT=/opt/rust scripts/testing/verify-glibc234.sh
+```
+
+The verifier mounts only the checkout and the explicitly selected toolchain,
+uses a temporary container HOME, and keeps its build output in
+`target/glibc234`. It checks the actual glibc version and does not lower
+dependency versions. Installed GNU candidates can also be checked with
+`scripts/testing/container_preflight.py` using a synthetic read-only HOME.
+Container verification does not switch an existing collector installation.
 
 The toolchain is pinned to 1.99.1 in `rust-toolchain.toml`. Running the binary without a subcommand starts collection and may deploy Agent configuration; `--help` is read-only.
 

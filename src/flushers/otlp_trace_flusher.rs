@@ -265,6 +265,24 @@ impl OtlpTraceFlusher {
         exporter_factory: Option<ExporterFactory>,
         converter: Option<Arc<dyn EventLogConverter>>,
     ) -> Result<Self, String> {
+        Self::with_parts_and_enricher_worker(
+            cfg,
+            global_attributes,
+            exporter_factory,
+            converter,
+            None,
+        )
+    }
+
+    /// Explicit worker executable for native embedding/integration tests.
+    /// Production constructors use the running Pilot executable.
+    pub fn with_parts_and_enricher_worker(
+        cfg: OtlpTraceFlusherConfig,
+        global_attributes: Option<Arc<Mutex<GlobalAttributesProvider>>>,
+        exporter_factory: Option<ExporterFactory>,
+        converter: Option<Arc<dyn EventLogConverter>>,
+        worker_executable: Option<PathBuf>,
+    ) -> Result<Self, String> {
         if cfg.endpoints.is_empty() {
             return Err(
                 "[otlp-trace-flusher] config.endpoints must be non-empty when enabled".to_string(),
@@ -331,7 +349,14 @@ impl OtlpTraceFlusher {
             codex_journal: Mutex::new(None),
             journal_restore: tokio::sync::OnceCell::new(),
             acceptance: tokio::sync::Mutex::new(()),
-            enrichers: SpanEnricherRunner::new(cfg.span_enricher_paths.as_deref().unwrap_or(&[]))?,
+            enrichers: {
+                let runner =
+                    SpanEnricherRunner::new(cfg.span_enricher_paths.as_deref().unwrap_or(&[]))?;
+                match worker_executable {
+                    Some(path) => runner.with_worker_executable(path),
+                    None => runner,
+                }
+            },
             converter: converter
                 .unwrap_or_else(|| Arc::new(super::event_log_converter::GenAiEventLogConverter)),
             exporter_factory: exporter_factory.unwrap_or_else(|| {
@@ -579,6 +604,7 @@ impl BaseFlusher for OtlpTraceFlusher {
             .unwrap_or_else(|err| err.into_inner())
             .convert_states
             .clear();
+        self.inner.enrichers.shutdown().await;
         create_logger("otlp-trace-flusher").info("OTLP trace flusher shut down", None);
         Ok(())
     }

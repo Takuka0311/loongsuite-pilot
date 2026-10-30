@@ -135,6 +135,13 @@ struct HookInner {
 }
 
 impl HookJsonlInput {
+    pub fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        crate::inputs::base::InputRuntimeInfo {
+            poll_interval_ms: self.poll.interval_ms(),
+            source_paths: vec![self.inner.log_dir.clone()],
+        }
+    }
+
     pub fn new(config: HookJsonlConfig) -> Self {
         let logger = create_logger(config.logger_name);
         let poll = PollLoop::new(
@@ -333,6 +340,10 @@ pub struct PollLoop {
 }
 
 impl PollLoop {
+    pub fn interval_ms(&self) -> u64 {
+        self.inner.poll.as_millis() as u64
+    }
+
     pub fn new(poll_interval_ms: u64, logger: BoundLogger, state_store: Arc<StateStore>) -> Self {
         Self {
             inner: Arc::new(PollInner {
@@ -1306,6 +1317,13 @@ pub struct SessionTail {
 }
 
 impl SessionJsonlInput {
+    pub fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        crate::inputs::base::InputRuntimeInfo {
+            poll_interval_ms: self.poll.interval_ms(),
+            source_paths: vec![self.tail.session_dir.clone()],
+        }
+    }
+
     pub fn new(
         logger_name: &'static str,
         id: &'static str,

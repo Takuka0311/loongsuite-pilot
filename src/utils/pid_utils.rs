@@ -53,16 +53,18 @@ pub const COLLECTOR_PROCESS_PATTERNS: &[ProcessCommandPattern<'static>] = &[
     ProcessCommandPattern::Contains("/bin/collector-daemon"),
     ProcessCommandPattern::Contains("\\bin\\collector-daemon"),
     ProcessCommandPattern::Regex(
-        r"(?:^|[\s/\\])loongsuite-pilot(?:\.ps1)?\s+(?:run|run-service)(?:\s|$)",
+        r#"(?:^|[\s/\\])loongsuite-pilot(?:\.(?:ps1|exe))?["']?\s+(?:run|run-service)(?:\s|$)"#,
     ),
-    ProcessCommandPattern::Regex(r"(?:^|[\s/\\])loongsuite-pilot(?:\.exe)?\s*$"),
+    ProcessCommandPattern::Regex(r#"(?:^|[\s/\\])loongsuite-pilot(?:\.exe)?["']?\s*$"#),
 ];
 
 pub const UPDATER_PROCESS_PATTERNS: &[ProcessCommandPattern<'static>] = &[
     ProcessCommandPattern::Contains("updater-daemon.js"),
     ProcessCommandPattern::Contains("/bin/updater-daemon"),
     ProcessCommandPattern::Contains("\\bin\\updater-daemon"),
-    ProcessCommandPattern::Regex(r"(?:^|[\s/\\])loongsuite-pilot(?:\.ps1)?\s+run-updater(?:\s|$)"),
+    ProcessCommandPattern::Regex(
+        r#"(?:^|[\s/\\])loongsuite-pilot(?:\.(?:ps1|exe))?["']?\s+run-updater(?:\s|$)"#,
+    ),
     ProcessCommandPattern::Contains("dist/updater/index.js"),
 ];
 
@@ -71,7 +73,7 @@ pub const INTERCEPTOR_PROCESS_PATTERNS: &[ProcessCommandPattern<'static>] = &[
     ProcessCommandPattern::Contains("/bin/interceptor-daemon"),
     ProcessCommandPattern::Contains("\\bin\\interceptor-daemon"),
     ProcessCommandPattern::Regex(
-        r"(?:^|[\s/\\])loongsuite-pilot(?:\.ps1)?\s+run-interceptor(?:\s|$)",
+        r#"(?:^|[\s/\\])loongsuite-pilot(?:\.(?:ps1|exe))?["']?\s+run-interceptor(?:\s|$)"#,
     ),
     ProcessCommandPattern::Contains("dist/interceptor/daemon"),
 ];
@@ -230,6 +232,17 @@ pub fn process_alive_from_kill(result: Result<(), i32>) -> bool {
 }
 
 pub fn is_command_match(command: &str, patterns: &[ProcessCommandPattern<'_>]) -> bool {
+    // The same installed binary also hosts extension workers. Plugin paths
+    // may contain legacy daemon names, which must never establish service identity.
+    static EXTENSION_WORKER: OnceLock<regex::Regex> = OnceLock::new();
+    let worker = EXTENSION_WORKER.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?i)(?:^|[\s/\\'"])loongsuite-pilot(?:\.exe)?["']?\s+internal-span-enricher(?:\s|$)"#,
+        ).expect("fixed native worker command pattern")
+    });
+    if worker.is_match(command) {
+        return false;
+    }
     patterns.iter().any(|pattern| match pattern {
         ProcessCommandPattern::Contains(needle) => command.contains(needle),
         ProcessCommandPattern::Regex(source) => regex::Regex::new(source)
@@ -837,6 +850,117 @@ mod tests {
             "/usr/bin/node unrelated.js",
             UPDATER_PROCESS_PATTERNS
         ));
+    }
+
+    #[test]
+    fn native_extension_workers_never_match_service_daemon_names_in_plugin_paths() {
+        for command in [
+            "/opt/pilot/bin/loongsuite-pilot internal-span-enricher /tmp/collector-daemon.js.mjs",
+            "/opt/pilot/bin/loongsuite-pilot internal-span-enricher /tmp/bin/updater-daemon/plugin.mjs",
+            "/opt/pilot/bin/loongsuite-pilot internal-span-enricher /tmp/dist/interceptor/daemon/plugin.mjs",
+            "/opt/pilot folder/bin/loongsuite-pilot internal-span-enricher /tmp/dist/updater/index.js.mjs",
+            r#""C:\User Name\Pilot\bin\loongsuite-pilot.exe" internal-span-enricher "C:\plugins\updater-daemon.js.mjs""#,
+            r#"C:\Pilot\bin\loongsuite-pilot.exe internal-span-enricher C:\plugins\collector-daemon.js.mjs"#,
+        ] {
+            for patterns in [COLLECTOR_PROCESS_PATTERNS,UPDATER_PROCESS_PATTERNS,INTERCEPTOR_PROCESS_PATTERNS] {
+                assert!(!is_command_match(command,patterns),"{command}");
+                assert!(!match_unix_process_scan(&format!("12345 {command}\n"),patterns,99999).running);
+                assert!(!match_windows_process_scan(&format!("12345\t{command}\r\n"),patterns,99999).running);
+            }
+        }
+        // The guard must not remove valid legacy or native service identities.
+        assert!(is_command_match(
+            "/opt/pilot/bin/loongsuite-pilot run",
+            COLLECTOR_PROCESS_PATTERNS
+        ));
+        assert!(is_command_match(
+            "/opt/pilot/bin/loongsuite-pilot run-updater",
+            UPDATER_PROCESS_PATTERNS
+        ));
+        assert!(is_command_match(
+            "/usr/bin/node /tmp/collector-daemon.js",
+            COLLECTOR_PROCESS_PATTERNS
+        ));
+        assert!(is_command_match(
+            "/usr/bin/node /tmp/updater-daemon.js",
+            UPDATER_PROCESS_PATTERNS
+        ));
+    }
+
+    #[test]
+    fn windows_native_fallback_recognizes_exe_and_quoted_paths_without_crossing_role_boundaries() {
+        let collector = [
+            r#"C:\Pilot\bin\loongsuite-pilot.exe run"#,
+            r#""C:\User Name\Pilot\bin\loongsuite-pilot.exe" run"#,
+            r#""C:\User Name\Pilot\bin\loongsuite-pilot.exe""#,
+            r#""C:\User Name\Pilot\loongsuite-pilot.ps1" run-service"#,
+        ];
+        let updater = [
+            r#"C:\Pilot\bin\loongsuite-pilot.exe run-updater"#,
+            r#""C:\User Name\Pilot\bin\loongsuite-pilot.exe" run-updater"#,
+            r#""C:\User Name\Pilot\loongsuite-pilot.ps1" run-updater"#,
+        ];
+        for command in collector {
+            assert!(
+                is_command_match(command, COLLECTOR_PROCESS_PATTERNS),
+                "{command}"
+            );
+            assert!(
+                !is_command_match(command, UPDATER_PROCESS_PATTERNS),
+                "{command}"
+            );
+            assert!(
+                match_windows_process_scan(
+                    &format!("12345\t{command}\r\n"),
+                    COLLECTOR_PROCESS_PATTERNS,
+                    99999
+                )
+                .running
+            );
+        }
+        for command in updater {
+            assert!(
+                is_command_match(command, UPDATER_PROCESS_PATTERNS),
+                "{command}"
+            );
+            assert!(
+                !is_command_match(command, COLLECTOR_PROCESS_PATTERNS),
+                "{command}"
+            );
+            assert!(
+                match_windows_process_scan(
+                    &format!("12345\t{command}\r\n"),
+                    UPDATER_PROCESS_PATTERNS,
+                    99999
+                )
+                .running
+            );
+        }
+        for command in [
+            r#""C:\Pilot\bin\not-loongsuite-pilot.exe" run"#,
+            r#""C:\Pilot\bin\loongsuite-pilot.exe.bak" run-updater"#,
+            r#""C:\Pilot\bin\loongsuite-pilot.exe" status"#,
+            r#""C:\Pilot\bin\loongsuite-pilot.exe" check"#,
+            r#""C:\Pilot\bin\loongsuite-pilot.exe" run-updater-helper"#,
+            r#""C:\Pilot\bin\loongsuite-pilot.exe" run-service-helper"#,
+            r#""C:\Pilot\bin\loongsuite-pilot.exe" internal-span-enricher "C:\plugins\updater-daemon.js.mjs""#,
+        ] {
+            assert!(
+                !is_command_match(command, COLLECTOR_PROCESS_PATTERNS),
+                "{command}"
+            );
+            assert!(
+                !is_command_match(command, UPDATER_PROCESS_PATTERNS),
+                "{command}"
+            );
+        }
+        let mixed = format!(
+            "12345\t{}\r\n23456\t{}\r\n",
+            r#""C:\Pilot\bin\loongsuite-pilot.exe" internal-span-enricher "C:\plugins\updater-daemon.js.mjs""#,
+            updater[1]
+        );
+        let found = match_windows_process_scan(&mixed, UPDATER_PROCESS_PATTERNS, 99999);
+        assert_eq!(found.pid, Some(23456));
     }
 
     #[test]

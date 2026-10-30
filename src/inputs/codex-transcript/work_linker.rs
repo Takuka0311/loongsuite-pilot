@@ -9,14 +9,14 @@ use sha2::{Digest, Sha256};
 use super::*;
 use crate::inputs::codex_transcript::types::CodexTerminalStatus;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct WorkBinding {
     child_thread_id: String,
     child_turn_id: String,
     invocation_id: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CompletedResult {
     invocation_id: String,
@@ -24,13 +24,29 @@ pub(super) struct CompletedResult {
     child_turn_id: String,
     fingerprint: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct WorkTerminal {
     invocation_id: String,
     child_thread_id: String,
     child_turn_id: String,
     terminal_type: String,
+}
+
+impl FactValue for WorkBinding {
+    fn scopes(&self) -> Vec<FactScope> {
+        vec![FactScope::Child(self.child_thread_id.clone())]
+    }
+}
+impl FactValue for CompletedResult {
+    fn scopes(&self) -> Vec<FactScope> {
+        vec![FactScope::Invocation(self.invocation_id.clone())]
+    }
+}
+impl FactValue for WorkTerminal {
+    fn scopes(&self) -> Vec<FactScope> {
+        vec![FactScope::Invocation(self.invocation_id.clone())]
+    }
 }
 
 fn digest(value: &str, length: usize) -> String {
@@ -222,11 +238,22 @@ fn fingerprints(turn: &str, sources: &[CodexTranscriptSourceRecord]) -> HashSet<
 
 impl CodexSubagentLinker {
     pub fn serialize(&self) -> Value {
-        json!({"version": 1, "spawns": self.spawns.values().collect::<Vec<_>>(),
+        self.serialized_cache.get(
+            [
+                self.spawns.revision(),
+                self.children.revision(),
+                self.bindings.revision(),
+                self.completed_results.revision(),
+                self.work_terminals.revision(),
+            ],
+            || {
+                json!({"version": 1, "spawns": self.spawns.values().collect::<Vec<_>>(),
             "children": self.children.values().collect::<Vec<_>>(),
             "bindings": self.bindings.values().collect::<Vec<_>>(),
             "completedWorkResults": self.completed_results.values().collect::<Vec<_>>(),
-            "workTerminals": self.work_terminals.values().collect::<Vec<_>>()})
+            "workTerminals": self.work_terminals.values().collect::<Vec<_>>() })
+            },
+        )
     }
     pub fn restore(&mut self, value: &Value) {
         if value["version"] != 1 {
@@ -234,7 +261,23 @@ impl CodexSubagentLinker {
         }
         if let Some(spawns) = value["spawns"].as_array() {
             for value in spawns {
-                if let Ok(spawn) = serde_json::from_value::<CodexSpawnDescriptor>(value.clone()) {
+                // Old checkpoints may contain workPrompt. Hash only that
+                // legacy input, then discard it before constructing persistent
+                // descriptors; an already stored fingerprint takes precedence.
+                let mut restored = value.clone();
+                let legacy_fingerprint = restored
+                    .as_object_mut()
+                    .and_then(|fields| fields.remove("workPrompt"))
+                    .and_then(|prompt| {
+                        prompt
+                            .as_str()
+                            .filter(|text| !text.is_empty())
+                            .map(work_fingerprint)
+                    });
+                if let Ok(mut spawn) = serde_json::from_value::<CodexSpawnDescriptor>(restored) {
+                    if spawn.work_fingerprint.is_none() {
+                        spawn.work_fingerprint = legacy_fingerprint;
+                    }
                     if !spawn.parent_thread_id.is_empty()
                         && !spawn.parent_turn_id.is_empty()
                         && !spawn.parent_trace_id.is_empty()
@@ -338,9 +381,17 @@ impl CodexSubagentLinker {
     ) -> Option<CodexSubagentLink> {
         self.register_child(meta);
         let child = self.children.get(&meta.thread_id)?.clone();
+        let mut scopes = vec![FactScope::Child(meta.thread_id.clone())];
+        if let Some(path) = &child.agent_path {
+            scopes.push(FactScope::ParentPath(
+                child.parent_thread_id.clone(),
+                normalize_agent_path(path),
+            ));
+        }
         let candidates: Vec<_> = self
             .spawns
-            .values()
+            .scoped_values(&scopes)
+            .into_iter()
             .filter(|spawn| {
                 !spawn.dispatch_failed
                     && !spawn.association_conflict
@@ -352,11 +403,9 @@ impl CodexSubagentLinker {
         let direct = records
             .iter()
             .any(|source| direct_input(source, &turn.transcript_turn_id));
-        let previous: Vec<_> = self
+        let previous = self
             .bindings
-            .values()
-            .filter(|binding| binding.child_thread_id == meta.thread_id)
-            .collect();
+            .scoped_values(&[FactScope::Child(meta.thread_id.clone())]);
         if direct && !(allow_creation_fallback && previous.is_empty()) {
             return None;
         }
@@ -520,22 +569,26 @@ impl CodexSubagentLinker {
 
     pub fn get_delegations_for_parent(&self, parent: &str) -> Vec<CodexSpawnDescriptor> {
         self.spawns
-            .values()
-            .filter(|spawn| spawn.parent_thread_id == parent)
+            .scoped_values(&[FactScope::Parent(parent.into())])
+            .into_iter()
             .map(|spawn| {
                 let mut copy = spawn.clone();
-                let results: Vec<_> = self
-                    .completed_results
-                    .values()
-                    .filter(|result| Some(&result.invocation_id) == spawn.invocation_id.as_ref())
-                    .collect();
-                let terminals: Vec<_> = self
-                    .work_terminals
-                    .values()
-                    .filter(|terminal| {
-                        Some(&terminal.invocation_id) == spawn.invocation_id.as_ref()
+                let results = spawn
+                    .invocation_id
+                    .as_ref()
+                    .map(|id| {
+                        self.completed_results
+                            .scoped_values(&[FactScope::Invocation(id.clone())])
                     })
-                    .collect();
+                    .unwrap_or_default();
+                let terminals = spawn
+                    .invocation_id
+                    .as_ref()
+                    .map(|id| {
+                        self.work_terminals
+                            .scoped_values(&[FactScope::Invocation(id.clone())])
+                    })
+                    .unwrap_or_default();
                 copy.result_terminal_observed = !results.is_empty() || !terminals.is_empty();
                 copy.result_outcome_known = copy.result_terminal_observed
                     && terminals.iter().all(|terminal| {
@@ -545,8 +598,12 @@ impl CodexSubagentLinker {
                                     && result.child_turn_id == terminal.child_turn_id
                             })
                     });
+                // Distinct native turns remain distinct durable facts, while
+                // callers need each exact result digest only once.
+                let mut seen_fingerprints = HashSet::new();
                 copy.result_fingerprints = results
                     .iter()
+                    .filter(|result| seen_fingerprints.insert(result.fingerprint.as_str()))
                     .map(|result| result.fingerprint.clone())
                     .collect();
                 copy.result_child_turn_ids = terminals
@@ -581,36 +638,18 @@ impl CodexSubagentLinker {
                 if let Some(path) = path {
                     let creations = self
                         .spawns
-                        .values()
-                        .filter(|candidate| {
-                            candidate.parent_thread_id == parent
-                                && candidate
-                                    .dispatch_kind
-                                    .as_deref()
-                                    .is_none_or(|kind| kind == "spawn")
-                                && candidate
-                                    .agent_path
-                                    .as_ref()
-                                    .or(candidate.task_name.as_ref())
-                                    .is_some_and(|candidate| {
-                                        normalize_agent_path(candidate)
-                                            == normalize_agent_path(path)
-                                    })
-                        })
-                        .count();
+                        .scoped_values(&[FactScope::CreationPath(
+                            parent.into(),
+                            normalize_agent_path(path),
+                        )])
+                        .len();
                     if creations > 1 {
                         return copy;
                     }
-                    let children: Vec<_> = self
-                        .children
-                        .values()
-                        .filter(|child| {
-                            child.parent_thread_id == parent
-                                && child.agent_path.as_ref().is_some_and(|candidate| {
-                                    normalize_agent_path(candidate) == normalize_agent_path(path)
-                                })
-                        })
-                        .collect();
+                    let children = self.children.scoped_values(&[FactScope::ParentPath(
+                        parent.into(),
+                        normalize_agent_path(path),
+                    )]);
                     if children.len() == 1 {
                         copy.child_thread_id = Some(children[0].child_thread_id.clone());
                         if copy.agent_nickname.is_none() {
@@ -2690,5 +2729,412 @@ mod tests {
         assert_eq!(links[1].child_thread_id, "tied");
         assert_eq!(links[1].confidence, CodexSubagentLinkConfidence::Orphan);
         assert_eq!(links[1].orphan_reason, Some(OrphanReason::NoCandidate));
+    }
+    #[test]
+    fn sparse_observation_never_retracts_native_failure_or_association_conflict() {
+        for conflict in [false, true] {
+            let mut linker = CodexSubagentLinker::new();
+            let mut observed = creation("failed", 1.0, Some("worker"), Some("child"));
+            observed.dispatch_failed = !conflict;
+            observed.association_conflict = conflict;
+            linker.register_spawns(std::slice::from_ref(&observed));
+            let sparse = creation("failed", 1.0, None, None);
+            linker.register_spawns(&[sparse]);
+            let stored = linker.serialize()["spawns"][0].clone();
+            assert_eq!(stored["dispatchFailed"], json!(!conflict));
+            assert_eq!(stored["associationConflict"], json!(conflict));
+            assert_eq!(linker.snapshot().detected_spawns, 0);
+            assert!(linker
+                .resolve_work(&meta(), &turn("owned"), &[], true)
+                .is_none());
+        }
+    }
+    #[test]
+    fn legacy_prompt_restore_prefers_existing_hash_and_discards_nonstring_legacy_input() {
+        let mut old = serde_json::to_value(spawn("legacy-priority", "established")).unwrap();
+        old["workPrompt"] = json!("different private legacy body");
+        let mut linker = CodexSubagentLinker::new();
+        linker.restore(&json!({"version":1,"spawns":[old]}));
+        let state = linker.serialize();
+        assert_eq!(
+            state["spawns"][0]["workFingerprint"],
+            work_fingerprint("established")
+        );
+        assert!(!state.to_string().contains("different private legacy body"));
+        assert!(!state.to_string().contains("workPrompt"));
+        let mut invalid =
+            serde_json::to_value(creation("invalid", 1.0, None, Some("child"))).unwrap();
+        invalid["workPrompt"] = json!({"unexpected":"SYNTHETIC_PRIVATE_LEGACY_BODY"});
+        let mut linker = CodexSubagentLinker::new();
+        linker.restore(&json!({"version":1,"spawns":[invalid]}));
+        let state = linker.serialize();
+        assert!(state["spawns"][0]["workFingerprint"].is_null());
+        assert!(!state.to_string().contains("SYNTHETIC_PRIVATE_LEGACY_BODY"));
+        assert!(!state.to_string().contains("workPrompt"));
+    }
+    fn reset_fact_access(linker: &CodexSubagentLinker) {
+        linker.spawns.reset_access();
+        linker.children.reset_access();
+        linker.bindings.reset_access();
+        linker.completed_results.reset_access();
+        linker.work_terminals.reset_access();
+    }
+    fn fact_access(linker: &CodexSubagentLinker) -> (usize, usize, usize) {
+        [
+            linker.spawns.access_counts(),
+            linker.children.access_counts(),
+            linker.bindings.access_counts(),
+            linker.completed_results.access_counts(),
+            linker.work_terminals.access_counts(),
+        ]
+        .into_iter()
+        .fold((0, 0, 0), |sum, n| (sum.0 + n.0, sum.1 + n.1, sum.2 + n.2))
+    }
+    fn indexed_owned_work() -> (CodexSubagentLinker, CodexSubagentLink) {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[spawn("mine", "work")]);
+        let owned = turn("owned");
+        let link = linker
+            .resolve_work(&meta(), &owned, &[plain_work("owned", "work")], false)
+            .unwrap();
+        linker.register_completed_work_result(
+            &link,
+            &owned,
+            &[completion("owned", Some("real result"), false)],
+        );
+        (linker, link)
+    }
+    #[test]
+    fn local_work_and_parent_peer_queries_do_not_visit_unrelated_global_facts() {
+        let mut observed = Vec::new();
+        for unrelated in [0, 50, MAX_LINK_DESCRIPTORS / 2] {
+            let (mut linker, expected) = indexed_owned_work();
+            for i in 0..unrelated {
+                let mut descriptor = creation(
+                    &format!("other-call-{i}"),
+                    1.0,
+                    None,
+                    Some(&format!("other-child-{i}")),
+                );
+                descriptor.parent_thread_id = format!("other-parent-{i}");
+                linker.register_spawns(&[descriptor]);
+                linker.bindings.insert(
+                    format!("binding-{i}"),
+                    WorkBinding {
+                        child_thread_id: format!("other-child-{i}"),
+                        child_turn_id: format!("other-turn-{i}"),
+                        invocation_id: format!("other-invocation-{i}"),
+                    },
+                );
+                linker.completed_results.insert(
+                    format!("result-{i}"),
+                    CompletedResult {
+                        child_thread_id: format!("other-child-{i}"),
+                        child_turn_id: format!("other-turn-{i}"),
+                        invocation_id: format!("other-invocation-{i}"),
+                        fingerprint: digest("other result", 64),
+                    },
+                );
+                linker.work_terminals.insert(
+                    format!("terminal-{i}"),
+                    WorkTerminal {
+                        child_thread_id: format!("other-child-{i}"),
+                        child_turn_id: format!("other-turn-{i}"),
+                        invocation_id: format!("other-invocation-{i}"),
+                        terminal_type: "completed".into(),
+                    },
+                );
+                linker.register_child(&child_meta(
+                    &format!("other-child-{i}"),
+                    30.0,
+                    Some(&format!("/root/other-{i}")),
+                ));
+            }
+            reset_fact_access(&linker);
+            assert_eq!(
+                linker.resolve_work(&meta(), &turn("owned"), &[], false),
+                Some(expected)
+            );
+            let projection = linker.get_delegations_for_parent("parent");
+            assert_eq!(projection.len(), 1);
+            assert_eq!(projection[0].parent_tool_call_id, "mine");
+            assert_eq!(
+                projection[0].result_fingerprints,
+                [digest("real result", 64)]
+            );
+            let counts = fact_access(&linker);
+            assert_eq!(
+                counts.0, 0,
+                "local query created a global iterator with {unrelated} unrelated facts"
+            );
+            assert_eq!(counts.1, 0, "local query visited global facts");
+            assert!(counts.2 > 0, "observer missed all scoped work");
+            observed.push(counts.2);
+        }
+        assert!(
+            observed.iter().all(|n| *n == observed[0]),
+            "local visits scaled with unrelated facts: {observed:?}"
+        );
+    }
+    #[test]
+    fn same_scope_competition_is_visited_and_preserves_strict_ambiguity() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[spawn("first", "same")]);
+        reset_fact_access(&linker);
+        assert!(linker
+            .resolve_work(
+                &meta(),
+                &turn("first"),
+                &[plain_work("first", "same")],
+                false
+            )
+            .is_some());
+        let first = fact_access(&linker);
+        linker.register_spawns(&[spawn("second", "same")]);
+        reset_fact_access(&linker);
+        assert!(linker
+            .resolve_work(
+                &meta(),
+                &turn("new-work"),
+                &[plain_work("new-work", "same")],
+                false
+            )
+            .is_none());
+        let second = fact_access(&linker);
+        assert_eq!((first.0, second.0), (0, 0));
+        assert_eq!((first.1, second.1), (0, 0));
+        assert!(
+            second.2 > first.2,
+            "local observer or index failed to observe real competition"
+        );
+    }
+    #[test]
+    fn scope_indexes_follow_resolved_binding_native_replacement_restore_and_eviction() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = creation("path", 1.0, Some("worker"), None);
+        descriptor.work_fingerprint = Some(work_fingerprint("work"));
+        linker.register_spawns(std::slice::from_ref(&descriptor));
+        assert_eq!(
+            linker
+                .spawns
+                .scoped_values(&[FactScope::ParentPath(
+                    "parent".into(),
+                    "/root/worker".into()
+                )])
+                .len(),
+            1
+        );
+        let link = linker
+            .resolve_work(
+                &meta(),
+                &turn("owned"),
+                &[plain_work("owned", "work")],
+                false,
+            )
+            .unwrap();
+        assert_eq!(link.confidence, CodexSubagentLinkConfidence::AgentPath);
+        assert!(linker
+            .spawns
+            .scoped_values(&[FactScope::ParentPath(
+                "parent".into(),
+                "/root/worker".into()
+            )])
+            .is_empty());
+        assert_eq!(
+            linker
+                .spawns
+                .scoped_values(&[FactScope::Child("child".into())])
+                .len(),
+            1
+        );
+        descriptor.child_thread_id = Some("native-other-child".into());
+        linker.register_spawns(&[descriptor]);
+        assert!(linker
+            .spawns
+            .scoped_values(&[FactScope::Child("child".into())])
+            .is_empty());
+        assert_eq!(
+            linker
+                .spawns
+                .scoped_values(&[FactScope::Child("native-other-child".into())])
+                .len(),
+            1
+        );
+        let mut restored = CodexSubagentLinker::new();
+        restored.restore(&linker.serialize());
+        assert!(restored
+            .spawns
+            .scoped_values(&[FactScope::Child("child".into())])
+            .is_empty());
+        assert_eq!(
+            restored
+                .spawns
+                .scoped_values(&[FactScope::Child("native-other-child".into())])
+                .len(),
+            1
+        );
+        assert_eq!(
+            restored
+                .bindings
+                .scoped_values(&[FactScope::Child("child".into())])
+                .len(),
+            1
+        );
+        trim_oldest(&mut restored.spawns, 0);
+        trim_oldest(&mut restored.bindings, 0);
+        trim_oldest(&mut restored.children, 0);
+        assert_eq!(restored.spawns.indexed_key_count(), 0);
+        assert_eq!(restored.bindings.indexed_key_count(), 0);
+        assert_eq!(restored.children.indexed_key_count(), 0);
+        reset_fact_access(&restored);
+        assert!(restored.get_delegations_for_parent("parent").is_empty());
+        assert!(restored
+            .resolve_work(
+                &meta(),
+                &turn("owned"),
+                &[plain_work("owned", "work")],
+                false
+            )
+            .is_none());
+        assert_eq!(fact_access(&restored).0, 0);
+    }
+    #[test]
+    fn unchanged_facts_and_identical_restore_reuse_actual_snapshot_and_document_builds() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = creation("mine", 1.0, None, Some("child"));
+        descriptor.work_fingerprint = Some(work_fingerprint("work"));
+        linker.register_spawns(std::slice::from_ref(&descriptor));
+        let child = meta();
+        let link = linker
+            .resolve_work(
+                &child,
+                &turn("owned"),
+                &[plain_work("owned", "work")],
+                false,
+            )
+            .unwrap();
+        let snapshot = linker.snapshot();
+        let state = linker.serialize();
+        assert_eq!(linker.snapshot_cache.build_count(), 1);
+        assert_eq!(linker.serialized_cache.build_count(), 1);
+        reset_fact_access(&linker);
+        for _ in 0..5 {
+            linker.register_spawns(std::slice::from_ref(&descriptor));
+            linker.register_child(&child);
+            linker.restore(&state);
+            assert_eq!(linker.snapshot(), snapshot);
+            assert_eq!(linker.serialize(), state);
+        }
+        assert_eq!(
+            linker.snapshot_cache.build_count(),
+            1,
+            "duplicate facts rebuilt topology"
+        );
+        assert_eq!(
+            linker.serialized_cache.build_count(),
+            1,
+            "duplicate facts rebuilt persisted document"
+        );
+        assert_eq!(
+            fact_access(&linker).0,
+            0,
+            "cache hit rescanned canonical facts"
+        );
+
+        linker.register_completed_work_result(
+            &link,
+            &turn("owned"),
+            &[completion("owned", Some("private result"), false)],
+        );
+        assert_eq!(linker.snapshot(), snapshot);
+        let completed = linker.serialize();
+        assert_ne!(completed, state);
+        assert!(!completed.to_string().contains("private result"));
+        assert_eq!(
+            linker.snapshot_cache.build_count(),
+            1,
+            "result-only facts rebuilt unchanged topology"
+        );
+        assert_eq!(linker.serialized_cache.build_count(), 2);
+        reset_fact_access(&linker);
+        linker.register_completed_work_result(
+            &link,
+            &turn("owned"),
+            &[completion("owned", Some("private result"), false)],
+        );
+        assert_eq!(linker.serialize(), completed);
+        assert_eq!(linker.snapshot(), snapshot);
+        assert_eq!(linker.snapshot_cache.build_count(), 1);
+        assert_eq!(linker.serialized_cache.build_count(), 2);
+        assert_eq!(fact_access(&linker).0, 0);
+
+        descriptor.child_turn_id = Some("new-evidence".into());
+        linker.register_spawns(&[descriptor]);
+        let _ = linker.snapshot();
+        let changed = linker.serialize();
+        assert_ne!(changed, completed);
+        assert_eq!(linker.snapshot_cache.build_count(), 2);
+        assert_eq!(linker.serialized_cache.build_count(), 3);
+        let mut caller_snapshot = linker.snapshot();
+        caller_snapshot.links.clear();
+        let mut caller_state = linker.serialize();
+        caller_state["spawns"] = json!([]);
+        assert_eq!(linker.snapshot().links.len(), 1);
+        assert_eq!(linker.serialize()["spawns"].as_array().unwrap().len(), 1);
+        assert_eq!(linker.snapshot_cache.build_count(), 2);
+        assert_eq!(linker.serialized_cache.build_count(), 3);
+    }
+    #[test]
+    fn result_and_terminal_eviction_invalidates_document_without_stale_lookup_or_topology_rebuild()
+    {
+        let (mut linker, _) = indexed_owned_work();
+        let snapshot = linker.snapshot();
+        let state = linker.serialize();
+        trim_oldest(&mut linker.completed_results, 0);
+        trim_oldest(&mut linker.work_terminals, 0);
+        assert_eq!(linker.completed_results.indexed_key_count(), 0);
+        assert_eq!(linker.work_terminals.indexed_key_count(), 0);
+        assert_eq!(linker.snapshot(), snapshot);
+        assert_eq!(linker.snapshot_cache.build_count(), 1);
+        let after = linker.serialize();
+        assert_ne!(after, state);
+        assert_eq!(linker.serialized_cache.build_count(), 2);
+        reset_fact_access(&linker);
+        let projection = linker.get_delegations_for_parent("parent").pop().unwrap();
+        assert!(projection.result_fingerprints.is_empty());
+        assert!(!projection.result_terminal_observed && !projection.result_outcome_known);
+        assert_eq!(fact_access(&linker).0, 0);
+    }
+    #[test]
+    fn child_metadata_changes_refresh_scopes_and_caches_without_stale_nickname() {
+        let (mut linker, _) = indexed_owned_work();
+        let snapshot = linker.snapshot();
+        let state = linker.serialize();
+        let mut child = meta();
+        child.agent_path = Some("/root/moved".into());
+        child.agent_nickname = Some("NewNickname".into());
+        linker.register_child(&child);
+        assert!(linker
+            .children
+            .scoped_values(&[FactScope::ParentPath(
+                "parent".into(),
+                "/root/worker".into()
+            )])
+            .is_empty());
+        assert_eq!(
+            linker
+                .children
+                .scoped_values(&[FactScope::ParentPath("parent".into(), "/root/moved".into())])
+                .len(),
+            1
+        );
+        let changed = linker.snapshot();
+        assert_ne!(changed, snapshot);
+        assert_ne!(linker.serialize(), state);
+        assert_eq!(linker.snapshot_cache.build_count(), 2);
+        assert_eq!(linker.serialized_cache.build_count(), 2);
+        let projection = linker.get_delegations_for_parent("parent").pop().unwrap();
+        assert_eq!(projection.agent_nickname.as_deref(), Some("NewNickname"));
+        assert_eq!(projection.agent_path.as_deref(), Some("/root/moved"));
     }
 }

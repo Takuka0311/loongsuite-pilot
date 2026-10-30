@@ -232,7 +232,17 @@ impl ToolVerdictStore {
         *worker = Some(thread::spawn(move || {
             let pause = Duration::from_millis(interval_ms.max(1));
             while !stop.load(Ordering::SeqCst) {
-                thread::sleep(pause);
+                // Stop must wake the waiter before joining it. Keep the
+                // original checkpoint interval even after a spurious unpark.
+                let deadline = std::time::Instant::now() + pause;
+                while !stop.load(Ordering::SeqCst) {
+                    let Some(remaining) =
+                        deadline.checked_duration_since(std::time::Instant::now())
+                    else {
+                        break;
+                    };
+                    thread::park_timeout(remaining);
+                }
                 if stop.load(Ordering::SeqCst) {
                     break;
                 }
@@ -364,6 +374,7 @@ impl ToolVerdictStore {
     pub fn stop_checkpoint_loop(&self, now_ms: i64) -> std::io::Result<()> {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(worker) = self.worker.lock().expect("verdict worker").take() {
+            worker.thread().unpark();
             let _ = worker.join();
         }
         self.dump(now_ms)
@@ -568,5 +579,34 @@ mod tests {
             ),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_shutdown_tests {
+    use super::*;
+
+    #[test]
+    fn stop_wakes_a_long_checkpoint_interval_and_durably_flushes_before_return() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("verdicts.json");
+        let store = Arc::new(ToolVerdictStore::new(path.to_string_lossy().into_owned()));
+        let key = ToolVerdictKey {
+            session_id: Some("synthetic-session".into()),
+            tool_use_id: "synthetic-tool".into(),
+            phase: ToolInterceptPhase::PreToolUse,
+        };
+        let now = chrono::Utc::now().timestamp_millis();
+        store.put(&key, ToolVerdictAction::Block, now);
+        store.start_checkpoint_loop(60_000);
+        std::thread::sleep(Duration::from_millis(25));
+        let started = std::time::Instant::now();
+        store.stop_checkpoint_loop(now).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(store.worker.lock().unwrap().is_none());
+        let restored = ToolVerdictStore::new(path.to_string_lossy().into_owned());
+        restored.restore(now);
+        assert_eq!(restored.get(&key, now), Some(ToolVerdictAction::Block));
+        store.stop_checkpoint_loop(now).unwrap();
     }
 }

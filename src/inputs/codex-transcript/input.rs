@@ -7,6 +7,7 @@
 //! collector returns an empty array after `emit('entries')`).
 
 mod engine;
+mod source_ownership;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
@@ -109,6 +110,10 @@ pub struct CodexTranscriptBody {
 }
 
 impl CodexTranscriptInput {
+    pub(crate) fn collector_runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        self.inner.runtime.runtime_info()
+    }
+
     pub fn new(opts: CodexTranscriptInputOptions) -> Self {
         let multimodal = opts.multimodal;
         let processor = multimodal.as_ref().and_then(|item| item.processor.clone());
@@ -326,7 +331,29 @@ impl InputBody for CodexTranscriptBody {
                         self.engine().has_pending_fusion_for_parent(rt, parent)
                     })
             });
-            if needed || self.engine().read_checkpoint(rt, &key).is_some() {
+            if needed
+                || self.engine().read_checkpoint(rt, &key).is_some()
+                || rt.state_store.get(&key).last_offset().is_some()
+            {
+                continue;
+            }
+            // Live ownership survives a failed first output, without advancing
+            // canonical offsets or supplying firstOwned to copied-history bootstrap.
+            if let Some(floor) =
+                source_ownership::baseline_floor(&self.wakeup_dir, &file.file_path).await?
+            {
+                if floor.copied {
+                    self.engine()
+                        .restore_fork_baseline(rt, &file.file_path, &key, floor)
+                        .await?;
+                } else {
+                    self.engine()
+                        .restore_baseline_file(rt, &file.file_path, &key, floor)
+                        .await?;
+                }
+                continue;
+            }
+            if source_ownership::was_live(&self.wakeup_dir, &file.file_path).await? {
                 continue;
             }
             if engine::has_copied_history_prefix(meta.as_ref()) {

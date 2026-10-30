@@ -58,6 +58,10 @@ fn copilot_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(resolve_home("~/.copilot")))
 }
 impl CopilotLogInput {
+    pub(crate) fn collector_runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        self.inner.runtime.runtime_info()
+    }
+
     pub fn new(options: CopilotLogInputOptions) -> Self {
         let body = CopilotLogBody {
             session_dir: options

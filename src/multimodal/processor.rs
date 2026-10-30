@@ -123,6 +123,13 @@ impl MultimodalProcessor {
         Ok(processor)
     }
 
+    /// The currently usable storage origin. Delegated discovery can leave
+    /// the processor waiting without a usable origin until a later retry.
+    pub fn storage_base_path(&self) -> Option<String> {
+        let base = self.inner.lock().unwrap().storage_base_path.clone();
+        (!base.is_empty()).then_some(base)
+    }
+
     #[cfg(test)]
     pub fn with_limits(mut self, pending_bytes: usize, path_inflight: usize) -> Self {
         self.pending_bytes_limit = pending_bytes;
@@ -424,7 +431,7 @@ impl MultimodalProcessor {
         };
         let uploaded_size = result.size;
         let uploaded_key = target_path.clone();
-        tokio::spawn(async move {
+        super::http::spawn_with_http_context(async move {
             let _ = uploader
                 .upload(
                     item,
@@ -514,7 +521,7 @@ impl MultimodalProcessor {
             delay
         };
         let this = Arc::clone(self);
-        tokio::spawn(async move {
+        super::http::spawn_with_http_context(async move {
             tokio::time::sleep(Duration::from_millis(delay)).await;
             this.sniff().await;
         });

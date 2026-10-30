@@ -113,6 +113,13 @@ struct Lifecycle {
     cycle: Option<Arc<CycleGate>>,
 }
 
+/// Read-only facts from the collector's live scheduler and source handles.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputRuntimeInfo {
+    pub poll_interval_ms: u64,
+    pub source_paths: Vec<String>,
+}
+
 pub struct InputRuntime {
     pub id: String,
     pub agent_type: ClientType,
@@ -155,6 +162,13 @@ impl InputRuntime {
             extra,
             ..InputStatePatch::default()
         });
+    }
+
+    pub fn runtime_info(&self) -> InputRuntimeInfo {
+        InputRuntimeInfo {
+            poll_interval_ms: self.poll_interval_ms(),
+            source_paths: Vec::new(),
+        }
     }
 
     pub fn poll_interval_ms(&self) -> u64 {

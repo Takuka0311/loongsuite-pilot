@@ -1,0 +1,1519 @@
+{
+  "schema": 2,
+  "baselineCommit": "f84e3881958b39c5c7cbe8a035f50ccd80a25783",
+  "mappings": [
+    {
+      "legacy": "tests/unit/inputs/codex-transcript/codex-subagent-linker.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "main f84e388补充53声明；与fd27d45完全同一source hash。51严格语义候选及真实索引/cache8项已随root1609轮Linux通过。单独补充账本，不混入固定baseline9分母；Windows/macOS待原生验证。",
+      "source_hash": "22e538ca0c385639949a2aa50f6bdf9ea432a097359bb759422e225813bc75ff",
+      "cases": [
+        {
+          "source": {
+            "id": "L33:C3",
+            "title": "extracts the parent delegation agent_message as the child prompt",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "extracts the parent delegation agent_message as the child prompt；真实native linker语义断言：extracts_native_parent_delegation_as_child_prompt_without_opaque_body。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::extracts_native_parent_delegation_as_child_prompt_without_opaque_body"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L96:C3",
+            "title": "links all four fixture children by agent path even when children arrive first",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "links all four fixture children by agent path even when children arrive first；真实native linker语义断言：four_historical_fixture_children_link_by_path_when_children_arrive_first。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::four_historical_fixture_children_link_by_path_when_children_arrive_first"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L131:C3",
+            "title": "prefers an explicit child thread id over a mismatched path",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "prefers an explicit child thread id over a mismatched path；真实native linker语义断言：creation_snapshot_prioritizes_explicit_id_then_exact_path_before_time_fallback。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::creation_snapshot_prioritizes_explicit_id_then_exact_path_before_time_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L154:C3",
+            "title": "pairs unmatched children with the nearest preceding unclaimed spawn",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "pairs unmatched children with the nearest preceding unclaimed spawn；真实native linker语义断言：creation_snapshot_prioritizes_explicit_id_then_exact_path_before_time_fallback。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::creation_snapshot_prioritizes_explicit_id_then_exact_path_before_time_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L169:C3",
+            "title": "reserves exact path matches before assigning time-order fallbacks",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reserves exact path matches before assigning time-order fallbacks；真实native linker语义断言：creation_snapshot_prioritizes_explicit_id_then_exact_path_before_time_fallback。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::creation_snapshot_prioritizes_explicit_id_then_exact_path_before_time_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L184:C3",
+            "title": "leaves duplicate exact paths orphaned instead of guessing by time",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "leaves duplicate exact paths orphaned instead of guessing by time；真实native linker语义断言：creation_snapshot_duplicate_exact_paths_and_equal_time_ties_remain_orphaned。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::creation_snapshot_duplicate_exact_paths_and_equal_time_ties_remain_orphaned"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L205:C3",
+            "title": "preserves immediate parent linkage at arbitrary nesting depth",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves immediate parent linkage at arbitrary nesting depth；真实native linker语义断言：nested_creation_keeps_immediate_parent_at_arbitrary_depth。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::nested_creation_keeps_immediate_parent_at_arbitrary_depth"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L214:C3",
+            "title": "extracts explicit child facts from sub_agent_activity records",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "extracts explicit child facts from sub_agent_activity records；真实native linker语义断言：rejected_spawn_keeps_audit_intent_without_creation_and_activity_extracts_native_facts。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::rejected_spawn_keeps_audit_intent_without_creation_and_activity_extracts_native_facts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L245:C3",
+            "title": "retains the invoke intent for a rejected spawn without inventing a child",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retains the invoke intent for a rejected spawn without inventing a child；真实native linker语义断言：rejected_spawn_keeps_audit_intent_without_creation_and_activity_extracts_native_facts。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::rejected_spawn_keeps_audit_intent_without_creation_and_activity_extracts_native_facts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L259:C3",
+            "title": "links an agent_id and nickname return with no activity or path",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "links an agent_id and nickname return with no activity or path；真实native linker语义断言：native_agent_id_result_reserves_tool_and_invocation_before_acceptance_and_projects_nickname。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::native_agent_id_result_reserves_tool_and_invocation_before_acceptance_and_projects_nickname"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L271:C3",
+            "title": "reserves stable invocation and actual tool span before acceptance arrives",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reserves stable invocation and actual tool span before acceptance arrives；真实native linker语义断言：native_agent_id_result_reserves_tool_and_invocation_before_acceptance_and_projects_nickname, batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::native_agent_id_result_reserves_tool_and_invocation_before_acceptance_and_projects_nickname"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L284:C3",
+            "title": "projects the known child nickname through %s lookup and restore",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": [
+              "it.each(['explicit', 'path', 'bound'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "projects the known child nickname through %s lookup and restore；真实native linker语义断言：native_child_nickname_projection_supports_explicit_path_and_bound_lookup_across_restore。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::native_child_nickname_projection_supports_explicit_path_and_bound_lookup_across_restore"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L301:C3",
+            "title": "does not guess a nickname from an ambiguous child path",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not guess a nickname from an ambiguous child path；真实native linker语义断言：duplicate_child_paths_do_not_guess_a_peer_nickname。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::duplicate_child_paths_do_not_guess_a_peer_nickname"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L312:C3",
+            "title": "records each batch work separately while sharing its real tool span",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "records each batch work separately while sharing its real tool span；真实native linker语义断言：batch_work_ids_are_stable_per_position_and_share_the_actual_dispatch_tool, batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::batch_work_ids_are_stable_per_position_and_share_the_actual_dispatch_tool"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L329:C3",
+            "title": "supports task_path returns and multiple started activities in one batch",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "supports task_path returns and multiple started activities in one batch；真实native linker语义断言：task_path_multiple_activities_and_repeated_activity_keep_native_work_cardinality, rejected_spawn_keeps_audit_intent_without_creation_and_activity_extracts_native_facts。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::task_path_multiple_activities_and_repeated_activity_keep_native_work_cardinality"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::rejected_spawn_keeps_audit_intent_without_creation_and_activity_extracts_native_facts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L343:C3",
+            "title": "creates a new invocation for actual followup work but excludes queries and notifications",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "creates a new invocation for actual followup work but excludes queries and notifications；真实native linker语义断言：real_followup_and_input_get_new_invocations_while_queries_notifications_and_cancel_are_excluded, batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::real_followup_and_input_get_new_invocations_while_queries_notifications_and_cancel_are_excluded"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L364:C3",
+            "title": "binds reused child turns by received work and never by latest session delegation",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "binds reused child turns by received work and never by latest session delegation；真实native linker语义断言：reused_plain_work_binds_by_received_input_and_continues_without_new_input_after_restore, encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not, followup_work_is_bound_by_native_input_and_survives_restart_without_plaintext。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::reused_plain_work_binds_by_received_input_and_continues_without_new_input_after_restore"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::followup_work_is_bound_by_native_input_and_survives_restart_without_plaintext"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L379:C3",
+            "title": "persists stable bindings and continues a logical work across turns without new input",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "persists stable bindings and continues a logical work across turns without new input；真实native linker语义断言：reused_plain_work_binds_by_received_input_and_continues_without_new_input_after_restore, encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not, followup_work_is_bound_by_native_input_and_survives_restart_without_plaintext。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::reused_plain_work_binds_by_received_input_and_continues_without_new_input_after_restore"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::followup_work_is_bound_by_native_input_and_survives_restart_without_plaintext"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L394:C3",
+            "title": "uses explicit child turn evidence and leaves ambiguous incoming work independent",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses explicit child turn evidence and leaves ambiguous incoming work independent；真实native linker语义断言：explicit_child_turn_evidence_selects_unique_work_without_guessing_from_bare_prompt, opaque_conflict_is_rejected_even_with_explicit_turn_but_other_turns_are_scoped_out, direct_user_input_ambiguous_messages_and_notifications_never_claim_latest_work。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::explicit_child_turn_evidence_selects_unique_work_without_guessing_from_bare_prompt"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::opaque_conflict_is_rejected_even_with_explicit_turn_but_other_turns_are_scoped_out"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::direct_user_input_ambiguous_messages_and_notifications_never_claim_latest_work"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L407:C3",
+            "title": "accepts a unique confirmed creation for first work without prompt and rejects future work guesses",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "accepts a unique confirmed creation for first work without prompt and rejects future work guesses；真实native linker语义断言：creation_fallback_requires_first_owned_turn_and_never_selects_a_future_dispatch。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::creation_fallback_requires_first_owned_turn_and_never_selects_a_future_dispatch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L417:C3",
+            "title": "requires a proven first-owned turn to fall back from fork-expanded input to creation lineage",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requires a proven first-owned turn to fall back from fork-expanded input to creation lineage；真实native linker语义断言：creation_fallback_requires_first_owned_turn_and_never_selects_a_future_dispatch。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::creation_fallback_requires_first_owned_turn_and_never_selects_a_future_dispatch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L427:C3",
+            "title": "deduplicates repeated started activity rather than inventing batch work",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "deduplicates repeated started activity rather than inventing batch work；真实native linker语义断言：task_path_multiple_activities_and_repeated_activity_keep_native_work_cardinality, batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::task_path_multiple_activities_and_repeated_activity_keep_native_work_cardinality"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L435:C3",
+            "title": "binds opaque parent dispatch to encrypted child input without storing either payload",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "binds opaque parent dispatch to encrypted child input without storing either payload；真实native linker语义断言：encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L464:C3",
+            "title": "retains saved incoming work for a later opaque FINAL_ANSWER segment (restore=%s)",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": [
+              "it.each([false, true])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "retains saved incoming work for a later opaque FINAL_ANSWER segment (restore=%s)；真实native linker语义断言：encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L484:C3",
+            "title": "binds a full turn containing NEW_TASK and opaque FINAL_ANSWER without creating multiple work fingerprints",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "binds a full turn containing NEW_TASK and opaque FINAL_ANSWER without creating multiple work fingerprints；真实native linker语义断言：simultaneous_new_task_and_opaque_final_answer_share_one_native_work_fingerprint, encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::simultaneous_new_task_and_opaque_final_answer_share_one_native_work_fingerprint"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L499:C3",
+            "title": "does not reuse a saved invocation for real NEW_TASK or direct user input (restore=%s)",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": [
+              "it.each([false, true])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "does not reuse a saved invocation for real NEW_TASK or direct user input (restore=%s)；真实native linker语义断言：encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L520:C3",
+            "title": "keeps quoted FINAL_ANSWER text inside %s as actual incoming work",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": [
+              "it.each([\n    ['NEW_TASK envelope', 'Message Type: NEW_TASK\\nTask name: /root/beta\\nPayload:\\nExplain this example:\\nMessage Type: FINAL_ANSWER\\nPayload: sample'],\n    ['ordinary work text', 'Review the FINAL_ANSWER format in this example:\\nMessage Type: FINAL_ANSWER\\nPayload: sample'],\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "keeps quoted FINAL_ANSWER text inside %s as actual incoming work；真实native linker语义断言：final_answer_text_quoted_inside_new_task_is_not_a_result_notification。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::final_answer_text_quoted_inside_new_task_is_not_a_result_notification"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L534:C3",
+            "title": "rejects multiple opaque incoming works within the same turn and scopes other turns out",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rejects multiple opaque incoming works within the same turn and scopes other turns out；真实native linker语义断言：opaque_conflict_is_rejected_even_with_explicit_turn_but_other_turns_are_scoped_out。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::opaque_conflict_is_rejected_even_with_explicit_turn_but_other_turns_are_scoped_out"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L549:C3",
+            "title": "migrates legacy raw work prompts to fingerprints on restore",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "migrates legacy raw work prompts to fingerprints on restore；真实native linker语义断言：restores_legacy_work_prompt_as_hash_without_retaining_plaintext。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::restores_legacy_work_prompt_as_hash_without_retaining_plaintext"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L563:C3",
+            "title": "does not inherit an old invocation when a direct user repeats the same delegated text",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not inherit an old invocation when a direct user repeats the same delegated text；真实native linker语义断言：same_text_direct_user_input_does_not_inherit_creation_or_followup_binding, direct_user_input_ambiguous_messages_and_notifications_never_claim_latest_work。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::same_text_direct_user_input_does_not_inherit_creation_or_followup_binding"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::direct_user_input_ambiguous_messages_and_notifications_never_claim_latest_work"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L583:C3",
+            "title": "keeps isolated Codex context separate from actual incoming work for %s",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": [
+              "it.each(['# AGENTS.md instructions for /workspace', '# AGENTS.md instructions'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "keeps isolated Codex context separate from actual incoming work for %s；真实native linker语义断言：injected_context_is_distinct_from_work_but_unclosed_mixed_and_unwrapped_user_text_are_not。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::injected_context_is_distinct_from_work_but_unclosed_mixed_and_unwrapped_user_text_are_not"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L614:C3",
+            "title": "does not treat a bare extracted prompt as proof of delegated work",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not treat a bare extracted prompt as proof of delegated work；真实native linker语义断言：explicit_child_turn_evidence_selects_unique_work_without_guessing_from_bare_prompt, creation_fallback_requires_first_owned_turn_and_never_selects_a_future_dispatch。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::explicit_child_turn_evidence_selects_unique_work_without_guessing_from_bare_prompt"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::creation_fallback_requires_first_owned_turn_and_never_selects_a_future_dispatch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L622:C3",
+            "title": "joins out-of-order batch activity by child identity without swapping logical work",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "joins out-of-order batch activity by child identity without swapping logical work；真实native linker语义断言：batch_activity_correlates_by_child_identity_when_native_records_arrive_out_of_order, batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::batch_activity_correlates_by_child_identity_when_native_records_arrive_out_of_order"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L639:C3",
+            "title": "leaves uncorrelated batch activities independent and rejects contradictory single-child evidence",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "leaves uncorrelated batch activities independent and rejects contradictory single-child evidence；真实native linker语义断言：uncorrelated_batch_activity_does_not_guess_and_contradictory_single_child_is_rejected, batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::uncorrelated_batch_activity_does_not_guess_and_contradictory_single_child_is_rejected"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::batched_dispatch_positions_and_failed_or_notification_inputs_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L657:C3",
+            "title": "returns only a parent's delegations and enriches a unique known path without changing stored lineage",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns only a parent's delegations and enriches a unique known path without changing stored lineage；真实native linker语义断言：parent_scoped_projection_enriches_only_unique_path_and_does_not_mutate_lineage。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::parent_scoped_projection_enriches_only_unique_path_and_does_not_mutate_lineage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L673:C3",
+            "title": "does not infer result peers for ambiguous repeated creation paths",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not infer result peers for ambiguous repeated creation paths；真实native linker语义断言：repeated_creation_paths_do_not_infer_a_result_peer_from_one_observed_child。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::repeated_creation_paths_do_not_infer_a_result_peer_from_one_observed_child"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L684:C3",
+            "title": "does not guess a path-only %s peer after path reuse, including after restore",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": [
+              "it.each(['followup', 'input'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "does not guess a path-only %s peer after path reuse, including after restore；真实native linker语义断言：path_reuse_never_guesses_followup_or_input_peer_before_or_after_restore。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::path_reuse_never_guesses_followup_or_input_peer_before_or_after_restore"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L706:C3",
+            "title": "keeps a unique path followup when %i creation records are available",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": [
+              "it.each([0, 1])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "keeps a unique path followup when %i creation records are available；真实native linker语义断言：unique_path_followup_resolves_with_zero_or_one_creation_records。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::unique_path_followup_resolves_with_zero_or_one_creation_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L715:C3",
+            "title": "uses child indexes for work and parent indexes for result peers without enumerating global state",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "查询实际按child/parent索引限定作用域；N=0/50/5000无关事实不增长局部访问，访问计数在全局过滤之前记录，竞争/restore/eviction/binding均有正负控。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::local_work_and_parent_peer_queries_do_not_visit_unrelated_global_facts"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::scope_indexes_follow_resolved_binding_native_replacement_restore_and_eviction"
+              },
+              {
+                "file": "src/inputs/codex-transcript/linker_facts.rs",
+                "test": "tests::global_access_observer_counts_facts_before_a_filter_can_hide_the_scan"
+              },
+              {
+                "file": "src/inputs/codex-transcript/linker_facts.rs",
+                "test": "tests::scoped_union_preserves_canonical_order_and_replacement_removes_old_memberships"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L736:C3",
+            "title": "reuses snapshot and serialization caches until actual facts change",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际snapshot/document构建次数与语义revision检查缓存复用；无变化不重建，事实/restore/淘汰变化精确失效。Rust拥有值返回允许复制输出，未以值相等或JS引用身份自证缓存。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::unchanged_facts_and_identical_restore_reuse_actual_snapshot_and_document_builds"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::result_and_terminal_eviction_invalidates_document_without_stale_lookup_or_topology_rebuild"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::child_metadata_changes_refresh_scopes_and_caches_without_stale_nickname"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L754:C3",
+            "title": "maintains path, child and binding indexes across restore and evicts obsolete peers",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "maintains path, child and binding indexes across restore and evicts obsolete peers；真实native linker语义断言：restored_path_binding_survives_until_native_spawn_eviction_removes_its_peer, scope_indexes_follow_resolved_binding_native_replacement_restore_and_eviction, evicted_terminal_and_result_facts_do_not_leave_phantom_invocation_lookup_results。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::restored_path_binding_survives_until_native_spawn_eviction_removes_its_peer"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::scope_indexes_follow_resolved_binding_native_replacement_restore_and_eviction"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::evicted_terminal_and_result_facts_do_not_leave_phantom_invocation_lookup_results"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L771:C3",
+            "title": "keeps time-order ties ambiguous and consumes only unique preceding candidates",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps time-order ties ambiguous and consumes only unique preceding candidates；真实native linker语义断言：time_tie_stays_ambiguous_after_unique_preceding_candidate_is_consumed, creation_snapshot_duplicate_exact_paths_and_equal_time_ties_remain_orphaned。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::time_tie_stays_ambiguous_after_unique_preceding_candidate_is_consumed"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::creation_snapshot_duplicate_exact_paths_and_equal_time_ties_remain_orphaned"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L786:C3",
+            "title": "preserves native confidence and late path ambiguity after a work binding is resolved",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves native confidence and late path ambiguity after a work binding is resolved；真实native linker语义断言：resolved_path_work_preserves_native_confidence_when_later_creation_makes_path_ambiguous。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::resolved_path_work_preserves_native_confidence_when_later_creation_makes_path_ambiguous"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L804:C3",
+            "title": "matches a completed followup result without attributing it to an interrupted initial spawn",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "matches a completed followup result without attributing it to an interrupted initial spawn；真实native linker语义断言：interrupted_initial_work_does_not_claim_exact_completed_followup_result, interrupted_terminal_and_legacy_result_restore_do_not_invent_result_text, exact_result_fingerprints_and_terminal_facts_are_persisted_separately。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::interrupted_initial_work_does_not_claim_exact_completed_followup_result"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::interrupted_terminal_and_legacy_result_restore_do_not_invent_result_text"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::exact_result_fingerprints_and_terminal_facts_are_persisted_separately"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L835:C3",
+            "title": "restores completed result fingerprints, preserves multiple real results and does not persist result text",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "restores completed result fingerprints, preserves multiple real results and does not persist result text；真实native linker语义断言：result_projection_deduplicates_equal_fingerprints_across_distinct_child_turns, exact_result_fingerprints_and_terminal_facts_are_persisted_separately。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::result_projection_deduplicates_equal_fingerprints_across_distinct_child_turns"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::exact_result_fingerprints_and_terminal_facts_are_persisted_separately"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L868:C3",
+            "title": "requires exact real completion evidence and proven matching child work before registering a result",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requires exact real completion evidence and proven matching child work before registering a result；真实native linker语义断言：result_registration_rejects_wrong_turn_child_link_confidence_and_nonterminal_text。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::result_registration_rejects_wrong_turn_child_link_confidence_and_nonterminal_text"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L887:C3",
+            "title": "evicts completed result facts and removes their invocation lookup entries",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "evicts completed result facts and removes their invocation lookup entries；真实native linker语义断言：evicted_terminal_and_result_facts_do_not_leave_phantom_invocation_lookup_results。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::evicted_terminal_and_result_facts_do_not_leave_phantom_invocation_lookup_results"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L901:C3",
+            "title": "enriches an agent-id-only result peer with its exact child metadata path",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "enriches an agent-id-only result peer with its exact child metadata path；真实native linker语义断言：agent_id_result_peer_uses_its_exact_child_metadata_even_when_paths_are_duplicated。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::agent_id_result_peer_uses_its_exact_child_metadata_even_when_paths_are_duplicated"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L922:C3",
+            "title": "exposes an unobserved followup terminal so a known identical result cannot establish uniqueness",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "exposes an unobserved followup terminal so a known identical result cannot establish uniqueness；真实native linker语义断言：unknown_followup_and_identical_results_never_prove_a_unique_receipt。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::unknown_followup_and_identical_results_never_prove_a_unique_receipt"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L944:C3",
+            "title": "restores aborted terminals without creating result hashes and accepts legacy completed-result facts",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "restores aborted terminals without creating result hashes and accepts legacy completed-result facts；真实native linker语义断言：interrupted_terminal_and_legacy_result_restore_do_not_invent_result_text。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::interrupted_terminal_and_legacy_result_restore_do_not_invent_result_text"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L976:C3",
+            "title": "records real completion boundaries without fabricating an absent final message",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "records real completion boundaries without fabricating an absent final message；真实native linker语义断言：real_completion_without_final_text_records_terminal_but_keeps_outcome_unknown, every_completed_child_turn_needs_exact_result_evidence_before_outcome_is_known。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::real_completion_without_final_text_records_terminal_but_keeps_outcome_unknown"
+              },
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::every_completed_child_turn_needs_exact_result_evidence_before_outcome_is_known"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L995:C3",
+            "title": "evicts terminal facts and removes obsolete invocation terminal lookups",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "evicts terminal facts and removes obsolete invocation terminal lookups；真实native linker语义断言：evicted_terminal_and_result_facts_do_not_leave_phantom_invocation_lookup_results。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::evicted_terminal_and_result_facts_do_not_leave_phantom_invocation_lookup_results"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1010:C3",
+            "title": "requires result hashes for every completed turn before declaring an invocation outcome known",
+            "suites": [
+              "CodexSubagentLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requires result hashes for every completed turn before declaring an invocation outcome known；真实native linker语义断言：every_completed_child_turn_needs_exact_result_evidence_before_outcome_is_known。Linux glibc2.34：root已实跑全workspace四库1609全部通过，涵盖严格语义与8项索引/缓存确定性测试；Windows/macOS待原生平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/work_linker.rs",
+                "test": "tests::every_completed_child_turn_needs_exact_result_evidence_before_outcome_is_known"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

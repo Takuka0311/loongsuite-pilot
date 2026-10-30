@@ -1,10 +1,13 @@
-//! Depth-one Codex subagent linker. Port of `codex-subagent-linker.ts`.
+//! Recoverable native Codex work and child lineage. Port of `codex-subagent-linker.ts`.
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+#[path = "linker_facts.rs"]
+mod facts;
 #[path = "work_linker.rs"]
 mod work;
+use facts::{FactScope, FactValue, IndexedFacts, RevisionCache};
 pub use work::is_codex_work_input;
 
 use super::types::{
@@ -124,6 +127,50 @@ pub struct CodexSubagentLinkSnapshot {
     pub links: Vec<CodexSubagentLink>,
 }
 
+impl FactValue for CodexSpawnDescriptor {
+    fn scopes(&self) -> Vec<FactScope> {
+        let mut scopes = vec![FactScope::Parent(self.parent_thread_id.clone())];
+        if let Some(child) = self
+            .child_thread_id
+            .as_ref()
+            .or(self.resolved_child_thread_id.as_ref())
+        {
+            scopes.push(FactScope::Child(child.clone()));
+        } else if let Some(path) = self.agent_path.as_ref().or(self.task_name.as_ref()) {
+            scopes.push(FactScope::ParentPath(
+                self.parent_thread_id.clone(),
+                normalize_agent_path(path),
+            ));
+        }
+        if self
+            .dispatch_kind
+            .as_deref()
+            .is_none_or(|kind| kind == "spawn")
+        {
+            if let Some(path) = self.agent_path.as_ref().or(self.task_name.as_ref()) {
+                scopes.push(FactScope::CreationPath(
+                    self.parent_thread_id.clone(),
+                    normalize_agent_path(path),
+                ));
+            }
+        }
+        scopes
+    }
+}
+impl FactValue for CodexChildThreadDescriptor {
+    fn scopes(&self) -> Vec<FactScope> {
+        self.agent_path
+            .as_ref()
+            .map(|path| {
+                vec![FactScope::ParentPath(
+                    self.parent_thread_id.clone(),
+                    normalize_agent_path(path),
+                )]
+            })
+            .unwrap_or_default()
+    }
+}
+
 struct CandidateSelection {
     spawn: Option<CodexSpawnDescriptor>,
     confidence: Option<CodexSubagentLinkConfidence>,
@@ -132,11 +179,13 @@ struct CandidateSelection {
 
 #[derive(Debug, Default)]
 pub struct CodexSubagentLinker {
-    spawns: IndexMap<String, CodexSpawnDescriptor>,
-    children: IndexMap<String, CodexChildThreadDescriptor>,
-    bindings: IndexMap<String, work::WorkBinding>,
-    completed_results: IndexMap<String, work::CompletedResult>,
-    work_terminals: IndexMap<String, work::WorkTerminal>,
+    spawns: IndexedFacts<CodexSpawnDescriptor>,
+    children: IndexedFacts<CodexChildThreadDescriptor>,
+    bindings: IndexedFacts<work::WorkBinding>,
+    completed_results: IndexedFacts<work::CompletedResult>,
+    work_terminals: IndexedFacts<work::WorkTerminal>,
+    snapshot_cache: RevisionCache<(u64, u64), CodexSubagentLinkSnapshot>,
+    serialized_cache: RevisionCache<[u64; 5], serde_json::Value>,
 }
 
 impl CodexSubagentLinker {
@@ -184,6 +233,13 @@ impl CodexSubagentLinker {
     }
 
     pub fn snapshot(&self) -> CodexSubagentLinkSnapshot {
+        self.snapshot_cache
+            .get((self.spawns.revision(), self.children.revision()), || {
+                self.build_snapshot()
+            })
+    }
+
+    fn build_snapshot(&self) -> CodexSubagentLinkSnapshot {
         let spawns: Vec<CodexSpawnDescriptor> = self
             .spawns
             .values()
@@ -472,6 +528,33 @@ fn merge_spawn(
             .child_thread_id
             .clone()
             .or_else(|| previous.child_thread_id.clone()),
+        // A partial native observation omits facts it did not see. Keep that
+        // absence distinct from contradictory evidence and never promote a
+        // Pilot-resolved child into the native explicit-ID field.
+        resolved_child_thread_id: next
+            .resolved_child_thread_id
+            .clone()
+            .or_else(|| previous.resolved_child_thread_id.clone()),
+        dispatch_kind: next
+            .dispatch_kind
+            .clone()
+            .or_else(|| previous.dispatch_kind.clone()),
+        work_fingerprint: next
+            .work_fingerprint
+            .clone()
+            .or_else(|| previous.work_fingerprint.clone()),
+        child_turn_id: next
+            .child_turn_id
+            .clone()
+            .or_else(|| previous.child_turn_id.clone()),
+        agent_nickname: next
+            .agent_nickname
+            .clone()
+            .or_else(|| previous.agent_nickname.clone()),
+        // Native extraction only adds these flags when it observes failure or
+        // conflicting evidence; a later sparse observation cannot retract it.
+        dispatch_failed: previous.dispatch_failed || next.dispatch_failed,
+        association_conflict: previous.association_conflict || next.association_conflict,
         ..next.clone()
     }
 }
@@ -499,7 +582,7 @@ pub fn normalize_agent_path(value: &str) -> String {
     }
 }
 
-fn trim_oldest<T>(values: &mut IndexMap<String, T>, max_size: usize) {
+fn trim_oldest<T: FactValue>(values: &mut IndexedFacts<T>, max_size: usize) {
     while values.len() > max_size {
         values.shift_remove_index(0);
     }

@@ -1,11 +1,12 @@
 //! Native Copilot plugin configuration, ownership and shell integration.
+mod jsonc_cleanup;
 use crate::types::{
     AgentDefinition, CopilotPluginHookConfig, DeployMode, DeployResult, DeployStrategy,
     DeployedAgentRecord, EventSubcommand,
 };
 use crate::utils::{
-    edit_jsonc, parse_json_document, resolve_home, write_text_file_atomic, AtomicTextWriteOptions,
-    ExpectedFileState, JsonEditOptions, JsonPathSeg, JsonSyntax,
+    parse_json_document, resolve_home, write_text_file_atomic, AtomicTextWriteOptions,
+    ExpectedFileState, JsonSyntax,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -18,6 +19,44 @@ struct Snapshot {
     path: String,
     content: Option<String>,
     mode: u32,
+    config_alias: Option<ConfigAlias>,
+}
+
+/// Only user configuration opts in to following a final symlink. Assets and
+/// ownership markers continue to use the strict ordinary-file Snapshot::read.
+#[derive(PartialEq, Eq)]
+struct ConfigAlias {
+    path: PathBuf,
+    target: PathBuf,
+    raw_target: PathBuf,
+    modified: Option<std::time::SystemTime>,
+    created: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+impl ConfigAlias {
+    fn capture(path: &Path) -> anyhow::Result<Self> {
+        let metadata = std::fs::symlink_metadata(path)?;
+        anyhow::ensure!(
+            metadata.file_type().is_symlink(),
+            "Copilot config alias is no longer a symlink"
+        );
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Ok(Self {
+            path: path.to_owned(),
+            target: std::fs::canonicalize(path)?,
+            raw_target: std::fs::read_link(path)?,
+            modified: metadata.modified().ok(),
+            created: metadata.created().ok(),
+            #[cfg(unix)]
+            device: metadata.dev(),
+            #[cfg(unix)]
+            inode: metadata.ino(),
+        })
+    }
 }
 impl Snapshot {
     async fn read(path: &Path) -> anyhow::Result<Self> {
@@ -56,7 +95,43 @@ impl Snapshot {
             path: path.to_string_lossy().into_owned(),
             content,
             mode,
+            config_alias: None,
         })
+    }
+
+    async fn read_config(path: &Path) -> anyhow::Result<Self> {
+        if std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            let alias = ConfigAlias::capture(path)?;
+            let mut snapshot = Self::read(&alias.target).await?;
+            snapshot.config_alias = Some(alias);
+            snapshot.validate_config_alias()?;
+            Ok(snapshot)
+        } else {
+            Self::read(path).await
+        }
+    }
+    fn validate_config_alias(&self) -> anyhow::Result<()> {
+        let Some(alias) = &self.config_alias else {
+            return Ok(());
+        };
+        anyhow::ensure!(
+            ConfigAlias::capture(&alias.path)? == *alias,
+            "Copilot configuration alias changed; original targets preserved"
+        );
+        let metadata = crate::utils::runtime_paths::runtime_metadata(Path::new(&self.path))?;
+        anyhow::ensure!(
+            metadata.is_file() && metadata.len() <= 4 * 1024 * 1024,
+            "Copilot configuration target changed"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            anyhow::ensure!(
+                metadata.permissions().mode() & 0o777 == self.mode,
+                "Copilot configuration target permissions changed"
+            );
+        }
+        Ok(())
     }
     fn json(&self) -> anyhow::Result<Value> {
         let value = parse_json_document(self.content.as_deref().unwrap_or("{}"), JsonSyntax::Jsonc)
@@ -67,6 +142,7 @@ impl Snapshot {
         Ok(value)
     }
     async fn write(&self, content: &str) -> anyhow::Result<()> {
+        self.validate_config_alias()?;
         if self.content.as_deref() == Some(content) {
             return Ok(());
         }
@@ -85,9 +161,12 @@ impl Snapshot {
             },
         )
         .await?;
+        self.validate_config_alias()?;
         Ok(())
     }
+    #[cfg(test)]
     async fn write_key(&self, key: &str, value: Option<Value>) -> anyhow::Result<()> {
+        use crate::utils::{edit_jsonc, JsonEditOptions, JsonPathSeg};
         let content = edit_jsonc(
             self.content.as_deref().unwrap_or("{}\n"),
             &[JsonPathSeg::Key(key.into())],
@@ -343,13 +422,24 @@ impl CopilotPluginStrategy {
             "Copilot automatic deployment currently supports Unix shells only"
         );
         let root = PathBuf::from(resolve_home(&config.plugin_root));
-        let settings = Snapshot::read(Path::new(&resolve_home(&config.settings_path))).await?;
-        let installed = Snapshot::read(Path::new(&resolve_home(&config.config_path))).await?;
+        let settings =
+            Snapshot::read_config(Path::new(&resolve_home(&config.settings_path))).await?;
+        let installed =
+            Snapshot::read_config(Path::new(&resolve_home(&config.config_path))).await?;
         let settings_value = settings.json()?;
         let config_value = installed.json()?;
         validate_registration(&settings_value, &config_value)?;
         let profiles = shell_snapshots(&self.home_dir).await?;
         owned_root(&root, Some((config, &settings_value, &config_value))).await?;
+        let entry = json!({"name":config.plugin_id,"marketplace":config.plugin_id,"installed_at":super::paths::iso_now(),
+            "enabled":true,"version":"0.1.0","cache_path":root.to_string_lossy()});
+        // Compute and validate both complete documents before any deployment writes.
+        let (next_settings, next_installed) = jsonc_cleanup::set_registration(
+            settings.content.as_deref().unwrap_or("{}\n"),
+            installed.content.as_deref().unwrap_or("{}\n"),
+            &config.plugin_id,
+            entry,
+        )?;
         tokio::fs::create_dir_all(&root).await?;
         Snapshot::read(&root.join(MARKER))
             .await?
@@ -371,60 +461,32 @@ impl CopilotPluginStrategy {
                 .write(&format!("{}\n", serde_json::to_string_pretty(&value)?))
                 .await?;
         }
-        let mut enabled = settings_value
-            .get("enabledPlugins")
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
-        enabled.insert(
-            format!("{}@{}", config.plugin_id, config.plugin_id),
-            json!(true),
-        );
-        settings
-            .write_key("enabledPlugins", Some(json!(enabled)))
-            .await?;
-        let mut entries = config_value
-            .get("installedPlugins")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        entries.retain(|value| !owned_registration(value, &config.plugin_id));
-        entries.push(json!({"name":config.plugin_id,"marketplace":config.plugin_id,"installed_at":super::paths::iso_now(),
-            "enabled":true,"version":"0.1.0","cache_path":root.to_string_lossy()}));
-        installed
-            .write_key("installedPlugins", Some(json!(entries)))
-            .await?;
+        settings.write(&next_settings).await?;
+        installed.write(&next_installed).await?;
         install_shell(&self.data_dir, &profiles).await?;
         Ok(())
     }
     async fn unregister(&self, config: &CopilotPluginHookConfig) -> anyhow::Result<()> {
         let root = PathBuf::from(resolve_home(&config.plugin_root));
-        let settings = Snapshot::read(Path::new(&resolve_home(&config.settings_path))).await?;
-        let installed = Snapshot::read(Path::new(&resolve_home(&config.config_path))).await?;
+        let settings =
+            Snapshot::read_config(Path::new(&resolve_home(&config.settings_path))).await?;
+        let installed =
+            Snapshot::read_config(Path::new(&resolve_home(&config.config_path))).await?;
         let settings_value = settings.json()?;
         let config_value = installed.json()?;
         validate_registration(&settings_value, &config_value)?;
         let profiles = shell_snapshots(&self.home_dir).await?;
         let owned = owned_root(&root, Some((config, &settings_value, &config_value))).await?;
-        if let Some(mut enabled) = settings_value
-            .get("enabledPlugins")
-            .and_then(Value::as_object)
-            .cloned()
-        {
-            enabled.remove(&format!("{}@{}", config.plugin_id, config.plugin_id));
-            settings
-                .write_key("enabledPlugins", Some(json!(enabled)))
-                .await?;
+        let (next_settings, next_installed) = jsonc_cleanup::remove_registrations(
+            settings.content.as_deref().unwrap_or("{}\n"),
+            installed.content.as_deref().unwrap_or("{}\n"),
+            &config.plugin_id,
+        )?;
+        if settings.content.is_some() {
+            settings.write(&next_settings).await?;
         }
-        if let Some(mut entries) = config_value
-            .get("installedPlugins")
-            .and_then(Value::as_array)
-            .cloned()
-        {
-            entries.retain(|value| !owned_registration(value, &config.plugin_id));
-            installed
-                .write_key("installedPlugins", Some(json!(entries)))
-                .await?;
+        if installed.content.is_some() {
+            installed.write(&next_installed).await?;
         }
         match tokio::fs::remove_file(self.data_dir.join("state/copilot/otel-enabled")).await {
             Ok(()) => {}
@@ -457,10 +519,10 @@ impl CopilotPluginStrategy {
                 return Ok(false);
             }
         }
-        let settings = Snapshot::read(Path::new(&resolve_home(&config.settings_path)))
+        let settings = Snapshot::read_config(Path::new(&resolve_home(&config.settings_path)))
             .await?
             .json()?;
-        let installed = Snapshot::read(Path::new(&resolve_home(&config.config_path)))
+        let installed = Snapshot::read_config(Path::new(&resolve_home(&config.config_path)))
             .await?
             .json()?;
         validate_registration(&settings, &installed)?;
@@ -828,6 +890,263 @@ mod tests {
         assert!(!strategy.undeploy(&def).await);
         assert_eq!(tokio::fs::read(&original).await.unwrap(), before);
         assert!(plugin.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn uninstall_preserves_nested_foreign_jsonc_comments_and_separator_trivia() {
+        for position in 0..3 {
+            let root = tempfile::tempdir().unwrap();
+            let home = root.path().join("home");
+            tokio::fs::create_dir_all(&home).await.unwrap();
+            let def = definition(root.path());
+            let strategy =
+                CopilotPluginStrategy::new(root.path().join("data")).with_home_dir(&home);
+            assert!(strategy.deploy(&def).await.success);
+            let settings = home.join("settings.json");
+            let config = home.join("config.json");
+            let original_settings="\u{feff}// user settings\n{\"enabledPlugins\":{\"loongsuite-pilot@loongsuite-pilot\":true,\n// foreign registration\n\"third@third\":true,},\"user\":\"中文\"}\n";
+            let mut entries = vec![r#"{"name":"first"}"#, r#"{"name":"last"}"#];
+            entries.insert(
+                position,
+                r#"{"name":"loongsuite-pilot","marketplace":"loongsuite-pilot"}"#,
+            );
+            let original_config=format!("// user CLI\n{{\"installedPlugins\":[{}],\"url\":\"https://example.test/path//keep\"}}\n",entries.join(", /* foreign separator */ "));
+            tokio::fs::write(&settings, original_settings)
+                .await
+                .unwrap();
+            tokio::fs::write(&config, &original_config).await.unwrap();
+            assert!(strategy.undeploy(&def).await);
+            let next_settings = tokio::fs::read_to_string(&settings).await.unwrap();
+            let next_config = tokio::fs::read_to_string(&config).await.unwrap();
+            assert!(next_settings.starts_with('\u{feff}'));
+            assert!(
+                next_settings.contains("// user settings")
+                    && next_settings.contains("// foreign registration")
+            );
+            assert!(next_config.contains("// user CLI"));
+            assert_eq!(next_config.matches("foreign separator").count(), 2);
+            assert_eq!(
+                Snapshot::read(&config).await.unwrap().json().unwrap()["installedPlugins"],
+                json!([{"name":"first"},{"name":"last"}])
+            );
+            assert_eq!(
+                Snapshot::read(&settings).await.unwrap().json().unwrap()["enabledPlugins"],
+                json!({"third@third":true})
+            );
+            assert!(!home.join("plugins/pilot").exists());
+            assert!(strategy.undeploy(&def).await);
+            assert_eq!(
+                tokio::fs::read_to_string(&settings).await.unwrap(),
+                next_settings
+            );
+            assert_eq!(
+                tokio::fs::read_to_string(&config).await.unwrap(),
+                next_config
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn user_config_symlink_cleanup_preserves_alias_target_mode_bom_and_jsonc() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        tokio::fs::create_dir_all(&home).await.unwrap();
+        let def = definition(root.path());
+        let strategy = CopilotPluginStrategy::new(root.path().join("data")).with_home_dir(&home);
+        assert!(strategy.deploy(&def).await.success);
+        let alias = home.join("settings.json");
+        let target = home.join("settings-target.json");
+        tokio::fs::remove_file(&alias).await.unwrap();
+        let original="\u{feff}{\"enabledPlugins\":{\"loongsuite-pilot@loongsuite-pilot\":true,/* foreign */\"other\":true},\"foreign\":\"中文\"}\n";
+        tokio::fs::write(&target, original).await.unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+        symlink("settings-target.json", &alias).unwrap();
+        assert!(strategy.undeploy(&def).await);
+        assert!(std::fs::symlink_metadata(&alias)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            std::fs::read_link(&alias).unwrap(),
+            PathBuf::from("settings-target.json")
+        );
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        let raw = tokio::fs::read_to_string(&target).await.unwrap();
+        assert!(raw.starts_with('\u{feff}'));
+        assert!(raw.contains("/* foreign */"));
+        assert_eq!(
+            Snapshot::read_config(&alias).await.unwrap().json().unwrap(),
+            json!({"enabledPlugins":{"other":true},"foreign":"中文"})
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn config_alias_retarget_and_target_cas_changes_never_overwrite_either_file() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let alias = root.path().join("settings.json");
+        let first = root.path().join("first.json");
+        let second = root.path().join("second.json");
+        tokio::fs::write(&first, "{\"value\":\"first\"}")
+            .await
+            .unwrap();
+        tokio::fs::write(&second, "{\"value\":\"second\"}")
+            .await
+            .unwrap();
+        symlink(&first, &alias).unwrap();
+        let snapshot = Snapshot::read_config(&alias).await.unwrap();
+        tokio::fs::remove_file(&alias).await.unwrap();
+        symlink(&second, &alias).unwrap();
+        assert!(snapshot.write("{\"value\":\"overwrite\"}").await.is_err());
+        assert_eq!(
+            tokio::fs::read_to_string(&first).await.unwrap(),
+            "{\"value\":\"first\"}"
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(&second).await.unwrap(),
+            "{\"value\":\"second\"}"
+        );
+        let snapshot = Snapshot::read_config(&alias).await.unwrap();
+        tokio::fs::write(&second, "{\"value\":\"concurrent\"}")
+            .await
+            .unwrap();
+        assert!(snapshot.write("{\"value\":\"overwrite\"}").await.is_err());
+        assert_eq!(
+            tokio::fs::read_to_string(&second).await.unwrap(),
+            "{\"value\":\"concurrent\"}"
+        );
+        assert!(std::fs::symlink_metadata(&alias)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn final_config_symlink_opt_in_does_not_weaken_asset_or_dangling_link_guards() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("user.json");
+        tokio::fs::write(&target, "{}").await.unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = root.path().join("settings.json");
+        symlink(&target, &alias).unwrap();
+        assert!(Snapshot::read(&alias).await.is_err());
+        let snapshot = Snapshot::read_config(&alias).await.unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(snapshot.write("{\"new\":true}").await.is_err());
+        assert_eq!(tokio::fs::read_to_string(&target).await.unwrap(), "{}");
+        let dangling = root.path().join("dangling.json");
+        let absent = root.path().join("missing.json");
+        symlink(&absent, &dangling).unwrap();
+        assert!(Snapshot::read_config(&dangling).await.is_err());
+        assert!(!absent.exists());
+        assert!(std::fs::symlink_metadata(&dangling)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn deploy_and_repair_preserve_foreign_nested_jsonc_comments_and_alias_permissions() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        for position in 0..3 {
+            let root = tempfile::tempdir().unwrap();
+            let home = root.path().join("home");
+            tokio::fs::create_dir_all(&home).await.unwrap();
+            let def = definition(root.path());
+            let strategy =
+                CopilotPluginStrategy::new(root.path().join("data")).with_home_dir(&home);
+            let target = home.join("settings-target.json");
+            let alias = home.join("settings.json");
+            let settings="\u{feff}// user settings\n{\"enabledPlugins\":{/* head */\"third@third\":true,/* between */\"loongsuite-pilot@loongsuite-pilot\":false,/* tail */},\"custom\":\"中文\"}\n";
+            tokio::fs::write(&target, settings).await.unwrap();
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+            symlink("settings-target.json", &alias).unwrap();
+            let mut entries = vec![
+                r#"{"name":"first","details":{/* nested foreign */"value":42}}"#,
+                r#"{"name":"last"}"#,
+            ];
+            entries.insert(
+                position,
+                r#"{"name":"loongsuite-pilot","marketplace":"loongsuite-pilot"}"#,
+            );
+            let config=format!("// CLI metadata\n{{\"installedPlugins\":[/* array head */{},/* array tail */],\"url\":\"https://example.test//literal\"}}\n",entries.join(",/* separator */"));
+            tokio::fs::write(home.join("config.json"), config)
+                .await
+                .unwrap();
+            for repair in [false, true] {
+                if repair {
+                    tokio::fs::write(home.join("plugins/pilot/hooks/hooks.json"), "{}")
+                        .await
+                        .unwrap();
+                    assert!(!strategy
+                        .healthy(def.copilot_plugin.as_ref().unwrap())
+                        .await
+                        .unwrap());
+                }
+                let result = strategy.deploy(&def).await;
+                assert!(result.success, "{:?}", result.error);
+                let a = tokio::fs::read_to_string(&target).await.unwrap();
+                let b = tokio::fs::read_to_string(home.join("config.json"))
+                    .await
+                    .unwrap();
+                assert!(a.starts_with('\u{feff}'));
+                for marker in [
+                    "// user settings",
+                    "/* head */",
+                    "/* between */",
+                    "/* tail */",
+                ] {
+                    assert!(a.contains(marker));
+                }
+                for marker in [
+                    "// CLI metadata",
+                    "/* array head */",
+                    "/* array tail */",
+                    "/* nested foreign */",
+                ] {
+                    assert!(b.contains(marker));
+                }
+                assert_eq!(b.matches("/* separator */").count(), 2);
+                assert_eq!(
+                    Snapshot::read_config(&alias).await.unwrap().json().unwrap()["enabledPlugins"],
+                    json!({"third@third":true,"loongsuite-pilot@loongsuite-pilot":true})
+                );
+                let parsed = Snapshot::read_config(&home.join("config.json"))
+                    .await
+                    .unwrap()
+                    .json()
+                    .unwrap();
+                let entries = parsed["installedPlugins"].as_array().unwrap();
+                assert_eq!(entries.len(), 3);
+                assert_eq!(
+                    entries
+                        .iter()
+                        .filter(|entry| owned_registration(entry, "loongsuite-pilot"))
+                        .count(),
+                    1
+                );
+                assert_eq!(entries[0], json!({"name":"first","details":{"value":42}}));
+                assert_eq!(entries[1], json!({"name":"last"}));
+                assert!(std::fs::symlink_metadata(&alias)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink());
+                assert_eq!(
+                    std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                    0o640
+                );
+            }
+        }
     }
 
     #[tokio::test]

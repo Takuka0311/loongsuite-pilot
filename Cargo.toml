@@ -1,5 +1,6 @@
 [workspace]
 members = [".", "xtask"]
+exclude = ["vendor/boa_engine-0.22.0", "vendor/boa_parser-0.22.0"]
 default-members = ["."]
 resolver = "2"
 
@@ -20,6 +21,7 @@ default = []
 proprietary = []
 
 [dependencies]
+boa_engine = { version = "0.22.0", default-features = false }
 anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
@@ -69,3 +71,9 @@ opt-level = 3
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
+
+# Boa 0.22: upstream source retained; only mandatory ICU bounds moved to 2.4.
+# See vendor/boa-0.22.0-ICU24-PROVENANCE.json for official SHA and exact edits.
+[patch.crates-io]
+boa_engine = { path = "vendor/boa_engine-0.22.0" }
+boa_parser = { path = "vendor/boa_parser-0.22.0" }

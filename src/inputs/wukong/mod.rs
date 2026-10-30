@@ -150,6 +150,10 @@ impl WukongBody {
 }
 
 impl WukongInput {
+    pub(crate) fn collector_runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        self.inner.runtime.runtime_info()
+    }
+
     pub fn new(opts: WukongInputOptions) -> Self {
         let cli_path = opts.cli_path.clone().unwrap_or_else(Self::get_cli_path);
         Self::build(opts, Arc::new(ProcessRunner { cli_path }))

@@ -62,6 +62,6 @@ pub use sls_transport::{
     SlsTransportConfig, WEBTRACKING_MAX_BODY_BYTES, WEBTRACKING_MAX_LOGS, WEBTRACKING_TIMEOUT_MS,
 };
 pub use span_enricher::{
-    SpanEnricher, SpanEnricherContext, SpanEnricherRunner, SpanView, LEGACY_ENRICHER_ERROR,
+    run_span_enricher_worker, SpanEnricher, SpanEnricherContext, SpanEnricherRunner, SpanView,
 };
 pub use span_id_reservation::{ReservedSpanIdGenerator, SpanIdGate, SpanIdReservations};

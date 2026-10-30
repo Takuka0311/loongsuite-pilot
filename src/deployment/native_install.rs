@@ -558,7 +558,12 @@ pub(crate) fn service_files(
             bytes.splice(0..0, [0xef, 0xbb, 0xbf]);
         }
     } else {
-        let source = std::str::from_utf8(&bytes).context("服务脚本不是 UTF-8")?;
+        let mut source = std::str::from_utf8(&bytes)
+            .context("服务脚本不是 UTF-8")?
+            .to_owned();
+        if let Some(runtime) = super::runtime_launcher::RuntimeLauncher::read(cache, data)? {
+            source = runtime.bind(&source, destination, config)?;
+        }
         let (shebang, rest) = source.split_once('\n').context("服务脚本缺少 shebang")?;
         ensure!(shebang.starts_with("#!"), "服务脚本缺少 shebang");
         let mut bound = format!("{shebang}\n# 本安装的默认路径；显式环境变量优先。\n");

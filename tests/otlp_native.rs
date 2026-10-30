@@ -279,11 +279,15 @@ async fn cp5_single_and_incremental_turns_preserve_unique_spans_and_last_output(
 }
 
 #[test]
-fn legacy_script_extensions_are_rejected_before_transport() {
+fn optional_script_extensions_are_accepted_lazily_before_transport() {
     let data = tempfile::tempdir().unwrap();
     let mut config = config("http://127.0.0.1:1", data.path(), "none");
     config.span_enricher_paths = Some(vec!["old.mjs".into()]);
-    let error = OtlpTraceFlusher::new(config).unwrap_err();
-    assert!(error.contains("Rust SpanEnricher"));
+    let flusher = OtlpTraceFlusher::new(config).unwrap();
+    assert!(flusher
+        .endpoint_counters()
+        .values()
+        .all(|counter| counter.out_spans == 0));
+    drop(flusher);
     assert_eq!(std::fs::read_dir(data.path()).unwrap().count(), 0);
 }

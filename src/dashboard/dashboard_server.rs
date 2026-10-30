@@ -29,6 +29,7 @@ pub struct DashboardServer {
     instance_id: String,
     running: AtomicBool,
     bound_port: Mutex<Option<u16>>,
+    last_start_error: Mutex<Option<String>>,
     stop: Mutex<Option<Arc<AtomicBool>>>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
@@ -51,6 +52,7 @@ impl DashboardServer {
             instance_id: dashboard_instance_id(&options.data_dir),
             running: AtomicBool::new(false),
             bound_port: Mutex::new(None),
+            last_start_error: Mutex::new(None),
             stop: Mutex::new(None),
             thread: Mutex::new(None),
         }
@@ -67,13 +69,39 @@ impl DashboardServer {
             .map(|port| format!("http://{}:{port}/", self.host))
     }
 
+    /// Last startup refusal, including a non-fatal occupied listening port.
+    pub fn last_start_error(&self) -> Option<String> {
+        self.last_start_error
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone()
+    }
+
     pub fn start(&self) -> Result<(), String> {
         if self.running() {
             return Ok(());
         }
+        *self
+            .last_start_error
+            .lock()
+            .unwrap_or_else(|err| err.into_inner()) = None;
         let listener = match TcpListener::bind((self.host.as_str(), self.port)) {
             Ok(listener) => listener,
-            Err(_) => return Ok(()),
+            Err(error) => {
+                let detail = format!(
+                    "dashboard bind failed at {}:{} ({:?}): {}",
+                    self.host,
+                    self.port,
+                    error.kind(),
+                    error
+                );
+                crate::utils::create_logger("DashboardServer").warn(&detail, None);
+                *self
+                    .last_start_error
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner()) = Some(detail);
+                return Ok(());
+            }
         };
         let bound = listener
             .local_addr()
@@ -496,7 +524,14 @@ mod tests {
         });
         blocked.start().unwrap();
         assert!(!blocked.running());
+        let refusal = blocked.last_start_error().unwrap();
+        assert!(refusal.contains("AddrInUse"));
+        assert!(refusal.contains(&occupied_port.to_string()));
         drop(occupied);
+        blocked.start().unwrap();
+        assert!(blocked.running());
+        assert!(blocked.last_start_error().is_none());
+        blocked.stop();
         server.stop();
     }
 }

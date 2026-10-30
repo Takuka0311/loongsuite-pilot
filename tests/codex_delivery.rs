@@ -590,3 +590,625 @@ async fn discovery_startup_outage_keeps_later_agents_running_and_one_inflight_cy
         }
     }
 }
+async fn disk_has_source_key(path: &Path, key: &str) -> bool {
+    match tokio::fs::read(path).await {
+        Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
+            .unwrap()
+            .get(key)
+            .is_some(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => panic!("failed reading synthetic checkpoint: {error}"),
+    }
+}
+
+/// Fault injection: normal startup/collect has saved this source checkpoint.
+/// Remove just its synthetic disk key, retaining all other source values and
+/// the independent body-free ownership/floor sidecar byte-for-byte.
+async fn lose_synthetic_source_checkpoint(root: &Path, path: &Path, key: &str) {
+    assert!(
+        disk_has_source_key(path, key).await,
+        "normal baseline/park checkpoint must be saved before fault injection"
+    );
+    let owners = root.join("wakeups/source-owners");
+    let snapshot_owners = || -> std::collections::BTreeMap<_, _> {
+        std::fs::read_dir(&owners)
+            .unwrap()
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                let bytes = std::fs::read(&path).unwrap();
+                (path, bytes)
+            })
+            .collect()
+    };
+    let before_owners = snapshot_owners();
+    assert!(!before_owners.is_empty());
+    let mut expected: Value =
+        serde_json::from_slice(&tokio::fs::read(path).await.unwrap()).unwrap();
+    assert!(expected.as_object_mut().unwrap().remove(key).is_some());
+    assert!(
+        expected.get("unrelated-source").is_some(),
+        "keep an unrelated checkpoint as a loss-isolation control"
+    );
+    tokio::fs::write(path, serde_json::to_vec(&expected).unwrap())
+        .await
+        .unwrap();
+    assert!(!disk_has_source_key(path, key).await);
+    let after: Value = serde_json::from_slice(&tokio::fs::read(path).await.unwrap()).unwrap();
+    assert_eq!(
+        after, expected,
+        "fault injection changed another canonical state value"
+    );
+    assert_eq!(
+        snapshot_owners(),
+        before_owners,
+        "fault injection changed independent source ownership/floor metadata"
+    );
+}
+
+fn assert_replayed_native_facts(receiver: &Receiver) {
+    let bodies = receiver.accepted.lock().unwrap();
+    let entries: Vec<_> = bodies
+        .iter()
+        .flat_map(|body| body["entries"].as_array().unwrap().iter())
+        .collect();
+    let names: BTreeSet<_> = entries
+        .iter()
+        .filter_map(|entry| entry["event.name"].as_str())
+        .collect();
+    for name in ["llm.request", "llm.response", "tool.call", "tool.result"] {
+        assert!(names.contains(name), "missing native replay fact {name}");
+    }
+    assert!(entries
+        .iter()
+        .any(|entry| entry["event.name"] == "llm.request"
+            && entry["gen_ai.input.messages"]
+                .to_string()
+                .contains("fix it")));
+    assert!(entries
+        .iter()
+        .any(|entry| entry["event.name"] == "llm.response"
+            && entry["gen_ai.output.messages"]
+                .to_string()
+                .contains("fixed")));
+
+    let tool_call = entries
+        .iter()
+        .find(|entry| entry["event.name"] == "tool.call")
+        .expect("missing tool.call");
+    let arguments = tool_call["gen_ai.tool.call.arguments"]
+        .as_str()
+        .expect("HTTP log fields preserve the string serialization contract");
+    // The native fixture supplied this exact JSON text. HTTP log serialization
+    // retains its bytes here and the parsed object must retain the same command.
+    assert_eq!(arguments.as_bytes(), br#"{"command":"pwd"}"#);
+    assert_eq!(
+        serde_json::from_str::<Value>(arguments).unwrap(),
+        json!({"command":"pwd"})
+    );
+
+    assert!(entries
+        .iter()
+        .any(|entry| entry["event.name"] == "tool.result"
+            && entry["gen_ai.tool.call.result"]
+                .to_string()
+                .contains("/tmp/project")));
+}
+
+#[tokio::test]
+async fn native_codex_fresh_source_without_any_disk_key_replays_after_http_cancellation() {
+    let root = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(root.path().join("sessions"))
+        .await
+        .unwrap();
+    let hanging = Receiver::new(true).await;
+    let path = root.path().join("state.json");
+    let rollout = root.path().join("sessions/rollout-session-1.jsonl");
+    let key = format!("codex-transcript:{}", rollout.to_string_lossy());
+    let store = Arc::new(StateStore::new(&path));
+    // Persist only an unrelated source. The rollout has never had a durable key,
+    // including an explicit zero offset, before or after its first failed output.
+    store.set_offset("unrelated-source", 7.0);
+    store.save().await.unwrap();
+    assert!(!disk_has_source_key(&path, &key).await);
+    let (input, manager, http) = pipeline(root.path(), store.clone(), &hanging.url);
+    http.start().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), input.start())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!rollout.exists());
+    tokio::fs::write(&rollout, completed_turn()).await.unwrap();
+    input.request_collection();
+    eventually(|| hanging.requests.load(Ordering::SeqCst) > 0).await;
+    assert!(store.waiting_for_output());
+    assert!(!disk_has_source_key(&path, &key).await);
+
+    // The ownership sidecar is metadata only and must exist before the request
+    // can be observed; it cannot contain transcript bodies or acknowledged offset.
+    let owners: Vec<_> = std::fs::read_dir(root.path().join("wakeups/source-owners"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(owners.len(), 1);
+    let metadata = std::fs::read_to_string(&owners[0]).unwrap();
+    for raw in [
+        "fix it",
+        "Follow the project conventions.",
+        "/tmp/project",
+        "exec_command",
+    ] {
+        assert!(
+            !metadata.contains(raw),
+            "source ownership retained business text"
+        );
+    }
+    let metadata: Value = serde_json::from_str(&metadata).unwrap();
+    assert_eq!(metadata.as_object().unwrap().len(), 6);
+    assert!(metadata.get("scanOffset").is_none());
+    assert!(metadata.get("lastOffset").is_none());
+
+    manager.cancel_pending_outputs();
+    tokio::time::timeout(Duration::from_secs(1), manager.stop_all())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), http.shutdown())
+        .await
+        .unwrap()
+        .unwrap();
+    eventually(|| hanging.disconnected.load(Ordering::SeqCst) > 0).await;
+    assert!(store.save_failed());
+    assert!(store.save().await.is_err());
+    assert!(!disk_has_source_key(&path, &key).await);
+
+    let receiver = Receiver::new(false).await;
+    receiver.healthy.store(true, Ordering::SeqCst);
+    // A fresh StateStore is essential: neither the input's checkpoint nor its
+    // firstOwned ID is inherited from the cancelled process's memory.
+    let restored = Arc::new(StateStore::new(&path));
+    restored.load().await;
+    assert!(restored.get(&key).last_offset().is_none());
+    let (input, manager, http) = pipeline(root.path(), restored.clone(), &receiver.url);
+    http.start().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), input.start())
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), restored.save())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        disk_offset(&path, &key).await,
+        completed_turn().len() as f64
+    );
+    assert_eq!(disk_offset(&path, "unrelated-source").await, 7.0);
+    assert_replayed_native_facts(&receiver);
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_codex_first_install_keeps_existing_history_baselined() {
+    let root = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(root.path().join("sessions"))
+        .await
+        .unwrap();
+    let rollout = root.path().join("sessions/rollout-session-1.jsonl");
+    tokio::fs::write(&rollout, completed_turn()).await.unwrap();
+    let path = root.path().join("state.json");
+    let key = format!("codex-transcript:{}", rollout.to_string_lossy());
+    let store = Arc::new(StateStore::new(&path));
+    let receiver = Receiver::new(false).await;
+    receiver.healthy.store(true, Ordering::SeqCst);
+    let (input, manager, http) = pipeline(root.path(), store.clone(), &receiver.url);
+    http.start().await.unwrap();
+    input.start().await.unwrap();
+    input.run_cycle().await;
+    store.save().await.unwrap();
+    assert_eq!(
+        disk_offset(&path, &key).await,
+        completed_turn().len() as f64
+    );
+    assert_eq!(receiver.requests.load(Ordering::SeqCst), 0);
+    let metadata = only_source_metadata(root.path());
+    assert_eq!(
+        metadata["baseline_floor"],
+        json!({"offset": completed_turn().len(), "copied": false})
+    );
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_codex_source_ownership_recovers_checkpoint_loss_without_promoting_copied_history() {
+    let root = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(root.path().join("sessions"))
+        .await
+        .unwrap();
+    let path = root.path().join("state.json");
+    let rollout = root.path().join("sessions/rollout-session-1.jsonl");
+    let key = format!("codex-transcript:{}", rollout.to_string_lossy());
+    let receiver = Receiver::new(false).await;
+    receiver.healthy.store(true, Ordering::SeqCst);
+    let store = Arc::new(StateStore::new(&path));
+    store.set_offset("unrelated-source", 7.0);
+    store.save().await.unwrap();
+    let (input, manager, http) = pipeline(root.path(), store.clone(), &receiver.url);
+    http.start().await.unwrap();
+    input.start().await.unwrap();
+    let mut records: Vec<Value> = completed_turn()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    records[0]["payload"]["forked_from_id"] = json!("copied-parent-session");
+    let copied = records
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    tokio::fs::write(&rollout, copied).await.unwrap();
+    input.run_cycle().await;
+    assert_eq!(receiver.requests.load(Ordering::SeqCst), 0);
+    assert!(root.path().join("wakeups/source-owners").exists());
+    lose_synthetic_source_checkpoint(root.path(), &path, &key).await;
+    // Simulate loss of the normally persisted parked checkpoint, not an ACK or save cancellation.
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+
+    let restored = Arc::new(StateStore::new(&path));
+    restored.load().await;
+    let (input, manager, http) = pipeline(root.path(), restored.clone(), &receiver.url);
+    http.start().await.unwrap();
+    input.start().await.unwrap();
+    input.run_cycle().await;
+    restored.save().await.unwrap();
+    assert_eq!(receiver.requests.load(Ordering::SeqCst), 0);
+    // There is no Hook first-owned ID or valid UUIDv7 provenance. Merely seeing
+    // a copied source live must not convert its inherited turn into own work.
+    assert_eq!(disk_offset(&path, &key).await, 0.0);
+    assert_eq!(disk_offset(&path, "unrelated-source").await, 7.0);
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_codex_cannot_emit_when_durable_source_ownership_cannot_be_written() {
+    let root = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(root.path().join("sessions"))
+        .await
+        .unwrap();
+    tokio::fs::create_dir(root.path().join("wakeups"))
+        .await
+        .unwrap();
+    tokio::fs::write(root.path().join("wakeups/source-owners"), b"blocked")
+        .await
+        .unwrap();
+    let path = root.path().join("state.json");
+    let rollout = root.path().join("sessions/rollout-session-1.jsonl");
+    let key = format!("codex-transcript:{}", rollout.to_string_lossy());
+    let store = Arc::new(StateStore::new(&path));
+    let receiver = Receiver::new(false).await;
+    receiver.healthy.store(true, Ordering::SeqCst);
+    let (input, manager, http) = pipeline(root.path(), store.clone(), &receiver.url);
+    http.start().await.unwrap();
+    input.start().await.unwrap();
+    tokio::fs::write(&rollout, completed_turn()).await.unwrap();
+    input.run_cycle().await;
+    assert_eq!(receiver.requests.load(Ordering::SeqCst), 0);
+    assert!(store.get(&key).last_offset().is_none());
+    assert!(!disk_has_source_key(&path, &key).await);
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+}
+
+fn synthetic_history() -> String {
+    completed_turn()
+        .replace("fix it", "old installed private question")
+        .replace("fixed", "old installed private answer")
+        .replace("pwd", "old_installed_command")
+        .replace("/tmp/project", "/old/installed/history")
+}
+fn fresh_tail() -> String {
+    let completed = completed_turn()
+        .replace("turn-1", "turn-2")
+        .replace("call-1", "call-2")
+        .replace("fc-1", "fc-2");
+    completed.lines().skip(1).collect::<Vec<_>>().join("\n") + "\n"
+}
+fn only_source_metadata(root: &Path) -> Value {
+    let paths: Vec<_> = std::fs::read_dir(root.join("wakeups/source-owners"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(paths.len(), 1);
+    serde_json::from_slice(&std::fs::read(&paths[0]).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn native_codex_historical_floor_recovers_checkpoint_loss_and_replays_only_unaccepted_tail() {
+    let root = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(root.path().join("sessions"))
+        .await
+        .unwrap();
+    let rollout = root.path().join("sessions/rollout-session-1.jsonl");
+    let history = synthetic_history();
+    tokio::fs::write(&rollout, &history).await.unwrap();
+    let path = root.path().join("state.json");
+    let key = format!("codex-transcript:{}", rollout.to_string_lossy());
+    let store = Arc::new(StateStore::new(&path));
+    store.set_offset("unrelated-source", 7.0);
+    store.save().await.unwrap();
+    assert!(!disk_has_source_key(&path, &key).await);
+    let hanging = Receiver::new(true).await;
+    let (input, manager, http) = pipeline(root.path(), store.clone(), &hanging.url);
+    http.start().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), input.start())
+        .await
+        .unwrap()
+        .unwrap();
+    // Normal startup saved the no-replay baseline. Explicitly lose only this
+    // synthetic canonical checkpoint to test independent-floor crash recovery.
+    assert_eq!(store.get(&key).last_offset(), Some(history.len() as f64));
+    lose_synthetic_source_checkpoint(root.path(), &path, &key).await;
+    let metadata = only_source_metadata(root.path());
+    assert_eq!(
+        metadata["baseline_floor"],
+        json!({"offset": history.len(), "copied": false})
+    );
+    for key in ["scanOffset", "lastOffset", "firstOwnedTurnId", "activeTurn"] {
+        assert!(metadata.get(key).is_none());
+    }
+    assert!(!metadata
+        .to_string()
+        .contains("old installed private question"));
+    assert_eq!(hanging.requests.load(Ordering::SeqCst), 0);
+
+    tokio::fs::OpenOptions::new()
+        .append(true)
+        .open(&rollout)
+        .await
+        .unwrap()
+        .write_all(fresh_tail().as_bytes())
+        .await
+        .unwrap();
+    input.request_collection();
+    eventually(|| hanging.requests.load(Ordering::SeqCst) > 0).await;
+    assert!(store.waiting_for_output());
+    assert!(!disk_has_source_key(&path, &key).await);
+    assert_eq!(
+        only_source_metadata(root.path())["baseline_floor"],
+        metadata["baseline_floor"]
+    );
+    manager.cancel_pending_outputs();
+    tokio::time::timeout(Duration::from_secs(1), manager.stop_all())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), http.shutdown())
+        .await
+        .unwrap()
+        .unwrap();
+    eventually(|| hanging.disconnected.load(Ordering::SeqCst) > 0).await;
+    assert!(store.save_failed());
+    assert!(store.save().await.is_err());
+    assert!(!disk_has_source_key(&path, &key).await);
+
+    let receiver = Receiver::new(false).await;
+    receiver.healthy.store(true, Ordering::SeqCst);
+    let restored = Arc::new(StateStore::new(&path));
+    restored.load().await;
+    assert!(restored.get(&key).last_offset().is_none());
+    let (input, manager, http) = pipeline(root.path(), restored.clone(), &receiver.url);
+    http.start().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), input.start())
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), restored.save())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        disk_offset(&path, &key).await,
+        (history.len() + fresh_tail().len()) as f64
+    );
+    assert_eq!(disk_offset(&path, "unrelated-source").await, 7.0);
+    assert_replayed_native_facts(&receiver);
+    let accepted = receiver.accepted.lock().unwrap().clone();
+    let serialized = serde_json::to_string(&accepted).unwrap();
+    for old in [
+        "old installed private question",
+        "old installed private answer",
+        "old_installed_command",
+        "/old/installed/history",
+    ] {
+        assert!(
+            !serialized.contains(old),
+            "initial historical data was replayed"
+        );
+    }
+    let entries: Vec<_> = accepted
+        .iter()
+        .flat_map(|body| body["entries"].as_array().unwrap())
+        .collect();
+    let mut ids = BTreeSet::new();
+    for entry in entries.iter().filter(|entry| {
+        matches!(
+            entry["event.name"].as_str(),
+            Some("llm.request" | "llm.response" | "tool.call" | "tool.result")
+        )
+    }) {
+        assert!(
+            ids.insert(entry["event.id"].as_str().unwrap()),
+            "native tail fact duplicated"
+        );
+    }
+    assert_eq!(
+        only_source_metadata(root.path())["baseline_floor"],
+        metadata["baseline_floor"]
+    );
+    assert_eq!(disk_offset(&path, "unrelated-source").await, 7.0);
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_codex_initial_history_cannot_start_without_durable_exclusion_floor() {
+    let root = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(root.path().join("sessions"))
+        .await
+        .unwrap();
+    tokio::fs::create_dir(root.path().join("wakeups"))
+        .await
+        .unwrap();
+    tokio::fs::write(root.path().join("wakeups/source-owners"), b"blocked")
+        .await
+        .unwrap();
+    let rollout = root.path().join("sessions/rollout-session-1.jsonl");
+    tokio::fs::write(&rollout, synthetic_history())
+        .await
+        .unwrap();
+    let path = root.path().join("state.json");
+    let key = format!("codex-transcript:{}", rollout.to_string_lossy());
+    let store = Arc::new(StateStore::new(&path));
+    let receiver = Receiver::new(false).await;
+    receiver.healthy.store(true, Ordering::SeqCst);
+    let (input, manager, http) = pipeline(root.path(), store.clone(), &receiver.url);
+    http.start().await.unwrap();
+    assert!(input.start().await.is_err());
+    assert_eq!(receiver.requests.load(Ordering::SeqCst), 0);
+    assert!(store.get(&key).last_offset().is_none());
+    assert!(!disk_has_source_key(&path, &key).await);
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_codex_checkpoint_loss_floor_does_not_follow_a_replaced_source_identity() {
+    let root = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(root.path().join("sessions"))
+        .await
+        .unwrap();
+    let rollout = root.path().join("sessions/rollout-session-1.jsonl");
+    let history = synthetic_history();
+    tokio::fs::write(&rollout, &history).await.unwrap();
+    let path = root.path().join("state.json");
+    let key = format!("codex-transcript:{}", rollout.to_string_lossy());
+    let store = Arc::new(StateStore::new(&path));
+    store.set_offset("unrelated-source", 7.0);
+    store.save().await.unwrap();
+    let receiver = Receiver::new(false).await;
+    receiver.healthy.store(true, Ordering::SeqCst);
+    let (input, manager, http) = pipeline(root.path(), store, &receiver.url);
+    http.start().await.unwrap();
+    input.start().await.unwrap();
+    let original = only_source_metadata(root.path());
+    lose_synthetic_source_checkpoint(root.path(), &path, &key).await;
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+
+    // Preserve the original inode under a second path, forcing a different
+    // identity at the monitored path even on filesystems that recycle inodes.
+    tokio::fs::rename(&rollout, root.path().join("original-held.jsonl"))
+        .await
+        .unwrap();
+    let replacement = history.clone() + &fresh_tail();
+    tokio::fs::write(&rollout, &replacement).await.unwrap();
+    let restored = Arc::new(StateStore::new(&path));
+    restored.load().await;
+    let (input, manager, http) = pipeline(root.path(), restored.clone(), &receiver.url);
+    http.start().await.unwrap();
+    input.start().await.unwrap();
+    input.run_cycle().await;
+    restored.save().await.unwrap();
+    assert_eq!(receiver.requests.load(Ordering::SeqCst), 0);
+    assert_eq!(disk_offset(&path, &key).await, replacement.len() as f64);
+    let replaced = only_source_metadata(root.path());
+    assert_ne!(
+        (original["device"].clone(), original["inode"].clone()),
+        (replaced["device"].clone(), replaced["inode"].clone())
+    );
+    assert_eq!(
+        replaced["baseline_floor"]["offset"],
+        json!(replacement.len())
+    );
+    assert_eq!(disk_offset(&path, "unrelated-source").await, 7.0);
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_codex_copied_checkpoint_loss_rebuild_keeps_initial_floor_and_unowned_tail_parked() {
+    let root = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(root.path().join("sessions"))
+        .await
+        .unwrap();
+    let rollout = root.path().join("sessions/rollout-session-1.jsonl");
+    let mut records: Vec<Value> = synthetic_history()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    records[0]["payload"]["forked_from_id"] = json!("copied-parent-session");
+    let history = records
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    tokio::fs::write(&rollout, &history).await.unwrap();
+    let path = root.path().join("state.json");
+    let key = format!("codex-transcript:{}", rollout.to_string_lossy());
+    let store = Arc::new(StateStore::new(&path));
+    store.set_offset("unrelated-source", 7.0);
+    store.save().await.unwrap();
+    let receiver = Receiver::new(false).await;
+    receiver.healthy.store(true, Ordering::SeqCst);
+    let (input, manager, http) = pipeline(root.path(), store, &receiver.url);
+    http.start().await.unwrap();
+    input.start().await.unwrap();
+    assert_eq!(
+        only_source_metadata(root.path())["baseline_floor"],
+        json!({"offset": history.len(), "copied": true})
+    );
+    lose_synthetic_source_checkpoint(root.path(), &path, &key).await;
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+    tokio::fs::OpenOptions::new()
+        .append(true)
+        .open(&rollout)
+        .await
+        .unwrap()
+        .write_all(fresh_tail().as_bytes())
+        .await
+        .unwrap();
+
+    let restored = Arc::new(StateStore::new(&path));
+    restored.load().await;
+    let (input, manager, http) = pipeline(root.path(), restored.clone(), &receiver.url);
+    http.start().await.unwrap();
+    input.start().await.unwrap();
+    input.run_cycle().await;
+    restored.save().await.unwrap();
+    assert_eq!(receiver.requests.load(Ordering::SeqCst), 0);
+    assert_eq!(disk_offset(&path, &key).await, history.len() as f64);
+    let extra = restored.get(&key).extra().unwrap();
+    assert!(extra["codexTranscript"]["firstOwnedTurnId"].is_null());
+    assert_eq!(
+        extra["codexTranscript"]["forkBootstrap"]["state"],
+        json!("baseline-search")
+    );
+    assert_eq!(disk_offset(&path, "unrelated-source").await, 7.0);
+    manager.cancel_pending_outputs();
+    manager.stop_all().await;
+    http.shutdown().await.unwrap();
+}

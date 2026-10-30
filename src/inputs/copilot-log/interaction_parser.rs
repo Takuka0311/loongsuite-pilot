@@ -532,6 +532,55 @@ pub fn parse_interactions(
             entries.push(call);
             entries.push(result);
         }
+        // Retain the legacy per-step endpoint as a separate observed fact.
+        // It closes no interaction itself; the final scoped record owns turn.end.
+        let step_ids: std::collections::BTreeSet<_> = entries
+            .iter()
+            .filter_map(|entry| entry.get("gen_ai.step.id").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect();
+        for step in step_ids {
+            let children: Vec<_> = entries
+                .iter()
+                .filter(|entry| {
+                    entry.get("gen_ai.step.id").and_then(Value::as_str) == Some(step.as_str())
+                })
+                .collect();
+            let Some(first) = children.iter().min_by_key(|entry| {
+                entry
+                    .get("time_unix_nano")
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.parse::<i128>().ok())
+            }) else {
+                continue;
+            };
+            let end = children
+                .iter()
+                .filter_map(|entry| {
+                    entry
+                        .get("_merged_end_time_unix_nano")
+                        .or_else(|| entry.get("time_unix_nano"))
+                        .and_then(Value::as_str)
+                        .and_then(|s| s.parse::<i128>().ok())
+                })
+                .max()
+                .unwrap_or_default();
+            let mut endpoint = base(
+                session_id,
+                &turn,
+                &trace,
+                &hash(&format!("{turn}:step:{step}")),
+                "react.step",
+                end,
+            );
+            endpoint.insert("gen_ai.step.id".into(), json!(step));
+            for key in ["gen_ai.provider.name", "gen_ai.request.model"] {
+                if let Some(value) = first.get(key) {
+                    endpoint.insert(key.into(), value.clone());
+                }
+            }
+            entries.push(endpoint);
+        }
         if entries.is_empty() {
             continue;
         }

@@ -58,6 +58,10 @@ struct JsonLine {
 }
 
 impl CodexAbortedTurnInput {
+    pub(crate) fn collector_runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo {
+        self.inner.runtime.runtime_info()
+    }
+
     pub fn new(opts: CodexAbortedTurnInputOptions) -> Self {
         let poll = opts.poll_interval_ms.or(Some(DEFAULT_POLL_INTERVAL_MS));
         Self {

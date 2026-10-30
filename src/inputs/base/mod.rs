@@ -31,7 +31,7 @@ pub use hook_history_checkpoint::{
 };
 pub use hook_record_transform::transform_hook_record;
 pub use ide::{hosted_ide, IdeAdapter, IdeBody};
-pub use input_runtime::{HostedInput, InputBody, InputRuntime};
+pub use input_runtime::{HostedInput, InputBody, InputRuntime, InputRuntimeInfo};
 pub use jsonl::{decode_complete, parse_object_line, read_file_slice};
 pub use paths::{app_support_root, env_poll_or, home_dir, qoder_root};
 pub use runtime_metrics::{

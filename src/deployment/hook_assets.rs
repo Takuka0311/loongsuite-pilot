@@ -189,7 +189,9 @@ impl HookAssets {
             files.push((relative, path, content));
         }
         if !files.is_empty() {
-            let binary = std::env::current_exe()?.to_string_lossy().into_owned();
+            let binary = super::runtime_launcher::hook_binary(root)?
+                .to_string_lossy()
+                .into_owned();
             ensure!(!binary.contains(['\r', '\n']), "原生二进制路径无效");
             files.push((
                 "pilot-bin".into(),
@@ -489,9 +491,12 @@ pub fn healthy(def: &AgentDefinition, pilot: &Path, data: &Path) -> bool {
     if assets.is_empty() {
         return true;
     }
-    let Ok(binary) = std::env::current_exe() else {
+    let Ok(binary) = super::runtime_launcher::hook_binary(data) else {
         return false;
     };
+    if !binary.is_file() {
+        return false;
+    }
     let Ok(pin) = safe_destination(data, "pilot-bin") else {
         return false;
     };

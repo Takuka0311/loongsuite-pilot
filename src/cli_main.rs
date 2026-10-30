@@ -36,6 +36,22 @@ pub async fn run() -> anyhow::Result<i32> {
 }
 
 pub async fn dispatch(argv: &[String]) -> anyhow::Result<i32> {
+    // Native extension worker bypasses config, discovery and root logger setup.
+    if argv.first().map(String::as_str) == Some("internal-span-enricher") {
+        if argv.len() != 3 {
+            return Ok(2);
+        }
+        let Ok(parent_pid) = argv[2].parse::<u32>() else {
+            return Ok(2);
+        };
+        if parent_pid == 0 {
+            return Ok(2);
+        }
+        return Ok(crate::flushers::run_span_enricher_worker(
+            Path::new(&argv[1]),
+            parent_pid,
+        ));
+    }
     let parsed = match crate::cli::args::parse(argv) {
         Ok(parsed) => parsed,
         Err(err) => {
