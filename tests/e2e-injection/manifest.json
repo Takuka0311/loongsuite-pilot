@@ -5,6 +5,7 @@
   "agents": [
     {"id":"claude-code","deployMode":"hook","extraScenarios":["jsonc-comments"]},
     {"id":"codex","deployMode":"hook","extraScenarios":["trust-toml", "retired-events"]},
+    {"id":"copilot","deployMode":"copilot-plugin","extraScenarios":["jsonc-comments", "shell-env-ownership", "legacy-install-adoption", "partial-deploy-cleanup", "native-hook-wakeup", "windows-auto-deploy-disabled"]},
     {"id":"cursor","deployMode":"hook","extraScenarios":["cursor-alias-dedup"]},
     {"id":"cursor-cli","deployMode":"hook","extraScenarios":["cli-only-discovery", "cursor-alias-dedup"]},
     {"id":"dsh","deployMode":"dsh-yaml-patch","extraScenarios":["environment-directory", "managed-yaml"]},

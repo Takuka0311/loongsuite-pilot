@@ -230,6 +230,36 @@ impl<'a> Trace<'a> {
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }
+    fn external_delegation(&self, span: &Span) -> bool {
+        span.kind() == "AGENT"
+            && span.parent_span_id.as_deref().is_some_and(|id| {
+                id.len() == 16
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    && id.bytes().any(|b| b != b'0')
+                    && !self.by_id.contains_key(id)
+            })
+            && (truthy(&span.attributes["gen_ai.agent.parent.invocation.id"])
+                || truthy(&span.attributes["gen_ai.subagent.parent_tool_call.id"]))
+    }
+    fn execution(&self, agent: &'a Span) -> Vec<&'a Span> {
+        let mut pending = vec![agent];
+        let mut result = Vec::new();
+        let mut seen = BTreeSet::new();
+        while let Some(span) = pending.pop() {
+            if seen.insert(span.span_id.as_str()) {
+                result.push(span);
+                pending.extend(
+                    self.children(span)
+                        .iter()
+                        .copied()
+                        .filter(|child| child.kind() != "AGENT"),
+                );
+            }
+        }
+        result
+    }
     fn parent(&self, span: &Span) -> Option<&'a Span> {
         span.parent_span_id
             .as_deref()
@@ -239,18 +269,46 @@ impl<'a> Trace<'a> {
 
 fn structure(trace: &Trace<'_>) -> Vec<Check> {
     let mut checks = Vec::new();
-    for (kind, id) in [
-        ("ENTRY", "structure.single_entry"),
-        ("AGENT", "structure.single_agent"),
-    ] {
-        let count = trace.kind(kind).len();
-        checks.push(if count == 1 {
-            Check::pass(id)
-        } else {
-            Check::new(id, "error", format!("{kind} 数量为 {count}，应为 1"), None)
-        });
-    }
     let entries = trace.kind("ENTRY");
+    let agents = trace.kind("AGENT");
+    let external: Vec<_> = agents
+        .iter()
+        .copied()
+        .filter(|s| trace.external_delegation(s))
+        .collect();
+    checks.push(
+        if entries.len() == 1 || (entries.is_empty() && !external.is_empty()) {
+            Check::pass("structure.single_entry")
+        } else {
+            Check::new(
+                "structure.single_entry",
+                "error",
+                "必须有一个 ENTRY 或明确的外部派工片段".into(),
+                None,
+            )
+        },
+    );
+    checks.push(
+        if !agents.is_empty()
+            && entries.iter().all(|entry| {
+                trace
+                    .children(entry)
+                    .iter()
+                    .filter(|s| s.kind() == "AGENT")
+                    .count()
+                    == 1
+            })
+        {
+            Check::pass("structure.single_agent")
+        } else {
+            Check::new(
+                "structure.single_agent",
+                "error",
+                "每个 ENTRY 必须有一个根 AGENT，可包含独立派工 AGENT".into(),
+                None,
+            )
+        },
+    );
     if entries.len() == 1 {
         let entry = entries[0];
         checks.push(if trace.parent(entry).is_none() {
@@ -263,7 +321,10 @@ fn structure(trace: &Trace<'_>) -> Vec<Check> {
                 Some(entry),
             )
         });
-        let mut pending = vec![entry];
+    }
+    if entries.len() == 1 || !external.is_empty() {
+        let mut pending = entries.clone();
+        pending.extend_from_slice(&external);
         let mut seen = BTreeSet::new();
         while let Some(span) = pending.pop() {
             if seen.insert(&span.span_id) {
@@ -281,8 +342,33 @@ fn structure(trace: &Trace<'_>) -> Vec<Check> {
             )
         });
     }
+    for agent in agents {
+        checks.push(
+            if trace
+                .parent(agent)
+                .is_some_and(|p| matches!(p.kind(), "ENTRY" | "TOOL"))
+                || trace.external_delegation(agent)
+            {
+                Check::pass("structure.agent_under_entry")
+            } else {
+                Check::new(
+                    "structure.agent_under_entry",
+                    "error",
+                    "AGENT 必须属于 ENTRY、派工 TOOL 或明确的外部派工上下文".into(),
+                    Some(agent),
+                )
+            },
+        );
+        if trace.external_delegation(agent) {
+            checks.push(Check::new(
+                "structure.external_parent_context",
+                "warn",
+                "派工父节点在本地 Trace 片段之外".into(),
+                Some(agent),
+            ));
+        }
+    }
     for (kind, parent, id) in [
-        ("AGENT", "ENTRY", "structure.agent_under_entry"),
         ("STEP", "AGENT", "structure.step_under_agent"),
         ("LLM", "STEP", "structure.llm_under_step"),
         ("TOOL", "STEP", "structure.tool_under_step"),
@@ -471,11 +557,9 @@ fn timing(trace: &Trace<'_>, rules: &Rules) -> Vec<Check> {
             ));
         }
         for child in trace.children(span) {
-            if child
-                .start()
-                .zip(child.end())
-                .is_some_and(|(a, b)| a < start || b > end)
-            {
+            if child.start().zip(child.end()).is_some_and(|(a, b)| {
+                a < start || (b > end && !(span.kind() == "TOOL" && child.kind() == "AGENT"))
+            }) {
                 contained = false;
                 checks.push(Check::new(
                     "time.parent_contains_children",
@@ -495,10 +579,16 @@ fn timing(trace: &Trace<'_>, rules: &Rules) -> Vec<Check> {
     if reasonable {
         checks.push(Check::pass("time.reasonable_duration"));
     }
-    let mut steps = trace.kind("STEP");
-    steps.sort_by_key(|s| s.start());
     let mut overlap = false;
-    if !trace.kind("AGENT").is_empty() {
+    let mut chronological = true;
+    for agent in trace.kind("AGENT") {
+        let mut steps: Vec<_> = trace
+            .children(agent)
+            .iter()
+            .copied()
+            .filter(|s| s.kind() == "STEP")
+            .collect();
+        steps.sort_by_key(|s| s.start());
         for pair in steps.windows(2) {
             if pair[0]
                 .end()
@@ -509,29 +599,31 @@ fn timing(trace: &Trace<'_>, rules: &Rules) -> Vec<Check> {
                 checks.push(Check::new(
                     "time.no_step_overlap",
                     "error",
-                    "相邻 STEP 时间重叠".into(),
+                    "同一 AGENT 的相邻 STEP 时间重叠".into(),
                     Some(pair[0]),
                 ));
             }
+        }
+        let rounds: Vec<_> = steps
+            .iter()
+            .filter_map(|s| s.attributes["gen_ai.react.round"].as_f64())
+            .collect();
+        if rounds.windows(2).any(|p| p[0] >= p[1]) {
+            chronological = false;
+            checks.push(Check::new(
+                "time.chronological_steps",
+                "warn",
+                "同一 AGENT 的 STEP round 未随时间递增".into(),
+                Some(agent),
+            ));
         }
     }
     if !overlap {
         checks.push(Check::pass("time.no_step_overlap"));
     }
-    let rounds: Vec<_> = steps
-        .iter()
-        .filter_map(|s| s.attributes["gen_ai.react.round"].as_f64())
-        .collect();
-    checks.push(if rounds.windows(2).any(|p| p[0] >= p[1]) {
-        Check::new(
-            "time.chronological_steps",
-            "warn",
-            "STEP round 未随时间递增".into(),
-            None,
-        )
-    } else {
-        Check::pass("time.chronological_steps")
-    });
+    if chronological {
+        checks.push(Check::pass("time.chronological_steps"));
+    }
     checks
 }
 

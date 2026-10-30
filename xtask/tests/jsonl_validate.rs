@@ -212,7 +212,7 @@ fn native_jsonl_rejects_each_historical_graph_error_without_payload_leaks() {
                 rows[0].as_object_mut().unwrap().remove("gen_ai.turn.start");
                 rows[7].as_object_mut().unwrap().remove("gen_ai.turn.end");
             }
-            "enum" => rows[0]["event.name"] = json!("gen_ai.model.request"),
+            "enum" => rows[0]["event.name"] = json!("unknown.invalid.event"),
             "error" => rows[4]["tool.result.status"] = json!("failure"),
             _ => unreachable!(),
         }
@@ -509,4 +509,50 @@ fn native_jsonl_checks_types_cross_file_graphs_limits_and_explicit_paths() {
             .code(),
         Some(2)
     );
+}
+
+#[test]
+fn native_jsonl_accepts_standard_names_and_audits_but_rejects_duplicate_alias_facts() {
+    let root = tempfile::tempdir().unwrap();
+    let mut rows = graph();
+    for row in &mut rows {
+        row["event.name"] = json!(match row["event.name"].as_str().unwrap() {
+            "llm.request" => "gen_ai.model.request",
+            "llm.response" => "gen_ai.model.response",
+            "tool.call" => "gen_ai.tool.call",
+            "tool.result" => "gen_ai.tool.result",
+            name => name,
+        });
+    }
+    for (i, event) in ["gen_ai.agent.invoke", "gen_ai.agent.result"]
+        .iter()
+        .enumerate()
+    {
+        let mut audit = entry(&format!("audit-{i}"), event);
+        audit["gen_ai.agent.invocation.id"] = json!("invocation-1");
+        rows.push(audit);
+    }
+    let path = write(root.path(), "workbuddy", &rows);
+    let before = fs::read(&path).unwrap();
+    let (output, parsed) = report(root.path());
+    assert!(output.status.success(), "{parsed}");
+    assert_eq!(fs::read(&path).unwrap(), before);
+    let mut duplicate = rows[0].clone();
+    duplicate["event.id"] = json!("duplicate-alias-fact");
+    duplicate["event.name"] = json!("llm.request");
+    rows.push(duplicate);
+    write(root.path(), "workbuddy", &rows);
+    let (output, parsed) = report(root.path());
+    assert!(!output.status.success());
+    assert!(parsed.to_string().contains("model_pair_error"));
+    rows.pop();
+    rows.last_mut()
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("gen_ai.agent.invocation.id");
+    write(root.path(), "workbuddy", &rows);
+    let (output, parsed) = report(root.path());
+    assert!(!output.status.success());
+    assert!(parsed.to_string().contains("gen_ai.agent.invocation.id"));
 }

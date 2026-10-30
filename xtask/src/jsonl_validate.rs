@@ -22,6 +22,12 @@ const COMMON: &[&str] = &[
     "gen_ai.provider.name",
 ];
 const EVENTS: &[&str] = &[
+    "gen_ai.model.request",
+    "gen_ai.model.response",
+    "gen_ai.tool.call",
+    "gen_ai.tool.result",
+    "gen_ai.agent.invoke",
+    "gen_ai.agent.result",
     "llm.request",
     "llm.response",
     "tool.call",
@@ -39,6 +45,10 @@ const COVERAGE: &[&str] = &[
     "gen_ai.session.id",
     "gen_ai.agent.type",
     "gen_ai.provider.name",
+    "gen_ai.agent.invocation.id",
+    "gen_ai.agent.parent.invocation.id",
+    "gen_ai.agent.peer.id",
+    "gen_ai.agent.peer.name",
     "trace_id",
     "span_id",
     "gen_ai.turn.id",
@@ -420,8 +430,11 @@ fn record(report: &mut Report, index: usize, entry: &Value, limit: usize) {
         .filter(|field| !has(&entry[*field]))
         .collect();
     let conditional: &[&str] = match event {
-        "tool.call" | "tool.result" => &["gen_ai.tool.name", "gen_ai.tool.call.id"],
+        "tool.call" | "tool.result" | "gen_ai.tool.call" | "gen_ai.tool.result" => {
+            &["gen_ai.tool.name", "gen_ai.tool.call.id"]
+        }
         "skill.use" => &["gen_ai.skill.name"],
+        "gen_ai.agent.invoke" | "gen_ai.agent.result" => &["gen_ai.agent.invocation.id"],
         _ => &[],
     };
     missing.extend(
@@ -491,6 +504,16 @@ fn record(report: &mut Report, index: usize, entry: &Value, limit: usize) {
     }
 }
 
+fn canonical_event(event: &str) -> &str {
+    match event {
+        "gen_ai.model.request" => "llm.request",
+        "gen_ai.model.response" => "llm.response",
+        "gen_ai.tool.call" => "tool.call",
+        "gen_ai.tool.result" => "tool.result",
+        _ => event,
+    }
+}
+
 fn graph(report: &mut Report, rows: &[Row], limit: usize) {
     let mut ids = BTreeSet::new();
     let mut steps: BTreeMap<_, Vec<&Row>> = BTreeMap::new();
@@ -505,13 +528,17 @@ fn graph(report: &mut Report, rows: &[Row], limit: usize) {
                 limit,
             );
         }
-        if matches!(row.event.as_str(), "llm.request" | "llm.response") && !row.step.is_empty() {
+        if matches!(canonical_event(&row.event), "llm.request" | "llm.response")
+            && !row.step.is_empty()
+        {
             steps
                 .entry((&row.session, &row.turn, &row.step))
                 .or_default()
                 .push(row);
         }
-        if matches!(row.event.as_str(), "tool.call" | "tool.result") && !row.call.is_empty() {
+        if matches!(canonical_event(&row.event), "tool.call" | "tool.result")
+            && !row.call.is_empty()
+        {
             tools
                 .entry((&row.session, &row.call))
                 .or_default()
@@ -525,8 +552,16 @@ fn graph(report: &mut Report, rows: &[Row], limit: usize) {
         }
     }
     for group in steps.values() {
-        if group.iter().filter(|r| r.event == "llm.request").count() != 1
-            || group.iter().filter(|r| r.event == "llm.response").count() != 1
+        if group
+            .iter()
+            .filter(|r| canonical_event(&r.event) == "llm.request")
+            .count()
+            != 1
+            || group
+                .iter()
+                .filter(|r| canonical_event(&r.event) == "llm.response")
+                .count()
+                != 1
         {
             report.issue(
                 Some(group[0].file),
@@ -542,8 +577,16 @@ fn graph(report: &mut Report, rows: &[Row], limit: usize) {
             .map(|r| &r.tool)
             .filter(|name| !name.is_empty())
             .collect();
-        if group.iter().filter(|r| r.event == "tool.call").count() != 1
-            || group.iter().filter(|r| r.event == "tool.result").count() != 1
+        if group
+            .iter()
+            .filter(|r| canonical_event(&r.event) == "tool.call")
+            .count()
+            != 1
+            || group
+                .iter()
+                .filter(|r| canonical_event(&r.event) == "tool.result")
+                .count()
+                != 1
             || names.len() != 1
         {
             report.issue(

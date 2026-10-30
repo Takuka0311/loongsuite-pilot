@@ -103,7 +103,7 @@ fn strict_cli_generates_full_rules_and_diff_never_writes() {
     assert!(result.status.success(), "{result:?}");
     let before = fs::read(&output).unwrap();
     let rules: Value = serde_json::from_slice(&before).unwrap();
-    assert_eq!(rules["version"], "1.0");
+    assert_eq!(rules["version"], "1.1");
     assert_eq!(rules["spanKinds"].as_object().unwrap().len(), 10);
     assert_eq!(
         rules["commonAttributes"]["must"],
@@ -116,7 +116,7 @@ fn strict_cli_generates_full_rules_and_diff_never_writes() {
     );
     assert_eq!(
         rules["spanKinds"]["AGENT"]["aggregation"]["gen_ai.usage.total_tokens"],
-        json!({"rule":"sum","source":"LLM"})
+        json!({"rule":"sum","source":"LLM","scope":"own_agent_execution_excluding_delegated_agents"})
     );
     for value in rules["messageSchemas"].as_object().unwrap().values() {
         let relative = value.as_str().unwrap().strip_prefix("$ref:").unwrap();

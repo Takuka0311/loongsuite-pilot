@@ -38,37 +38,65 @@ fn checked(
 
 pub(super) fn validate(trace: &Trace<'_>, rules: &Rules) -> Vec<Check> {
     let mut checks = Vec::new();
-    for (key, id, status) in [
-        (
-            "gen_ai.session.id",
-            "semantic.consistent_session_id",
-            "error",
-        ),
-        ("gen_ai.user.id", "semantic.consistent_user_id", "error"),
-        (
-            "gen_ai.agent.name",
-            "semantic.consistent_agent_name",
-            "warn",
-        ),
-    ] {
-        let values: BTreeSet<_> = trace
-            .spans
-            .iter()
-            .map(|s| &s.attributes[key])
-            .filter(|v| truthy(v))
-            .map(Value::to_string)
-            .collect();
-        if values.len() <= 1 {
-            checks.push(Check::pass(id));
-        } else {
-            checked(
-                &mut checks,
-                id,
-                status,
-                "同一 Trace 存在不一致的身份属性",
-                None,
-            );
+    let executions: Vec<_> = trace
+        .kind("AGENT")
+        .into_iter()
+        .map(|agent| (agent, trace.execution(agent)))
+        .collect();
+    for (agent, spans) in &executions {
+        let mut identity = spans.clone();
+        if let Some(entry) = trace.parent(agent).filter(|span| span.kind() == "ENTRY") {
+            identity.push(entry);
         }
+        for (key, id, status) in [
+            (
+                "gen_ai.session.id",
+                "semantic.consistent_session_id",
+                "error",
+            ),
+            ("gen_ai.turn.id", "semantic.consistent_turn_id", "error"),
+            (
+                "gen_ai.agent.name",
+                "semantic.consistent_agent_name",
+                "warn",
+            ),
+        ] {
+            let values: BTreeSet<_> = identity
+                .iter()
+                .map(|span| &span.attributes[key])
+                .filter(|v| truthy(v))
+                .map(Value::to_string)
+                .collect();
+            if values.len() <= 1 {
+                checks.push(Check::pass(id));
+            } else {
+                checked(
+                    &mut checks,
+                    id,
+                    status,
+                    "同一 AGENT 执行存在不一致的身份属性",
+                    Some(agent),
+                );
+            }
+        }
+    }
+    let users: BTreeSet<_> = trace
+        .spans
+        .iter()
+        .map(|s| &s.attributes["gen_ai.user.id"])
+        .filter(|v| truthy(v))
+        .map(Value::to_string)
+        .collect();
+    if users.len() <= 1 {
+        checks.push(Check::pass("semantic.consistent_user_id"));
+    } else {
+        checked(
+            &mut checks,
+            "semantic.consistent_user_id",
+            "error",
+            "同一 Trace 存在不一致的用户身份",
+            None,
+        );
     }
     let mut mapping_ok = true;
     let mut names_ok = true;
@@ -112,9 +140,9 @@ pub(super) fn validate(trace: &Trace<'_>, rules: &Rules) -> Vec<Check> {
     if names_ok {
         checks.push(Check::pass("semantic.span_name_pattern"));
     }
-    let agents = trace.kind("AGENT");
     let llms = trace.kind("LLM");
-    if let Some(agent) = agents.first() {
+    for (agent, execution) in &executions {
+        let llms: Vec<_> = execution.iter().filter(|s| s.kind() == "LLM").collect();
         let mut ok = true;
         for key in TOKENS {
             let value = &agent.attributes[*key];
@@ -252,7 +280,13 @@ pub(super) fn validate(trace: &Trace<'_>, rules: &Rules) -> Vec<Check> {
                 None,
             );
         }
-        if let Some(last) = llms
+        let root_llms: Vec<_> = executions
+            .iter()
+            .filter(|(agent, _)| agent.parent_span_id.as_deref() == Some(entry.span_id.as_str()))
+            .flat_map(|(_, spans)| spans.iter().copied())
+            .filter(|s| s.kind() == "LLM")
+            .collect();
+        if let Some(last) = root_llms
             .iter()
             .filter(|s| s.end().is_some())
             .max_by_key(|s| s.end())
@@ -317,22 +351,24 @@ pub(super) fn validate(trace: &Trace<'_>, rules: &Rules) -> Vec<Check> {
     if roles_ok {
         checks.push(Check::pass("semantic.tool_response_role"));
     }
-    if let Some(last_step) = steps
-        .iter()
-        .filter(|s| s.start().is_some())
-        .max_by_key(|s| s.start())
-    {
-        if let Some(llm) = trace.children(last_step).iter().find(|s| s.kind() == "LLM") {
-            if tool_calls(&llm.attributes["gen_ai.output.messages"]).is_empty() {
-                checks.push(Check::pass("semantic.last_step_no_tool_call"));
-            } else {
-                checked(
-                    &mut checks,
-                    "semantic.last_step_no_tool_call",
-                    "error",
-                    "最后 STEP 的 LLM 输出仍包含 tool_call",
-                    Some(llm),
-                );
+    for (_, execution) in &executions {
+        if let Some(last_step) = execution
+            .iter()
+            .filter(|s| s.kind() == "STEP" && s.start().is_some())
+            .max_by_key(|s| s.start())
+        {
+            if let Some(llm) = trace.children(last_step).iter().find(|s| s.kind() == "LLM") {
+                if tool_calls(&llm.attributes["gen_ai.output.messages"]).is_empty() {
+                    checks.push(Check::pass("semantic.last_step_no_tool_call"));
+                } else {
+                    checked(
+                        &mut checks,
+                        "semantic.last_step_no_tool_call",
+                        "error",
+                        "最后 STEP 的 LLM 输出仍包含 tool_call",
+                        Some(llm),
+                    );
+                }
             }
         }
     }

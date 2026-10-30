@@ -101,7 +101,7 @@ fn native_field_cli_preserves_report_exit_codes_and_input_bytes_without_runtimes
     assert!(output.status.success(), "{output:?}");
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["threshold"], 100.0);
-    assert_eq!(report["tables"].as_array().unwrap().len(), 4);
+    assert_eq!(report["tables"].as_array().unwrap().len(), 6);
     assert_eq!(report["tables"][1]["eventName"], "llm.response");
     let row = &report["tables"][1]["rows"][0];
     assert_eq!(row["agentType"], "actual-agent");
@@ -244,4 +244,44 @@ fn invalid_cli_parameters_and_missing_inputs_return_two_without_writes() {
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("--strict"));
     assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn native_field_cli_groups_aliases_and_reports_invocation_coverage_without_rewriting_inputs() {
+    let root = tempfile::tempdir().unwrap();
+    let response: Value = serde_json::from_str(&response()).unwrap();
+    let mut alias = response.clone();
+    alias["event.name"] = json!("gen_ai.model.response");
+    let audit = json!({"event.name":"gen_ai.agent.invoke", "event.id":"audit", "user.id":"user",
+        "gen_ai.agent.type":"actual-agent", "gen_ai.session.id":"session", "gen_ai.turn.id":"turn",
+        "gen_ai.agent.invocation.id":"invocation"});
+    let contents = format!("{}\n{}\n{}\n", response, alias, audit);
+    input(root.path(), "codex", &contents);
+    let result = invoke(
+        root.path(),
+        &[
+            "-a",
+            "codex",
+            "-d",
+            "2026-01-02",
+            "-t",
+            "100",
+            "-f",
+            "json",
+            "--strict",
+        ],
+    );
+    assert!(result.status.success(), "{result:?}");
+    let report: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["tables"][1]["rows"][0]["total"], 2);
+    assert_eq!(report["tables"][4]["rows"][0]["total"], 1);
+    assert_eq!(report["tables"][4]["rows"][0]["avg"], 100.0);
+    assert_eq!(
+        fs::read_to_string(
+            root.path()
+                .join(".loongsuite-pilot/logs/output/codex-2026-01-02.jsonl")
+        )
+        .unwrap(),
+        contents
+    );
 }

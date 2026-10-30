@@ -181,6 +181,7 @@ impl Matrix {
                         | "directory-plugin"
                         | "dsh-yaml-patch"
                         | "detection-only"
+                        | "copilot-plugin"
                 ),
                 "不允许未登记部署类型"
             );
@@ -467,12 +468,12 @@ mod tests {
     }
 
     #[test]
-    fn fixed_matrix_has_160_baselines_plus_required_scenarios() {
+    fn fixed_matrix_has_168_baselines_plus_required_scenarios() {
         let matrix = Matrix::load(root()).unwrap();
         let (index, reports) = fixtures(&matrix);
         let summary = matrix.validate(&index, &reports, &index.commit).unwrap();
-        assert_eq!(summary["baselineResults"], 160);
-        assert!(summary["scenarioResults"].as_u64().unwrap() > 160);
+        assert_eq!(summary["baselineResults"], 168);
+        assert!(summary["scenarioResults"].as_u64().unwrap() > 168);
         assert_eq!(summary["noInjection"][0]["id"], "wukong");
     }
 

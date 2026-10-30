@@ -335,13 +335,13 @@ fn attributes(raw: &[Attribute], kind: &str, resource: bool) -> Value {
 
 fn build_rules(sections: &BTreeMap<&str, Section>, mapping: Map<String, Value>) -> Value {
     let mut kinds = json!({
-        "ENTRY":{"namePattern":"enter_ai_application_system","operationName":"enter","multiplicity":"exactly_one","parentKind":null,"allowedChildren":["AGENT"]},
-        "AGENT":{"namePattern":"{gen_ai.operation.name} {gen_ai.agent.name}","operationName":["invoke_agent","create_agent"],"multiplicity":"exactly_one","parentKind":"ENTRY","allowedChildren":["STEP"],
-            "aggregation":{"gen_ai.usage.input_tokens":{"rule":"sum","source":"LLM"},"gen_ai.usage.output_tokens":{"rule":"sum","source":"LLM"},"gen_ai.usage.total_tokens":{"rule":"sum","source":"LLM"}}},
+        "ENTRY":{"namePattern":"enter_ai_application_system","operationName":"enter","multiplicity":"exactly_one_or_external_delegated_fragment","parentKind":null,"allowedChildren":["AGENT"]},
+        "AGENT":{"namePattern":"{gen_ai.operation.name} {gen_ai.agent.name}","operationName":["invoke_agent","create_agent"],"multiplicity":"one_root_per_entry_and_optional_delegated_agents","parentKind":["ENTRY","TOOL"],"allowedChildren":["STEP"],
+            "aggregation":{"gen_ai.usage.input_tokens":{"rule":"sum","source":"LLM","scope":"own_agent_execution_excluding_delegated_agents"},"gen_ai.usage.output_tokens":{"rule":"sum","source":"LLM","scope":"own_agent_execution_excluding_delegated_agents"},"gen_ai.usage.total_tokens":{"rule":"sum","source":"LLM","scope":"own_agent_execution_excluding_delegated_agents"}}},
         "STEP":{"namePattern":"react step","operationName":"react","multiplicity":"one_or_more","parentKind":"AGENT","allowedChildren":["LLM","TOOL"],
             "constraints":[{"rule":"exactly_one_child_of_kind","kind":"LLM"},{"rule":"llm_starts_before_all_tools"},{"rule":"no_time_overlap_between_siblings"}]},
         "LLM":{"namePattern":"{gen_ai.operation.name} {gen_ai.request.model}","operationName":["chat","generate_content","text_completion"],"multiplicity":"one_or_more","parentKind":"STEP","allowedChildren":[]},
-        "TOOL":{"namePattern":"execute_tool {gen_ai.tool.name}","operationName":"execute_tool","multiplicity":"zero_or_more","parentKind":"STEP","allowedChildren":[]},
+        "TOOL":{"namePattern":"execute_tool {gen_ai.tool.name}","operationName":"execute_tool","multiplicity":"zero_or_more","parentKind":"STEP","allowedChildren":["AGENT"]},
         "CHAIN":{"namePattern":"chain {chain_name}","operationName":["workflow","task"],"multiplicity":"zero_or_more","parentKind":null,"allowedChildren":[]},
         "RETRIEVER":{"namePattern":"{gen_ai.operation.name} {gen_ai.data_source.id}","operationName":"retrieval","multiplicity":"zero_or_more","parentKind":null,"allowedChildren":[]},
         "RERANKER":{"namePattern":"rerank {reranker.model_name}","operationName":"rerank","multiplicity":"zero_or_more","parentKind":null,"allowedChildren":[]},
@@ -355,34 +355,37 @@ fn build_rules(sections: &BTreeMap<&str, Section>, mapping: Map<String, Value>) 
             .unwrap_or(&[]);
         value["attributes"] = attributes(attrs, kind, false);
     }
+    kinds["AGENT"]["externalParentContext"] = json!("A missing parent TOOL requires a valid parentSpanId and explicit parent invocation or parent tool call ID; report the local fragment boundary.");
     let common = sections.get("COMMON");
     json!({
-        "version":"1.0",
+        "version":"1.1",
         "generatedAt":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-        "specSource":"docs/EVENT_LOG_TO_TRACE_SPEC.md",
+        "specSource":"docs/zh-CN/subagent-data-model.md",
+        "specSourceDescription":"Public contract for subagent rules; existing non-subagent rules are retained from the previous baseline.",
         "commonAttributes":attributes(common.map(|s| s.attrs.as_slice()).unwrap_or(&[]), "COMMON", false),
         "spanKinds":kinds,
         "operationKindMapping":mapping,
         "timeRules":[
             {"id":"time.non_zero_duration","applies":"all","severity":"error"},
-            {"id":"time.no_step_overlap","applies":"STEP","severity":"error"},
-            {"id":"time.parent_contains_children","applies":"all","severity":"error","toleranceMs":0},
+            {"id":"time.no_step_overlap","applies":"STEP","severity":"error","scope":"direct_steps_of_each_agent"},
+            {"id":"time.parent_contains_children","applies":"all","severity":"error","toleranceMs":0,"exception":"TOOL to delegated AGENT requires causal start ordering but permits the child to finish after the tool."},
             {"id":"time.reasonable_duration","applies":"LLM","maxMs":600000,"severity":"warn"},
-            {"id":"time.chronological_steps","applies":"STEP","severity":"warn"}
+            {"id":"time.chronological_steps","applies":"STEP","severity":"warn","scope":"direct_steps_of_each_agent"}
         ],
         "semanticRules":[
-            {"id":"semantic.agent_token_sum","severity":"error"},
+            {"id":"semantic.agent_token_sum","scope":"own_agent_execution_excluding_delegated_agents","severity":"error"},
             {"id":"semantic.tool_matches_llm_output","severity":"error","requiresMessageContent":true},
             {"id":"semantic.entry_input_exists","severity":"warn","requiresMessageContent":true},
-            {"id":"semantic.entry_output_matches","severity":"warn","requiresMessageContent":true},
-            {"id":"semantic.consistent_session_id","severity":"error"},
+            {"id":"semantic.entry_output_matches","severity":"warn","scope":"entry_root_agent_execution_excluding_delegated_agents","requiresMessageContent":true},
+            {"id":"semantic.consistent_session_id","scope":"own_agent_execution_excluding_delegated_agents","severity":"error"},
+            {"id":"semantic.consistent_turn_id","severity":"error","scope":"own_agent_execution_excluding_delegated_agents"},
             {"id":"semantic.consistent_user_id","severity":"error"},
-            {"id":"semantic.consistent_agent_name","severity":"warn"},
-            {"id":"semantic.llm_has_input_output","severity":"warn","requiresMessageContent":true},
+            {"id":"semantic.consistent_agent_name","scope":"own_agent_execution_excluding_delegated_agents","severity":"warn"},
+            {"id":"semantic.llm_has_input_output","severity":"error","requiresMessageContent":true},
             {"id":"semantic.operation_kind_mapping","severity":"error"},
             {"id":"semantic.span_name_pattern","severity":"warn"},
             {"id":"semantic.tool_response_role","severity":"error","requiresMessageContent":true},
-            {"id":"semantic.last_step_no_tool_call","severity":"error","requiresMessageContent":true}
+            {"id":"semantic.last_step_no_tool_call","scope":"own_agent_execution_excluding_delegated_agents","severity":"error","requiresMessageContent":true}
         ],
         "resourceAttributes":attributes(common.map(|s| s.resources.as_slice()).unwrap_or(&[]), "COMMON", true),
         "messageSchemas":{
@@ -701,7 +704,7 @@ mod tests {
         );
         assert_eq!(rules["spanKinds"].as_object().unwrap().len(), 10);
         assert_eq!(rules["timeRules"].as_array().unwrap().len(), 5);
-        assert_eq!(rules["semanticRules"].as_array().unwrap().len(), 12);
+        assert_eq!(rules["semanticRules"].as_array().unwrap().len(), 13);
         assert_eq!(rules["messageSchemas"].as_object().unwrap().len(), 5);
         assert_eq!(normalize_type("double"), "number");
         assert_eq!(normalize_type("float"), "number");

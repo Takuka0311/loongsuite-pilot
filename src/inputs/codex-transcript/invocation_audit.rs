@@ -128,22 +128,6 @@ pub(super) fn append_invocations(
             }
         }
         output.push(entry_from_map(fields.clone()));
-        let standard = match original.event_name {
-            Some(AgentEventName::LlmRequest) => Some("gen_ai.model.request"),
-            Some(AgentEventName::LlmResponse) => Some("gen_ai.model.response"),
-            Some(AgentEventName::ToolCall) => Some("gen_ai.tool.call"),
-            Some(AgentEventName::ToolResult) => Some("gen_ai.tool.result"),
-            _ => None,
-        };
-        if let Some(name) = standard {
-            let mut audit = fields.clone();
-            audit.insert("event.name".into(), json!(name));
-            audit.insert(
-                "event.id".into(),
-                json!(hash(&format!("{}\0{name}", original.event_id), 32)),
-            );
-            output.push(entry_from_map(audit));
-        }
         if original.event_name != Some(AgentEventName::ToolCall) {
             continue;
         }
@@ -737,10 +721,31 @@ mod tests {
         assert_eq!(
             output
                 .iter()
-                .filter(|entry| entry.event_name == Some(AgentEventName::GenAiToolCall))
+                .filter(|entry| entry.event_name == Some(AgentEventName::ToolCall))
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn model_and_tool_facts_are_emitted_once_without_synthetic_aliases() {
+        let names = [
+            "llm.request",
+            "llm.response",
+            "tool.call",
+            "tool.result",
+            "gen_ai.model.request",
+            "gen_ai.model.response",
+            "gen_ai.tool.call",
+            "gen_ai.tool.result",
+        ];
+        for name in names {
+            let original = entry(name);
+            let output = append_invocations(vec![original.clone()], &[]);
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].event_name, original.event_name);
+            assert_eq!(output[0].event_id, original.event_id);
+        }
     }
 
     #[test]

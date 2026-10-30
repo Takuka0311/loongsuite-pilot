@@ -62,6 +62,26 @@ const SPECS: &[(&str, &[(&str, &str)])] = &[
             ("gen_ai.tool.call.duration", "tool.call.dur"),
         ],
     ),
+    (
+        "gen_ai.agent.invoke",
+        &[
+            ("event.id", "event.id"),
+            ("user.id", "user.id"),
+            ("gen_ai.session.id", "session.id"),
+            ("gen_ai.turn.id", "turn.id"),
+            ("gen_ai.agent.invocation.id", "invocation.id"),
+        ],
+    ),
+    (
+        "gen_ai.agent.result",
+        &[
+            ("event.id", "event.id"),
+            ("user.id", "user.id"),
+            ("gen_ai.session.id", "session.id"),
+            ("gen_ai.turn.id", "turn.id"),
+            ("gen_ai.agent.invocation.id", "invocation.id"),
+        ],
+    ),
 ];
 
 #[derive(Args)]
@@ -164,10 +184,14 @@ fn is_filled(value: Option<&Value>) -> bool {
 }
 
 fn add_entry(stats: &mut Stats, entry: &Value) -> bool {
-    let Some(index) = SPECS
-        .iter()
-        .position(|(event, _)| entry["event.name"] == *event)
-    else {
+    let event_name = match entry["event.name"].as_str().unwrap_or("") {
+        "gen_ai.model.request" => "llm.request",
+        "gen_ai.model.response" => "llm.response",
+        "gen_ai.tool.call" => "tool.call",
+        "gen_ai.tool.result" => "tool.result",
+        name => name,
+    };
+    let Some(index) = SPECS.iter().position(|(event, _)| event_name == *event) else {
         return false;
     };
     let agent = match entry.get("gen_ai.agent.type") {
@@ -561,7 +585,7 @@ mod tests {
             &json!({"event.name": "session.start"})
         ));
         let result = report(stats, 33.3);
-        assert_eq!(result.tables.len(), 4);
+        assert_eq!(result.tables.len(), 6);
         for (index, table) in result.tables.iter().enumerate() {
             assert_eq!(table.event_name, SPECS[index].0);
             assert_eq!(table.rows[0].agent_type, "实际 Agent🚀");

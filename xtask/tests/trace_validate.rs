@@ -848,3 +848,133 @@ fn native_trace_rejects_input_rules_and_output_symlinks() {
         .is_symlink());
     assert!(!root.path().join("missing").exists());
 }
+
+fn delegated_graph(external: bool) -> Vec<Value> {
+    let mut spans = graph();
+    let mut child = vec![spans[1].clone(), spans[5].clone(), spans[6].clone()];
+    for (offset, span) in child.iter_mut().enumerate() {
+        span["spanId"] = json!(format!("{:016x}", offset + 101));
+        span["parentSpanId"] = json!(match offset {
+            0 if external => "ffffffffffffffff".to_owned(),
+            0 => "0000000000000005".to_owned(),
+            1 => "0000000000000065".to_owned(),
+            _ => "0000000000000066".to_owned(),
+        });
+        span["startTimeUnixNano"] = (BASE + 22 + offset as u128).to_string().into();
+        span["endTimeUnixNano"] = (BASE + 95 - offset as u128).to_string().into();
+        span["attributes"]["gen_ai.session.id"] = json!("child-session");
+        span["attributes"]["gen_ai.turn.id"] = json!("child-turn");
+        span["attributes"]["gen_ai.agent.name"] = json!("child-agent");
+    }
+    child[0]["attributes"]["gen_ai.agent.parent.invocation.id"] = json!("invocation-1");
+    child[1]["attributes"]["gen_ai.react.round"] = json!(1);
+    for key in ["input_tokens", "output_tokens", "total_tokens"] {
+        child[0]["attributes"][format!("gen_ai.usage.{key}")] =
+            child[2]["attributes"][format!("gen_ai.usage.{key}")].clone();
+    }
+    if external {
+        child
+    } else {
+        spans.append(&mut child);
+        spans
+    }
+}
+
+#[test]
+fn native_trace_delegated_executions_keep_own_identity_usage_and_parallel_steps() {
+    let root = tempfile::tempdir().unwrap();
+    let mut spans = delegated_graph(false);
+    write(root.path(), &spans);
+    let report = validate(root.path(), 0);
+    assert_eq!(report["summary"]["checks"]["warn"], 0);
+    for id in [
+        "structure.single_agent",
+        "time.parent_contains_children",
+        "time.no_step_overlap",
+        "semantic.consistent_session_id",
+        "semantic.consistent_turn_id",
+        "semantic.agent_token_sum",
+        "semantic.entry_output_matches",
+        "semantic.last_step_no_tool_call",
+    ] {
+        assert!(has(&report, id, "pass"), "{id}");
+        assert!(!has(&report, id, "error"), "{id}");
+    }
+    // Root's final answer remains valid even when a child's later output differs.
+    let child_llm = spans.last_mut().unwrap();
+    child_llm["attributes"]["gen_ai.output.messages"][0]["parts"][0]["content"] =
+        json!("child answer");
+    write(root.path(), &spans);
+    assert!(!has(
+        &validate(root.path(), 0),
+        "semantic.entry_output_matches",
+        "warn"
+    ));
+    spans.last_mut().unwrap()["attributes"]["gen_ai.session.id"] = json!("wrong-child-session");
+    write(root.path(), &spans);
+    assert!(has(
+        &validate(root.path(), 1),
+        "semantic.consistent_session_id",
+        "error"
+    ));
+}
+
+#[test]
+fn native_trace_external_fragment_requires_explicit_valid_delegation_and_reachability() {
+    let root = tempfile::tempdir().unwrap();
+    let mut spans = delegated_graph(true);
+    write(root.path(), &spans);
+    let report = validate(root.path(), 0);
+    assert!(has(&report, "structure.external_parent_context", "warn"));
+    assert!(has(&report, "structure.no_orphan_spans", "pass"));
+    spans[0]["attributes"]
+        .as_object_mut()
+        .unwrap()
+        .remove("gen_ai.agent.parent.invocation.id");
+    write(root.path(), &spans);
+    let report = validate(root.path(), 1);
+    assert!(has(&report, "structure.single_entry", "error"));
+    spans[0]["attributes"]["gen_ai.subagent.parent_tool_call.id"] = json!("call");
+    for parent in ["0000000000000000", "FFFFFFFFFFFFFFFF", "bad"] {
+        spans[0]["parentSpanId"] = json!(parent);
+        write(root.path(), &spans);
+        assert!(has(
+            &validate(root.path(), 1),
+            "structure.agent_under_entry",
+            "error"
+        ));
+    }
+    spans[0]["parentSpanId"] = json!("ffffffffffffffff");
+    let mut orphan = spans[2].clone();
+    orphan["spanId"] = json!("eeeeeeeeeeeeeeee");
+    orphan["parentSpanId"] = json!("dddddddddddddddd");
+    spans.push(orphan);
+    write(root.path(), &spans);
+    assert!(has(
+        &validate(root.path(), 1),
+        "structure.no_orphan_spans",
+        "error"
+    ));
+}
+
+#[test]
+fn native_trace_delegation_keeps_causal_start_and_each_executions_final_tool_rule() {
+    let root = tempfile::tempdir().unwrap();
+    let mut spans = delegated_graph(false);
+    spans[7]["startTimeUnixNano"] = (BASE + 20).to_string().into();
+    write(root.path(), &spans);
+    assert!(has(
+        &validate(root.path(), 1),
+        "time.parent_contains_children",
+        "error"
+    ));
+    spans[7]["startTimeUnixNano"] = (BASE + 22).to_string().into();
+    spans[6]["attributes"]["gen_ai.output.messages"] = json!([{"role":"assistant",
+        "finish_reason":"tool_calls","parts":[{"type":"tool_call","id":"unfinished","name":"Read","arguments":{}}]}]);
+    write(root.path(), &spans);
+    assert!(has(
+        &validate(root.path(), 1),
+        "semantic.last_step_no_tool_call",
+        "error"
+    ));
+}
