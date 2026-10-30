@@ -1,16 +1,20 @@
 //! Depth-one Codex subagent linker. Port of `codex-subagent-linker.ts`.
 
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
+
+#[path = "work_linker.rs"]
+mod work;
+pub use work::is_codex_work_input;
 
 use super::types::{
     CodexExtractedTranscriptTurn, CodexTranscriptMeta, CodexTranscriptSourceRecord,
-    CodexTranscriptTool,
 };
-use super::utils::{as_record, number_value, string_value};
 
 pub const MAX_LINK_DESCRIPTORS: usize = 10_000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CodexSubagentLinkConfidence {
     ExplicitId,
     AgentPath,
@@ -29,7 +33,8 @@ impl CodexSubagentLinkConfidence {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OrphanReason {
     ParentNotFound,
     AmbiguousExplicitId,
@@ -48,7 +53,8 @@ impl OrphanReason {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct CodexSpawnDescriptor {
     pub parent_thread_id: String,
     pub parent_turn_id: String,
@@ -58,9 +64,28 @@ pub struct CodexSpawnDescriptor {
     pub task_name: Option<String>,
     pub agent_path: Option<String>,
     pub child_thread_id: Option<String>,
+    pub resolved_child_thread_id: Option<String>,
+    pub invocation_id: Option<String>,
+    pub parent_tool_span_id: Option<String>,
+    pub dispatch_kind: Option<String>,
+    pub work_index: usize,
+    pub work_fingerprint: Option<String>,
+    pub child_turn_id: Option<String>,
+    pub agent_nickname: Option<String>,
+    pub dispatch_failed: bool,
+    pub association_conflict: bool,
+    #[serde(skip)]
+    pub result_fingerprints: Vec<String>,
+    #[serde(skip)]
+    pub result_terminal_observed: bool,
+    #[serde(skip)]
+    pub result_child_turn_ids: Vec<String>,
+    #[serde(skip)]
+    pub result_outcome_known: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodexChildThreadDescriptor {
     pub child_thread_id: String,
     pub parent_thread_id: String,
@@ -71,8 +96,15 @@ pub struct CodexChildThreadDescriptor {
     pub agent_nickname: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodexSubagentLink {
+    #[serde(default)]
+    pub parent_tool_span_id: Option<String>,
+    #[serde(default)]
+    pub invocation_id: Option<String>,
+    #[serde(default)]
+    pub child_turn_id: Option<String>,
     pub parent_thread_id: String,
     pub parent_turn_id: Option<String>,
     pub parent_trace_id: Option<String>,
@@ -102,6 +134,9 @@ struct CandidateSelection {
 pub struct CodexSubagentLinker {
     spawns: IndexMap<String, CodexSpawnDescriptor>,
     children: IndexMap<String, CodexChildThreadDescriptor>,
+    bindings: IndexMap<String, work::WorkBinding>,
+    completed_results: IndexMap<String, work::CompletedResult>,
+    work_terminals: IndexMap<String, work::WorkTerminal>,
 }
 
 impl CodexSubagentLinker {
@@ -110,7 +145,8 @@ impl CodexSubagentLinker {
     }
 
     pub fn register_spawns(&mut self, descriptors: &[CodexSpawnDescriptor]) {
-        for descriptor in descriptors {
+        for original in descriptors {
+            let descriptor = &work::complete_descriptor(original.clone());
             let key = spawn_key(descriptor);
             let merged = match self.spawns.get(&key) {
                 Some(previous) => merge_spawn(previous, descriptor),
@@ -123,7 +159,6 @@ impl CodexSubagentLinker {
 
     pub fn register_child(&mut self, meta: &CodexTranscriptMeta) {
         if meta.thread_source != super::types::CodexThreadSource::Subagent
-            || meta.depth != 1
             || meta.parent_thread_id.is_none()
         {
             return;
@@ -149,7 +184,19 @@ impl CodexSubagentLinker {
     }
 
     pub fn snapshot(&self) -> CodexSubagentLinkSnapshot {
-        let spawns: Vec<CodexSpawnDescriptor> = self.spawns.values().cloned().collect();
+        let spawns: Vec<CodexSpawnDescriptor> = self
+            .spawns
+            .values()
+            .filter(|spawn| {
+                !spawn.dispatch_failed
+                    && !spawn.association_conflict
+                    && spawn
+                        .dispatch_kind
+                        .as_deref()
+                        .is_none_or(|kind| kind == "spawn")
+            })
+            .cloned()
+            .collect();
         let mut children: Vec<CodexChildThreadDescriptor> =
             self.children.values().cloned().collect();
         children.sort_by(|left, right| {
@@ -258,67 +305,7 @@ pub fn extract_codex_spawn_descriptors(
     source_records: &[CodexTranscriptSourceRecord],
     parent_trace_id: &str,
 ) -> Vec<CodexSpawnDescriptor> {
-    struct SpawnActivity {
-        thread_id: Option<String>,
-        agent_path: Option<String>,
-        occurred_at_ms: Option<f64>,
-    }
-    let mut activities: IndexMap<String, SpawnActivity> = IndexMap::new();
-    for source in source_records {
-        if source.record.get("type").and_then(|value| value.as_str()) != Some("event_msg") {
-            continue;
-        }
-        let Some(payload) = source.record.get("payload").and_then(as_record) else {
-            continue;
-        };
-        if payload.get("type").and_then(|value| value.as_str()) != Some("sub_agent_activity")
-            || payload.get("kind").and_then(|value| value.as_str()) != Some("started")
-        {
-            continue;
-        }
-        let Some(call_id) = string_value(payload.get("event_id")) else {
-            continue;
-        };
-        activities.insert(
-            call_id.to_owned(),
-            SpawnActivity {
-                thread_id: string_value(payload.get("agent_thread_id")).map(str::to_owned),
-                agent_path: string_value(payload.get("agent_path")).map(str::to_owned),
-                occurred_at_ms: number_value(payload.get("occurred_at_ms")),
-            },
-        );
-    }
-
-    let mut descriptors = Vec::new();
-    for step in &turn.steps {
-        for tool in &step.tools {
-            if tool.name != "spawn_agent" {
-                continue;
-            }
-            let activity = activities.get(&tool.call_id);
-            let output = tool.output.as_ref().and_then(as_record);
-            let result_agent_path = output
-                .and_then(|record| string_value(record.get("agent_path")))
-                .or_else(|| output.and_then(|record| string_value(record.get("task_name"))));
-            if activity.is_none() && result_agent_path.is_none() {
-                continue;
-            }
-            let task_name = spawn_task_name(tool);
-            descriptors.push(CodexSpawnDescriptor {
-                parent_thread_id: turn.session_id.clone(),
-                parent_turn_id: turn.transcript_turn_id.clone(),
-                parent_trace_id: parent_trace_id.to_owned(),
-                parent_tool_call_id: tool.call_id.clone(),
-                spawned_at_ms: activity
-                    .and_then(|item| item.occurred_at_ms)
-                    .unwrap_or(tool.started_at_ms),
-                task_name,
-                agent_path: activity.and_then(|item| item.agent_path.clone()),
-                child_thread_id: activity.and_then(|item| item.thread_id.clone()),
-            });
-        }
-    }
-    descriptors
+    work::extract_dispatches(turn, source_records, parent_trace_id)
 }
 
 fn select_candidate_for_phase(
@@ -433,6 +420,9 @@ fn linked_child(
     confidence: CodexSubagentLinkConfidence,
 ) -> CodexSubagentLink {
     CodexSubagentLink {
+        parent_tool_span_id: spawn.parent_tool_span_id.clone(),
+        invocation_id: spawn.invocation_id.clone(),
+        child_turn_id: None,
         parent_thread_id: child.parent_thread_id.clone(),
         parent_turn_id: Some(spawn.parent_turn_id.clone()),
         parent_trace_id: Some(spawn.parent_trace_id.clone()),
@@ -446,6 +436,9 @@ fn linked_child(
 
 fn orphan_link(child: &CodexChildThreadDescriptor, reason: OrphanReason) -> CodexSubagentLink {
     CodexSubagentLink {
+        parent_tool_span_id: None,
+        invocation_id: None,
+        child_turn_id: None,
         parent_thread_id: child.parent_thread_id.clone(),
         parent_turn_id: None,
         parent_trace_id: None,
@@ -455,16 +448,6 @@ fn orphan_link(child: &CodexChildThreadDescriptor, reason: OrphanReason) -> Code
         confidence: CodexSubagentLinkConfidence::Orphan,
         orphan_reason: Some(reason),
     }
-}
-
-fn spawn_task_name(tool: &CodexTranscriptTool) -> Option<String> {
-    let output = tool.output.as_ref().and_then(as_record);
-    let input = tool.input.as_ref().and_then(as_record);
-    string_value(output.and_then(|record| record.get("task_name")))
-        .or_else(|| string_value(output.and_then(|record| record.get("agent_path"))))
-        .or_else(|| string_value(input.and_then(|record| record.get("task_name"))))
-        .or_else(|| string_value(input.and_then(|record| record.get("agent_path"))))
-        .map(str::to_owned)
 }
 
 fn merge_spawn(
@@ -489,11 +472,18 @@ fn merge_spawn(
             .child_thread_id
             .clone()
             .or_else(|| previous.child_thread_id.clone()),
+        ..next.clone()
     }
 }
 
 fn spawn_key(spawn: &CodexSpawnDescriptor) -> String {
-    format!("{}:{}", spawn.parent_thread_id, spawn.parent_tool_call_id)
+    serde_json::to_string(&(
+        &spawn.parent_thread_id,
+        &spawn.parent_turn_id,
+        &spawn.parent_tool_call_id,
+        spawn.work_index,
+    ))
+    .expect("string tuple")
 }
 
 pub fn normalize_agent_path(value: &str) -> String {

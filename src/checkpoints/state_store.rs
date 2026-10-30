@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Notify};
 
 use super::json_file::{self, JVal};
 use super::OrderedMap;
@@ -287,6 +287,8 @@ struct StoreData {
     persisted_revision: u64,
     flushing: bool,
     waiters: Vec<Waiter>,
+    output_holds: usize,
+    output_failure: Option<String>,
 }
 
 /// In-memory input checkpoints backed by one JSON file.
@@ -294,6 +296,7 @@ pub struct StateStore {
     file_path: PathBuf,
     mu: Mutex<StoreData>,
     write_hook: Mutex<Option<WriteHook>>,
+    output_changed: Notify,
 }
 
 impl std::fmt::Debug for StateStore {
@@ -311,6 +314,7 @@ impl StateStore {
             file_path: file_path.as_ref().to_path_buf(),
             mu: Mutex::new(StoreData::default()),
             write_hook: Mutex::new(None),
+            output_changed: Notify::new(),
         }
     }
 
@@ -339,11 +343,54 @@ impl StateStore {
         }
     }
 
+    pub fn waiting_for_output(&self) -> bool {
+        self.mu.lock().unwrap().output_holds > 0
+    }
+
+    pub fn save_failed(&self) -> bool {
+        self.mu.lock().unwrap().output_failure.is_some()
+    }
+
+    /// Register before mutating source progress. A dropped acceptance guard
+    /// freezes the cursor, so cancellation cannot silently advance offsets.
+    pub fn begin_output(self: &Arc<Self>) -> CheckpointOutputHold {
+        self.mu.lock().unwrap().output_holds += 1;
+        CheckpointOutputHold {
+            store: Arc::clone(self),
+            finished: false,
+        }
+    }
+
+    pub fn hold_save_until<F>(self: &Arc<Self>, acceptance: F)
+    where
+        F: Future<Output = Result<(), String>> + Send + 'static,
+    {
+        let hold = self.begin_output();
+        tokio::spawn(async move {
+            hold.finish(acceptance.await);
+        });
+    }
+
+    fn finish_output(&self, result: Result<(), String>) {
+        let mut data = self.mu.lock().unwrap();
+        data.output_holds -= 1;
+        if let Err(error) = result {
+            if data.output_failure.is_none() {
+                data.output_failure = Some(error);
+            }
+        }
+        drop(data);
+        self.output_changed.notify_waiters();
+    }
+
     pub async fn save(&self) -> Result<(), anyhow::Error> {
         let (tx, rx) = oneshot::channel();
         let lead = {
             let mut data = self.mu.lock().unwrap();
-            if data.persisted_revision == data.revision {
+            if let Some(error) = &data.output_failure {
+                return Err(anyhow::Error::msg(error.clone()));
+            }
+            if data.persisted_revision == data.revision && data.output_holds == 0 {
                 return Ok(());
             }
             data.waiters.push(Waiter { tx });
@@ -444,34 +491,44 @@ impl StateStore {
     }
 
     async fn flush_pending(&self) {
+        enum Step {
+            Wait,
+            Done(Vec<Waiter>, Result<(), String>),
+            Write(u64, String),
+        }
         loop {
+            let changed = self.output_changed.notified();
             let step = {
                 let mut data = self.mu.lock().unwrap();
-                if data.persisted_revision >= data.revision {
+                if let Some(error) = data.output_failure.clone() {
                     data.flushing = false;
-                    let waiters = std::mem::take(&mut data.waiters);
-                    drop(data);
-                    notify(waiters, Ok(()));
-                    return;
+                    Step::Done(std::mem::take(&mut data.waiters), Err(error))
+                } else if data.output_holds > 0 {
+                    Step::Wait
+                } else if data.persisted_revision >= data.revision {
+                    data.flushing = false;
+                    Step::Done(std::mem::take(&mut data.waiters), Ok(()))
+                } else {
+                    Step::Write(data.revision, render_states(&data.states))
                 }
-                let target = data.revision;
-                let text = render_states(&data.states);
-                (target, text)
             };
-
-            match self.persist_text(&step.1).await {
-                Ok(()) => {
-                    self.mu.lock().unwrap().persisted_revision = step.0;
-                }
-                Err(err) => {
-                    let message = err.to_string();
-                    let mut data = self.mu.lock().unwrap();
-                    data.flushing = false;
-                    let waiters = std::mem::take(&mut data.waiters);
-                    drop(data);
-                    notify(waiters, Err(message));
+            match step {
+                Step::Wait => changed.await,
+                Step::Done(waiters, result) => {
+                    notify(waiters, result);
                     return;
                 }
+                Step::Write(revision, text) => match self.persist_text(&text).await {
+                    Ok(()) => self.mu.lock().unwrap().persisted_revision = revision,
+                    Err(error) => {
+                        let mut data = self.mu.lock().unwrap();
+                        data.flushing = false;
+                        let waiters = std::mem::take(&mut data.waiters);
+                        drop(data);
+                        notify(waiters, Err(error.to_string()));
+                        return;
+                    }
+                },
             }
         }
     }
@@ -512,6 +569,27 @@ impl StateStore {
     #[cfg(test)]
     fn inflight_waiters(&self) -> usize {
         self.mu.lock().unwrap().waiters.len()
+    }
+}
+
+pub struct CheckpointOutputHold {
+    store: Arc<StateStore>,
+    finished: bool,
+}
+
+impl CheckpointOutputHold {
+    pub fn finish(mut self, result: Result<(), String>) {
+        self.finished = true;
+        self.store.finish_output(result);
+    }
+}
+
+impl Drop for CheckpointOutputHold {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.store
+                .finish_output(Err("output acceptance was cancelled".into()));
+        }
     }
 }
 
@@ -926,5 +1004,115 @@ mod tests {
             "{\n  \"b\": {\n    \"lastOffset\": 2\n  }\n}\n"
         );
         assert_eq!(store.keys(), vec!["b".to_owned()]);
+    }
+}
+
+#[cfg(test)]
+mod output_acceptance_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn concurrent_save_waits_for_every_output_and_persists_latest_revision() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("checkpoint.json");
+        let store = Arc::new(StateStore::new(&path));
+        store.set("codex", InputState::new().with_last_offset(10.0));
+        store.save().await.unwrap();
+        let first = store.begin_output();
+        store.set("codex", InputState::new().with_last_offset(20.0));
+        let mut save = tokio::spawn({
+            let store = store.clone();
+            async move { store.save().await }
+        });
+        assert!(tokio::time::timeout(Duration::from_millis(25), &mut save)
+            .await
+            .is_err());
+        let second = store.begin_output();
+        store.set("cursor", InputState::new().with_last_offset(30.0));
+        first.finish(Ok(()));
+        assert!(tokio::time::timeout(Duration::from_millis(25), &mut save)
+            .await
+            .is_err());
+        let old: serde_json::Value =
+            serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert_eq!(old["codex"]["lastOffset"], 10);
+        second.finish(Ok(()));
+        tokio::time::timeout(Duration::from_secs(2), save)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let restored = StateStore::new(&path);
+        restored.load().await;
+        assert_eq!(restored.get("codex").last_offset(), Some(20.0));
+        assert_eq!(restored.get("cursor").last_offset(), Some(30.0));
+        assert!(!store.waiting_for_output());
+    }
+
+    #[tokio::test]
+    async fn output_failure_wakes_all_savers_and_freezes_durable_checkpoint() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("checkpoint.json");
+        let store = Arc::new(StateStore::new(&path));
+        store.set("codex", InputState::new().with_last_offset(5.0));
+        store.save().await.unwrap();
+        let hold = store.begin_output();
+        store.set("codex", InputState::new().with_last_offset(999.0));
+        let a = tokio::spawn({
+            let store = store.clone();
+            async move { store.save().await }
+        });
+        let b = tokio::spawn({
+            let store = store.clone();
+            async move { store.save().await }
+        });
+        hold.finish(Err("fixture transport rejected output".into()));
+        for save in [a, b] {
+            assert!(tokio::time::timeout(Duration::from_secs(2), save)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err());
+        }
+        assert!(store.save_failed());
+        assert!(store.save().await.is_err());
+        let restored = StateStore::new(&path);
+        restored.load().await;
+        assert_eq!(restored.get("codex").last_offset(), Some(5.0));
+    }
+
+    #[tokio::test]
+    async fn cancelled_output_guard_cannot_silently_accept_a_checkpoint() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("checkpoint.json");
+        let store = Arc::new(StateStore::new(&path));
+        let hold = store.begin_output();
+        store.set("codex", InputState::new().with_last_offset(123.0));
+        drop(hold);
+        assert!(store.save_failed());
+        assert!(store.save().await.is_err());
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn asynchronous_output_is_registered_before_task_poll_and_success_releases_save() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(StateStore::new(temp.path().join("checkpoint.json")));
+        let (release, accepted) = oneshot::channel();
+        store.hold_save_until(async move { accepted.await.map_err(|error| error.to_string()) });
+        assert!(store.waiting_for_output());
+        store.set("codex", InputState::new().with_last_offset(88.0));
+        let mut saving = Box::pin(store.save());
+        assert!(tokio::time::timeout(Duration::from_millis(25), &mut saving)
+            .await
+            .is_err());
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), saving)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!store.save_failed());
+        assert!(!store.waiting_for_output());
     }
 }

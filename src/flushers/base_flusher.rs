@@ -5,16 +5,43 @@ use serde_json::{Map, Value};
 
 use crate::types::AgentActivityEntry;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlushErrorKind {
+    Other,
+    CodexTurnJournal,
+    CodexOutputDurability,
+}
+
 #[derive(Debug)]
 pub struct FlushError {
     pub message: String,
+    pub kind: FlushErrorKind,
 }
 
 impl FlushError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            kind: FlushErrorKind::Other,
         }
+    }
+
+    pub fn codex_output(backend: &str) -> Self {
+        Self {
+            message: format!("Codex output was not durably accepted by {backend}"),
+            kind: FlushErrorKind::CodexOutputDurability,
+        }
+    }
+
+    pub fn codex_journal(error: impl std::fmt::Display) -> Self {
+        Self {
+            message: format!("Codex pending trace journal failed: {error}"),
+            kind: FlushErrorKind::CodexTurnJournal,
+        }
+    }
+
+    pub fn preserves_checkpoint(&self) -> bool {
+        self.kind != FlushErrorKind::Other
     }
 }
 

@@ -18,9 +18,8 @@ use super::super::builder::{
     build_codex_transcript_segment, next_input_messages_for_step, CodexTranscriptBuildOptions,
 };
 use super::super::checkpoint::{
-    checkpoint_to_value, create_active_turn, empty_checkpoint, has_emitted_active_turn_state,
-    merge_pending_fusion_children, new_pending_terminal, parse_checkpoint,
-    update_active_turn_from_extracted, update_active_turn_metadata,
+    checkpoint_to_value, create_active_turn, empty_checkpoint, new_pending_terminal,
+    parse_checkpoint, update_active_turn_from_extracted, update_active_turn_metadata,
 };
 use super::super::discovery::{
     canonical_directory_path, collect_recent_rollout_files, collect_rollout_files,
@@ -41,14 +40,13 @@ use super::super::scan::{
     uuid_v7_timestamp_ms, JsonLine,
 };
 use super::super::subagent_linker::{
-    extract_codex_spawn_descriptors, CodexSpawnDescriptor, CodexSubagentLinkConfidence,
+    extract_codex_spawn_descriptors, is_codex_work_input, CodexSpawnDescriptor,
     MAX_LINK_DESCRIPTORS,
 };
 use super::super::types::{
-    CodexActiveTranscriptTurn, CodexForkBootstrap, CodexPendingFusionChild, CodexPendingFusionTurn,
-    CodexPendingSubagentTurn, CodexTerminalStatus, CodexThreadSource, CodexTranscriptCheckpoint,
-    CodexTranscriptInputContext, CodexTranscriptMeta, CodexTranscriptSourceRecord,
-    ForkBootstrapState, FusionConfidence,
+    CodexActiveTranscriptTurn, CodexForkBootstrap, CodexTerminalStatus, CodexThreadSource,
+    CodexTranscriptCheckpoint, CodexTranscriptInputContext, CodexTranscriptMeta,
+    CodexTranscriptSourceRecord, ForkBootstrapState,
 };
 use super::super::utils::{self, as_record, json_bytes, now_ms, string_value};
 use super::{CachedMeta, CodexTranscriptBody, RolloutStat};
@@ -151,6 +149,7 @@ impl<'a> CodexTranscriptEngine<'a> {
         key: &str,
         checkpoint: &CodexTranscriptCheckpoint,
     ) {
+        self.save_delegation_state(rt);
         rt.state_store.update(
             key,
             InputStatePatch {
@@ -421,10 +420,10 @@ impl<'a> CodexTranscriptEngine<'a> {
         let owner_meta = self
             .body
             .with_shared(|shared| shared.meta_by_path.get(file_path).cloned());
-        let is_direct_subagent = owner_meta.as_ref().is_some_and(|meta| {
-            meta.thread_source == CodexThreadSource::Subagent && meta.depth == 1
-        });
-        if owner_meta.as_ref().is_some_and(|meta| meta.depth == 0) {
+        let is_direct_subagent = owner_meta
+            .as_ref()
+            .is_some_and(|meta| meta.thread_source == CodexThreadSource::Subagent);
+        if owner_meta.is_some() {
             if let Some(thread_id) = owner_meta.as_ref().map(|meta| meta.thread_id.clone()) {
                 self.register_persisted_subagent_spawns(&checkpoint, &thread_id);
             }
@@ -475,79 +474,27 @@ impl<'a> CodexTranscriptEngine<'a> {
             processed_terminals += 1;
             changed = true;
         }
-        if is_direct_subagent && owner_meta.is_some() && checkpoint.pending_subagent.is_some() {
-            let candidate = owner_meta
-                .as_ref()
-                .and_then(|meta| self.reliable_candidate_for_child(rt, meta));
-            let mismatch = match (candidate.as_ref(), checkpoint.pending_subagent.as_ref()) {
-                (Some(candidate), Some(pending)) => {
-                    candidate.parent_thread_id != pending.parent_thread_id
-                        || candidate.parent_turn_id.as_deref()
-                            != Some(pending.parent_turn_id.as_str())
-                        || candidate.parent_trace_id.as_deref()
-                            != Some(pending.parent_trace_id.as_str())
-                        || candidate.parent_tool_call_id.as_deref()
-                            != Some(pending.parent_tool_call_id.as_str())
-                }
-                _ => true,
-            };
-            if mismatch {
-                let released = self
-                    .release_captured_subagent_independently(rt, file_path, &mut checkpoint)
-                    .await?;
-                emitted_count += released.0;
-                processed_terminals += released.1;
-                changed = true;
+        // Replay legacy retained ranges independently. Only a child's own native
+        // terminal can finish it; the parent's terminal is never borrowed.
+        if checkpoint.pending_subagent.is_some() {
+            let released = self
+                .release_captured_subagent_independently(rt, file_path, &mut checkpoint)
+                .await?;
+            emitted_count += released.0;
+            processed_terminals += released.1;
+            changed = true;
+            if checkpoint.pending_subagent.is_some() {
+                self.save_checkpoint(rt, &key, &checkpoint);
+                return Ok(emitted_count);
             }
         }
         if checkpoint.pending_fusion.is_some() {
-            let parent = checkpoint
-                .pending_fusion
-                .as_ref()
-                .map(|fusion| fusion.parent_thread_id.clone())
-                .unwrap_or_default();
-            let turn_id = checkpoint
-                .pending_fusion
-                .as_ref()
-                .map(|fusion| fusion.turn_id.clone())
-                .unwrap_or_default();
-            let children = checkpoint
-                .pending_fusion
-                .as_ref()
-                .map(|fusion| fusion.children.clone())
-                .unwrap_or_default();
-            let reliable = self.reliable_fusion_children(rt, &parent, &turn_id, &children);
-            if checkpoint
-                .pending_fusion
-                .as_ref()
-                .is_some_and(|fusion| reliable.len() != fusion.children.len())
-            {
-                if let Some(fusion) = checkpoint.pending_fusion.as_mut() {
-                    fusion.children = reliable.clone();
-                }
-                if let Some(active) = checkpoint.active_turn.as_mut() {
-                    active.subagent_spawns = reliable;
-                }
-                changed = true;
-            }
-        }
-        if checkpoint
-            .pending_fusion
-            .as_ref()
-            .is_some_and(|fusion| fusion.children.is_empty())
-        {
             let released = self
                 .release_parent_fusion_independently(rt, file_path, &mut checkpoint)
                 .await?;
             emitted_count += released.0;
             processed_terminals += released.1;
             changed = true;
-        }
-        if checkpoint.pending_fusion.is_some() {
-            if changed {
-                self.save_checkpoint(rt, &key, &checkpoint);
-            }
-            return Ok(emitted_count);
         }
 
         let mut scanned_bytes = 0i64;
@@ -641,37 +588,8 @@ impl<'a> CodexTranscriptEngine<'a> {
                     checkpoint.scan_offset = next_scan_offset;
                     continue;
                 }
-                let active_before = if terminal_turn_id.is_some() {
-                    checkpoint.active_turn.clone()
-                } else {
-                    None
-                };
-                let reliable = if is_direct_subagent
-                    && owner_meta.is_some()
-                    && checkpoint.pending_subagent.is_none()
-                {
-                    owner_meta
-                        .as_ref()
-                        .and_then(|meta| self.reliable_candidate_for_child(rt, meta))
-                } else {
-                    None
-                };
-                let recovered = if reliable.is_some() {
-                    let mut cloned = checkpoint.clone();
-                    self.recover_turn_segment(
-                        rt,
-                        file_path,
-                        &mut cloned,
-                        RecoveryBoundary {
-                            end_offset: next_scan_offset,
-                            terminal: terminal_turn_id.is_some(),
-                            inferred: None,
-                        },
-                        reliable.as_ref().map(|item| item.parent_thread_id.as_str()),
-                    )
-                    .await?
-                } else {
-                    self.recover_turn_segment(
+                let recovered = self
+                    .recover_turn_segment(
                         rt,
                         file_path,
                         &mut checkpoint,
@@ -682,80 +600,9 @@ impl<'a> CodexTranscriptEngine<'a> {
                         },
                         None,
                     )
-                    .await?
-                };
-                if let (true, Some(link), Some(active)) = (
-                    terminal_turn_id.is_some()
-                        && !matches!(recovered.kind, RecoveryKind::Unparseable),
-                    reliable.as_ref(),
-                    active_before.as_ref(),
-                ) {
-                    checkpoint.pending_subagent = Some(CodexPendingSubagentTurn {
-                        turn_id: terminal_turn_id.clone().unwrap_or_default(),
-                        parent_thread_id: link.parent_thread_id.clone(),
-                        parent_turn_id: link.parent_turn_id.clone().unwrap_or_default(),
-                        parent_trace_id: link.parent_trace_id.clone().unwrap_or_default(),
-                        parent_tool_call_id: link.parent_tool_call_id.clone().unwrap_or_default(),
-                        confidence: match link.confidence {
-                            CodexSubagentLinkConfidence::AgentPath => FusionConfidence::AgentPath,
-                            _ => FusionConfidence::ExplicitId,
-                        },
-                        terminal_end_offset: next_scan_offset,
-                        active_turn: active.clone(),
-                    });
-                    checkpoint.active_turn = None;
-                    checkpoint.scan_offset = next_scan_offset;
-                    processed_terminals += 1;
-                    continue;
-                }
-                let fusion_parent = owner_meta
-                    .as_ref()
-                    .map(|meta| meta.thread_id.clone())
-                    .unwrap_or_else(|| session_id_from_transcript_path(file_path));
-                let fusion_children = if terminal_turn_id.is_some() {
-                    let spawns = checkpoint
-                        .active_turn
-                        .as_ref()
-                        .map(|active| active.subagent_spawns.clone())
-                        .unwrap_or_default();
-                    self.reliable_fusion_children(
-                        rt,
-                        &fusion_parent,
-                        terminal_turn_id.as_deref().unwrap_or(""),
-                        &spawns,
-                    )
-                } else {
-                    Vec::new()
-                };
-                if terminal_turn_id.is_some()
-                    && !matches!(recovered.kind, RecoveryKind::Unparseable)
-                    && !fusion_children.is_empty()
-                    && active_before.is_some()
-                    && next_scan_offset >= stat.size
-                {
-                    if let Some(active) = checkpoint.active_turn.as_mut() {
-                        active.subagent_spawns = fusion_children.clone();
-                    } else if let Some(mut active) = active_before.clone() {
-                        active.subagent_spawns = fusion_children.clone();
-                        checkpoint.active_turn = Some(active);
-                    }
-                    checkpoint.pending_fusion = Some(CodexPendingFusionTurn {
-                        turn_id: terminal_turn_id.clone().unwrap_or_default(),
-                        parent_thread_id: fusion_parent,
-                        parent_trace_id: fusion_children
-                            .first()
-                            .map(|child| child.parent_trace_id.clone())
-                            .unwrap_or_default(),
-                        terminal_end_offset: next_scan_offset,
-                        children: fusion_children,
-                    });
-                    blocked = true;
-                } else if reliable.is_none() {
-                    emitted_count += self.body.emit_batches(recovered.entries.clone());
-                }
+                    .await?;
+                emitted_count += self.body.emit_batches(recovered.entries.clone());
                 if !matches!(recovered.kind, RecoveryKind::Unparseable)
-                    && checkpoint.pending_fusion.is_none()
-                    && reliable.is_none()
                     && checkpoint
                         .active_turn
                         .as_ref()
@@ -854,6 +701,9 @@ fn process_scanned_line(
             .as_ref()
             .is_none_or(|active| active.turn_id != turn_id)
         {
+            if checkpoint.first_owned_turn_id.is_none() {
+                checkpoint.first_owned_turn_id = Some(turn_id.clone());
+            }
             checkpoint.active_turn = Some(create_active_turn(
                 turn_id.clone(),
                 line.start_offset,
@@ -1141,7 +991,7 @@ impl<'a> CodexTranscriptEngine<'a> {
         let input_context = self
             .resolve_input_context(rt, file_path, checkpoint, meta.as_ref())
             .await?;
-        let built = build_codex_transcript_segment(
+        let mut built = build_codex_transcript_segment(
             &committed,
             &CodexTranscriptBuildOptions {
                 include_prompt: checkpoint
@@ -1153,22 +1003,173 @@ impl<'a> CodexTranscriptEngine<'a> {
                 context_step_count: Some(committed.steps.len()),
             },
         );
-        if meta.as_ref().is_some_and(|meta| meta.depth == 0) {
-            if let Some(parent_trace) = built.entries.first_trace_id() {
-                let spawns =
-                    extract_codex_spawn_descriptors(&extraction.turn, &sources, &parent_trace);
-                self.body
-                    .with_shared(|shared| shared.linker.register_spawns(&spawns));
-                let children = spawns_to_children(&spawns);
-                if let Some(active) = checkpoint.active_turn.as_mut() {
-                    active.subagent_spawns =
-                        merge_pending_fusion_children(&active.subagent_spawns, &children);
+        if let (Some(meta), Some(active)) = (meta.as_ref(), checkpoint.active_turn.as_mut()) {
+            let canonical = sources.iter().any(|source| {
+                source.record["type"] == "response_item"
+                    && source.record["payload"]["type"] == "message"
+                    && is_codex_work_input(source, &extraction.turn.transcript_turn_id)
+            });
+            let new_work = sources.iter().any(|source| {
+                source.start_offset >= checkpoint.scan_offset
+                    && (!canonical || source.record["type"] != "event_msg")
+                    && is_codex_work_input(source, &extraction.turn.transcript_turn_id)
+            });
+            if !active.delegation_unbound || new_work {
+                let resolved = self.body.with_shared(|shared| {
+                    shared.linker.resolve_work(
+                        meta,
+                        &extraction.turn,
+                        &sources,
+                        checkpoint.first_owned_turn_id.as_deref()
+                            == Some(&extraction.turn.transcript_turn_id),
+                    )
+                });
+                if let Some(link) = resolved {
+                    active.delegation = Some(link);
+                    active.delegation_unbound = false;
+                } else if new_work && active.delegation.is_some() {
+                    active.delegation = None;
+                    active.delegation_unbound = true;
                 }
             }
         }
+        let delegation = checkpoint
+            .active_turn
+            .as_ref()
+            .and_then(|active| active.delegation.clone());
+        if let Some(link) = delegation.as_ref().filter(|_| terminal) {
+            self.body.with_shared(|shared| {
+                shared
+                    .linker
+                    .register_completed_work_result(link, &extraction.turn, &sources)
+            });
+        }
+        let trace_id = checkpoint
+            .active_turn
+            .as_ref()
+            .and_then(|active| active.emitted_trace_id.clone())
+            .or_else(|| {
+                delegation
+                    .as_ref()
+                    .and_then(|link| link.parent_trace_id.clone())
+            })
+            .or_else(|| built.entries.first_trace_id())
+            .unwrap_or_else(|| super::super::invocation_audit::turn_trace_id(&extraction.turn));
+        for entry in &mut built.entries {
+            entry.trace_id = Some(trace_id.clone());
+        }
+        if let Some(link) = &delegation {
+            super::super::invocation_audit::stamp_delegation(
+                &mut built.entries,
+                link,
+                meta.as_ref(),
+                link.parent_trace_id.as_deref() == Some(trace_id.as_str()),
+            );
+        }
+        let dispatch_turn =
+            super::super::invocation_audit::with_pending_dispatches(&extraction.turn, &sources);
+        let spawns = extract_codex_spawn_descriptors(&dispatch_turn, &sources, &trace_id);
+        self.body
+            .with_shared(|shared| shared.linker.register_spawns(&spawns));
+        let known = self.body.with_shared(|shared| {
+            shared
+                .linker
+                .get_delegations_for_parent(&extraction.turn.session_id)
+        });
+        let dispatches: Vec<_> = spawns
+            .iter()
+            .map(|spawn| {
+                known
+                    .iter()
+                    .find(|known| known.invocation_id == spawn.invocation_id)
+                    .cloned()
+                    .unwrap_or_else(|| spawn.clone())
+            })
+            .collect();
+        built.entries =
+            super::super::invocation_audit::append_invocations(built.entries, &dispatches);
+        if closed < dispatch_turn.steps.len() && !dispatches.is_empty() {
+            let all = build_codex_transcript_segment(
+                &dispatch_turn,
+                &CodexTranscriptBuildOptions {
+                    include_prompt: false,
+                    start_step_number: step_start,
+                    ..Default::default()
+                },
+            );
+            let mut pending =
+                super::super::invocation_audit::append_invocations(all.entries, &dispatches);
+            pending.retain(|entry| entry.event_name == Some(AgentEventName::AgentInvoke));
+            for entry in &mut pending {
+                entry.trace_id = Some(trace_id.clone());
+            }
+            if let Some(link) = &delegation {
+                super::super::invocation_audit::stamp_delegation(
+                    &mut pending,
+                    link,
+                    meta.as_ref(),
+                    link.parent_trace_id.as_deref() == Some(trace_id.as_str()),
+                );
+            }
+            built.entries.extend(pending);
+        }
+        let mut audit_base =
+            super::super::invocation_audit::audit_context(&extraction.turn, &trace_id);
+        if let Some(link) = &delegation {
+            super::super::invocation_audit::stamp_delegation(
+                std::slice::from_mut(&mut audit_base),
+                link,
+                meta.as_ref(),
+                link.parent_trace_id.as_deref() == Some(trace_id.as_str()),
+            );
+        }
+        built.entries = self.body.with_shared(|shared| {
+            super::super::invocation_audit::append_agent_results(
+                built.entries,
+                &sources,
+                &known,
+                super::super::invocation_audit::ResultContext {
+                    receiving_session: &extraction.turn.session_id,
+                    delivered: &mut shared.delivered_invocations,
+                    fallback: &audit_base,
+                    pending: &mut shared.pending_agent_results,
+                    file_path,
+                    inode: checkpoint.inode,
+                },
+            )
+        });
+        if let Some(active) = checkpoint.active_turn.as_mut() {
+            if !built.entries.is_empty() {
+                active.emitted_trace_id = Some(trace_id);
+            }
+        }
         let mut ready = built.entries.clone();
-        if terminal && !built.entries.is_empty() {
-            if let Some(marker) = codex_turn_end_marker(&built.entries, extraction.turn.status) {
+        if terminal
+            && (!ready.is_empty()
+                || checkpoint
+                    .active_turn
+                    .as_ref()
+                    .is_some_and(|active| active.emitted_trace_id.is_some()))
+        {
+            let marker_base = ready.last().unwrap_or(&audit_base);
+            if let Some(mut marker) =
+                codex_turn_end_marker(std::slice::from_ref(marker_base), extraction.turn.status)
+            {
+                marker.time_unix_nano =
+                    ((extraction.turn.terminal_at_ms as i128) * 1_000_000).to_string();
+                for key in [
+                    "agent.codex.delegated",
+                    "agent.codex.parent_span_id",
+                    "gen_ai.agent.scope",
+                    "gen_ai.agent.depth",
+                    "gen_ai.agent.parent.id",
+                    "gen_ai.agent.parent.invocation.id",
+                    "gen_ai.subagent.parent_tool_call.id",
+                ] {
+                    if let Some(value) = marker_base.extra.get(key) {
+                        marker.extra.insert(key.into(), value.clone());
+                    }
+                }
                 ready.push(marker);
             }
         }
@@ -1236,20 +1237,6 @@ impl FirstTrace for Vec<AgentActivityEntry> {
     }
 }
 
-fn spawns_to_children(spawns: &[CodexSpawnDescriptor]) -> Vec<CodexPendingFusionChild> {
-    spawns
-        .iter()
-        .map(|spawn| CodexPendingFusionChild {
-            parent_tool_call_id: spawn.parent_tool_call_id.clone(),
-            parent_trace_id: spawn.parent_trace_id.clone(),
-            spawned_at_ms: spawn.spawned_at_ms,
-            task_name: spawn.task_name.clone(),
-            agent_path: spawn.agent_path.clone(),
-            child_thread_id: spawn.child_thread_id.clone(),
-        })
-        .collect()
-}
-
 fn empty_unparseable(end_offset: i64) -> Recovery {
     Recovery {
         kind: RecoveryKind::Unparseable,
@@ -1270,7 +1257,24 @@ fn filter_new_segment_entries(
     let mut calls: HashSet<String> = active.emitted_tool_call_ids.iter().cloned().collect();
     let mut results: HashSet<String> = active.emitted_tool_result_ids.iter().cloned().collect();
     let mut out = Vec::new();
+    let mut audits: HashSet<String> = active.emitted_audit_event_ids.iter().cloned().collect();
     for entry in entries {
+        if matches!(
+            entry.event_name,
+            Some(
+                AgentEventName::ModelRequest
+                    | AgentEventName::ModelResponse
+                    | AgentEventName::GenAiToolCall
+                    | AgentEventName::GenAiToolResult
+                    | AgentEventName::AgentInvoke
+                    | AgentEventName::AgentResult
+            )
+        ) {
+            if audits.insert(entry.event_id.clone()) {
+                out.push(entry);
+            }
+            continue;
+        }
         if entry.event_name == Some(AgentEventName::Other) {
             if entry.turn_end == Some(true) {
                 out.push(entry);
@@ -1313,6 +1317,7 @@ fn filter_new_segment_entries(
     active.emitted_step_response_ids = responses.into_iter().collect();
     active.emitted_tool_call_ids = calls.into_iter().collect();
     active.emitted_tool_result_ids = results.into_iter().collect();
+    active.emitted_audit_event_ids = audits.into_iter().collect();
     out
 }
 
@@ -1586,6 +1591,7 @@ impl<'a> CodexTranscriptEngine<'a> {
             rt,
             key,
             &CodexTranscriptCheckpoint {
+                first_owned_turn_id: None,
                 inode,
                 scan_offset: stats.next_offset,
                 active_turn: active,
@@ -1615,6 +1621,7 @@ impl<'a> CodexTranscriptEngine<'a> {
             rt,
             key,
             &CodexTranscriptCheckpoint {
+                first_owned_turn_id: None,
                 inode,
                 scan_offset,
                 active_turn: None,
@@ -2490,127 +2497,11 @@ impl<'a> CodexTranscriptEngine<'a> {
                 task_name: spawn.task_name.clone(),
                 agent_path: spawn.agent_path.clone(),
                 child_thread_id: spawn.child_thread_id.clone(),
+                ..Default::default()
             })
             .collect::<Vec<_>>();
         self.body
             .with_shared(|shared| shared.linker.register_spawns(&spawns));
-    }
-
-    fn reliable_candidate_for_child(
-        &self,
-        rt: &InputRuntime,
-        meta: &CodexTranscriptMeta,
-    ) -> Option<super::super::subagent_linker::CodexSubagentLink> {
-        let parent = meta.parent_thread_id.as_deref()?;
-        let snapshot = self.body.with_shared(|shared| shared.linker.snapshot());
-        let link = snapshot.links.into_iter().find(|candidate| {
-            candidate.child_thread_id == meta.thread_id
-                && candidate.parent_thread_id == parent
-                && candidate.parent_turn_id.is_some()
-                && candidate.parent_trace_id.is_some()
-                && candidate.parent_tool_call_id.is_some()
-                && matches!(
-                    candidate.confidence,
-                    CodexSubagentLinkConfidence::ExplicitId
-                        | CodexSubagentLinkConfidence::AgentPath
-                )
-        })?;
-        let parents = self.body.with_shared(|shared| {
-            shared
-                .meta_by_path
-                .iter()
-                .filter(|(_, parent_meta)| {
-                    parent_meta.thread_id == link.parent_thread_id && parent_meta.depth == 0
-                })
-                .map(|(path, _)| path.clone())
-                .collect::<Vec<_>>()
-        });
-        for path in parents {
-            let Some(checkpoint) = self.read_checkpoint(rt, &self.state_key(&path)) else {
-                continue;
-            };
-            let parent_turn = checkpoint
-                .pending_fusion
-                .as_ref()
-                .map(|fusion| fusion.turn_id.clone())
-                .or_else(|| {
-                    checkpoint
-                        .active_turn
-                        .as_ref()
-                        .map(|active| active.turn_id.clone())
-                });
-            let spawns = checkpoint
-                .pending_fusion
-                .as_ref()
-                .map(|fusion| fusion.children.clone())
-                .or_else(|| {
-                    checkpoint
-                        .active_turn
-                        .as_ref()
-                        .map(|active| active.subagent_spawns.clone())
-                })
-                .unwrap_or_default();
-            if parent_turn.as_deref() == link.parent_turn_id.as_deref()
-                && spawns.iter().any(|spawn| {
-                    Some(spawn.parent_tool_call_id.as_str()) == link.parent_tool_call_id.as_deref()
-                })
-            {
-                return Some(link);
-            }
-        }
-        None
-    }
-
-    fn reliable_fusion_children(
-        &self,
-        rt: &InputRuntime,
-        parent_thread_id: &str,
-        parent_turn_id: &str,
-        children: &[CodexPendingFusionChild],
-    ) -> Vec<CodexPendingFusionChild> {
-        let links = self
-            .body
-            .with_shared(|shared| shared.linker.snapshot().links);
-        let mut reliable = Vec::new();
-        for child in children {
-            let matches: Vec<_> = links
-                .iter()
-                .filter(|link| {
-                    link.parent_thread_id == parent_thread_id
-                        && link.parent_turn_id.as_deref() == Some(parent_turn_id)
-                        && link.parent_tool_call_id.as_deref()
-                            == Some(child.parent_tool_call_id.as_str())
-                        && matches!(
-                            link.confidence,
-                            CodexSubagentLinkConfidence::ExplicitId
-                                | CodexSubagentLinkConfidence::AgentPath
-                        )
-                })
-                .collect();
-            if matches.len() != 1 {
-                continue;
-            }
-            let link = matches[0];
-            let child_path = self
-                .body
-                .with_shared(|shared| shared.path_by_thread.get(&link.child_thread_id).cloned());
-            let checkpoint = child_path
-                .as_ref()
-                .and_then(|path| self.read_checkpoint(rt, &self.state_key(path)));
-            if let Some(checkpoint) = checkpoint.as_ref() {
-                if let Some(captured) = checkpoint.pending_subagent.as_ref() {
-                    if captured.parent_tool_call_id != child.parent_tool_call_id {
-                        continue;
-                    }
-                } else if child_collection_settled(checkpoint) {
-                    continue;
-                }
-            }
-            let mut next = child.clone();
-            next.child_thread_id = Some(link.child_thread_id.clone());
-            reliable.push(next);
-        }
-        reliable
     }
 
     async fn release_parent_fusion_independently(
@@ -2701,184 +2592,118 @@ impl<'a> CodexTranscriptEngine<'a> {
         Ok((emitted, 1))
     }
 
-    pub async fn finalize_ready_subagent_fusions(
-        &self,
-        rt: &InputRuntime,
-    ) -> anyhow::Result<usize> {
-        let parents = self.body.with_shared(|shared| {
+    pub fn restore_delegation_state(&self, rt: &InputRuntime) {
+        if let Some(extra) = rt.state_store.get("codex-transcript").extra() {
+            self.body.with_shared(|shared| {
+                shared.linker.restore(&extra["codexDelegations"]);
+                if let Some(ids) = extra["codexResultInvocations"].as_array() {
+                    for id in ids
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .take(MAX_LINK_DESCRIPTORS)
+                    {
+                        shared.delivered_invocations.insert(id.to_owned());
+                    }
+                }
+                if let Some(results) = extra["codexPendingAgentResults"].as_array() {
+                    for value in results {
+                        if let Ok(pending) = serde_json::from_value::<
+                            super::super::invocation_audit::PendingAgentResult,
+                        >(value.clone())
+                        {
+                            if pending.start_offset >= 0
+                                && pending.end_offset > pending.start_offset
+                                && !pending.context.session_id.is_empty()
+                                && !pending.context.event_id.is_empty()
+                            {
+                                shared.pending_agent_results.insert(
+                                    format!("{}:{}", pending.file_path, pending.start_offset),
+                                    pending,
+                                );
+                            }
+                        }
+                    }
+                }
+                while shared.pending_agent_results.len() > MAX_LINK_DESCRIPTORS {
+                    shared.pending_agent_results.shift_remove_index(0);
+                }
+            });
+        }
+    }
+
+    fn save_delegation_state(&self, rt: &InputRuntime) {
+        let extra = self.body.with_shared(|shared| json!({
+            "codexDelegations": shared.linker.serialize(),
+            "codexResultInvocations": shared.delivered_invocations,
+            "codexPendingAgentResults": shared.pending_agent_results.values().collect::<Vec<_>>(),
+        }));
+        rt.state_store.update(
+            "codex-transcript",
+            InputStatePatch {
+                extra: Some(extra),
+                ..Default::default()
+            },
+        );
+    }
+
+    pub async fn retry_pending_agent_results(&self, rt: &InputRuntime) -> anyhow::Result<usize> {
+        let pending = self.body.with_shared(|shared| {
             shared
-                .meta_by_path
+                .pending_agent_results
                 .iter()
-                .filter(|(_, meta)| meta.depth == 0)
-                .map(|(path, _)| path.clone())
+                .map(|(key, value)| (key.clone(), value.clone()))
                 .collect::<Vec<_>>()
         });
-        let mut emitted = 0usize;
-        for parent_path in parents {
-            let parent_key = self.state_key(&parent_path);
-            let Some(mut parent_checkpoint) = self.read_checkpoint(rt, &parent_key) else {
-                continue;
-            };
-            let Some(pending) = parent_checkpoint.pending_fusion.clone() else {
-                continue;
-            };
-            if parent_checkpoint.active_turn.is_none() {
+        let mut emitted = 0;
+        for (key, pending) in pending {
+            let stat = tokio::fs::metadata(&pending.file_path)
+                .await
+                .ok()
+                .map(|meta| file_meta_snapshot(&meta));
+            let valid = stat
+                .as_ref()
+                .is_some_and(|(ino, size, _)| *ino == pending.inode && *size >= pending.end_offset);
+            if !valid {
                 continue;
             }
-            let mut degraded = Vec::new();
-            let mut child_outputs = Vec::new();
-            for child in &pending.children {
-                let child_thread = child.child_thread_id.clone();
-                let child_path = child_thread.as_ref().and_then(|id| {
-                    self.body
-                        .with_shared(|shared| shared.path_by_thread.get(id).cloned())
-                });
-                let Some(child_path) = child_path else {
-                    degraded.push(child.parent_tool_call_id.clone());
-                    continue;
-                };
-                let Some(child_checkpoint) = self.read_checkpoint(rt, &self.state_key(&child_path))
-                else {
-                    degraded.push(child.parent_tool_call_id.clone());
-                    continue;
-                };
-                let captured = child_checkpoint.pending_subagent.clone();
-                let captured_matches = captured.as_ref().is_some_and(|captured| {
-                    captured.parent_thread_id == pending.parent_thread_id
-                        && captured.parent_turn_id == pending.turn_id
-                        && captured.parent_trace_id == pending.parent_trace_id
-                        && captured.parent_tool_call_id == child.parent_tool_call_id
-                });
-                let can_force = !captured_matches
-                    && child_checkpoint.active_turn.as_ref().is_some_and(|active| {
-                        !has_emitted_active_turn_state(active)
-                            && child_checkpoint.scan_offset > active.start_offset
-                    });
-                if !captured_matches && !can_force {
-                    degraded.push(child.parent_tool_call_id.clone());
-                    continue;
-                }
-                let snapshot = if captured_matches {
-                    captured.as_ref().map(|item| item.active_turn.clone())
-                } else {
-                    child_checkpoint.active_turn.clone()
-                };
-                let Some(snapshot) = snapshot else {
-                    degraded.push(child.parent_tool_call_id.clone());
-                    continue;
-                };
-                let terminal_end = if captured_matches {
-                    captured
-                        .as_ref()
-                        .map(|item| item.terminal_end_offset)
-                        .unwrap_or(child_checkpoint.scan_offset)
-                } else {
-                    child_checkpoint.scan_offset
-                };
-                let mut recovery = child_checkpoint.clone();
-                recovery.active_turn = Some(snapshot.clone());
-                recovery.pending_subagent = None;
-                let recovered = self
-                    .recover_turn_segment(
-                        rt,
-                        &child_path,
-                        &mut recovery,
-                        RecoveryBoundary {
-                            end_offset: terminal_end,
-                            terminal: true,
-                            inferred: if captured_matches {
-                                None
-                            } else {
-                                Some(CodexTerminalStatus::Interrupted)
-                            },
-                        },
-                        Some(pending.parent_thread_id.as_str()),
-                    )
-                    .await?;
-                if matches!(recovered.kind, RecoveryKind::Unparseable) {
-                    degraded.push(child.parent_tool_call_id.clone());
-                    continue;
-                }
-                let agent_name = self.body.with_shared(|shared| {
-                    shared
-                        .meta_by_path
-                        .get(&child_path)
-                        .and_then(|meta| meta.agent_nickname.clone())
-                });
-                let rewritten = rewrite_subagent_entries(
-                    recovered.entries,
-                    &pending.parent_thread_id,
-                    &pending.turn_id,
-                    &pending.parent_trace_id,
-                    &child.parent_tool_call_id,
-                    child.child_thread_id.as_deref().unwrap_or(""),
-                    agent_name
-                        .or_else(|| child.agent_path.clone())
-                        .or_else(|| child.task_name.clone()),
-                );
-                child_outputs.push((
-                    rewritten,
-                    child_path,
-                    child_checkpoint,
-                    snapshot.turn_id,
-                    child.parent_tool_call_id.clone(),
-                    captured_matches,
-                ));
-            }
-            let parent_recovered = self
-                .recover_turn_segment(
-                    rt,
-                    &parent_path,
-                    &mut parent_checkpoint,
-                    RecoveryBoundary {
-                        end_offset: pending.terminal_end_offset,
-                        terminal: true,
-                        inferred: None,
+            let read = read_json_lines(
+                &pending.file_path,
+                pending.start_offset,
+                pending.end_offset,
+                Some(rt),
+            )
+            .await?;
+            let sources: Vec<_> = read
+                .items
+                .into_iter()
+                .map(|line| CodexTranscriptSourceRecord {
+                    start_offset: line.start_offset,
+                    end_offset: line.end_offset,
+                    record: line.record,
+                })
+                .collect();
+            let output = self.body.with_shared(|shared| {
+                let known = shared
+                    .linker
+                    .get_delegations_for_parent(&pending.context.session_id);
+                shared.pending_agent_results.shift_remove(&key);
+                super::super::invocation_audit::append_agent_results(
+                    Vec::new(),
+                    &sources,
+                    &known,
+                    super::super::invocation_audit::ResultContext {
+                        receiving_session: &pending.context.session_id,
+                        delivered: &mut shared.delivered_invocations,
+                        fallback: &pending.context,
+                        pending: &mut shared.pending_agent_results,
+                        file_path: &pending.file_path,
+                        inode: pending.inode,
                     },
-                    None,
                 )
-                .await?;
-            if matches!(parent_recovered.kind, RecoveryKind::Unparseable) {
-                continue;
-            }
-            if !degraded.is_empty() {
-                let meta = json!({
-                    "transcriptPath": parent_path,
-                    "turnId": pending.turn_id,
-                    "parentToolCallIds": degraded,
-                });
-                rt.warn(
-                    "Codex parent reached task_complete before every child could be rebuilt; degrading missing children",
-                    meta.as_object(),
-                );
-            }
-            for (entries, path, mut child_checkpoint, turn_id, tool_id, captured_matches) in
-                child_outputs
-            {
-                emitted += self.body.emit_batches(entries);
-                if captured_matches
-                    && child_checkpoint
-                        .pending_subagent
-                        .as_ref()
-                        .is_some_and(|item| item.parent_tool_call_id == tool_id)
-                {
-                    child_checkpoint.pending_subagent = None;
-                } else if !captured_matches
-                    && child_checkpoint
-                        .active_turn
-                        .as_ref()
-                        .is_some_and(|active| active.turn_id == turn_id)
-                {
-                    child_checkpoint.active_turn = None;
-                    child_checkpoint.pending_terminal = None;
-                }
-                self.save_checkpoint(rt, &self.state_key(&path), &child_checkpoint);
-            }
-            emitted += self.body.emit_batches(parent_recovered.entries);
-            parent_checkpoint.active_turn = None;
-            parent_checkpoint.pending_fusion = None;
-            self.save_checkpoint(rt, &parent_key, &parent_checkpoint);
+            });
+            emitted += self.body.emit_batches(output);
         }
+        self.save_delegation_state(rt);
         Ok(emitted)
     }
 
@@ -2954,55 +2779,10 @@ impl<'a> CodexTranscriptEngine<'a> {
     }
 }
 
-fn child_collection_settled(checkpoint: &CodexTranscriptCheckpoint) -> bool {
-    checkpoint.scan_offset > 0
-        && checkpoint.fork_bootstrap.is_none()
-        && checkpoint.active_turn.is_none()
-        && checkpoint.pending_terminal.is_none()
-        && checkpoint.pending_subagent.is_none()
-}
-
 fn reusable_cached(cached: &CachedMeta, inode: u64, file_size: i64, owner_offset: i64) -> bool {
     cached.inode == inode
         && cached.owner_offset == owner_offset
         && file_size >= cached.file_size
         && owner_offset >= 0
         && owner_offset < file_size
-}
-
-fn rewrite_subagent_entries(
-    entries: Vec<AgentActivityEntry>,
-    parent_thread_id: &str,
-    parent_turn_id: &str,
-    parent_trace_id: &str,
-    parent_tool_call_id: &str,
-    child_thread_id: &str,
-    agent_name: Option<String>,
-) -> Vec<AgentActivityEntry> {
-    let parent_turn = format!("{parent_thread_id}:{parent_turn_id}");
-    entries
-        .into_iter()
-        .filter(|entry| entry.event_name != Some(AgentEventName::Other))
-        .map(|mut entry| {
-            entry.trace_id = Some(parent_trace_id.to_owned());
-            entry.session_id = parent_thread_id.to_owned();
-            entry.turn_id = Some(parent_turn.clone());
-            entry.agent_id = Some(child_thread_id.to_owned());
-            if let Some(name) = &agent_name {
-                entry.agent_name = Some(name.clone());
-            }
-            entry
-                .extra
-                .insert("gen_ai.agent.scope".into(), json!("subagent"));
-            entry.extra.insert("gen_ai.agent.depth".into(), json!(1));
-            entry
-                .extra
-                .insert("gen_ai.agent.parent.id".into(), json!(parent_thread_id));
-            entry.extra.insert(
-                "gen_ai.subagent.parent_tool_call.id".into(),
-                json!(parent_tool_call_id),
-            );
-            entry
-        })
-        .collect()
 }

@@ -345,6 +345,9 @@ impl BaseFlusher for SlsFlusher {
         entry: AgentActivityEntry,
         _logical_bytes: Option<f64>,
     ) -> Result<(), FlushError> {
+        if normalize_agent_type(&entry.agent_type) == "codex" {
+            return self.inner.accept_codex(std::slice::from_ref(&entry)).await;
+        }
         self.inner.enqueue_entry(&entry).await;
         Ok(())
     }
@@ -354,8 +357,16 @@ impl BaseFlusher for SlsFlusher {
         entries: Vec<AgentActivityEntry>,
         _logical_bytes: Option<Vec<f64>>,
     ) -> Result<(), FlushError> {
+        let mut codex = Vec::new();
         for entry in entries {
-            Arc::clone(&self.inner).enqueue_entry(&entry).await;
+            if normalize_agent_type(&entry.agent_type) == "codex" {
+                codex.push(entry);
+            } else {
+                Arc::clone(&self.inner).enqueue_entry(&entry).await;
+            }
+        }
+        if !codex.is_empty() {
+            self.inner.accept_codex(&codex).await?;
         }
         Ok(())
     }
@@ -386,6 +397,73 @@ impl BaseFlusher for SlsFlusher {
 }
 
 impl SlsInner {
+    async fn accept_codex(
+        self: &Arc<Self>,
+        entries: &[AgentActivityEntry],
+    ) -> Result<(), FlushError> {
+        let serialized: Vec<_> = entries
+            .iter()
+            .map(|entry| {
+                let mut content = serialise_log_entry(
+                    entry,
+                    &SerialiseLogEntryOptions {
+                        drop_agent_scoped_fields: true,
+                    },
+                );
+                content.insert("version".into(), self.pilot_version.clone());
+                content
+            })
+            .collect();
+        let capacity = Arc::new(tokio::sync::Semaphore::new(self.flush_concurrency));
+        let mut pending = tokio::task::JoinSet::new();
+        for endpoint in &self.config.endpoints {
+            let logs: Vec<_> = serialized
+                .iter()
+                .map(|content| {
+                    let content = if endpoint.redact == Some(true) {
+                        redact_code_generation_fields(content)
+                    } else {
+                        content.clone()
+                    };
+                    QueuedLog {
+                        byte_size: json_utf8_len(&content),
+                        content,
+                        endpoint: endpoint.clone(),
+                        agent_type: "codex".into(),
+                    }
+                })
+                .collect();
+            {
+                let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                if let Some(counter) = state.counters.get_mut(&endpoint.name) {
+                    counter.in_entries += logs.len() as u64;
+                    counter.in_bytes += logs.iter().map(|log| log.byte_size as u64).sum::<u64>();
+                    if counter.start_time.is_empty() {
+                        counter.start_time = format_time(Local::now());
+                    }
+                }
+            }
+            let inner = Arc::clone(self);
+            let capacity = Arc::clone(&capacity);
+            pending.spawn(async move {
+                let _permit = capacity
+                    .acquire_owned()
+                    .await
+                    .expect("Codex output capacity remains open");
+                inner.flush_bucket(&logs).await
+            });
+        }
+        let mut accepted = true;
+        while let Some(result) = pending.join_next().await {
+            accepted &= matches!(result, Ok(true));
+        }
+        if accepted {
+            Ok(())
+        } else {
+            Err(FlushError::codex_output("SLS"))
+        }
+    }
+
     async fn enqueue_entry(self: &Arc<Self>, entry: &AgentActivityEntry) {
         let mut serialized = serialise_log_entry(
             entry,
@@ -504,7 +582,7 @@ impl SlsInner {
             .flushing = false;
     }
 
-    async fn flush_bucket(&self, logs: &[QueuedLog]) {
+    async fn flush_bucket(&self, logs: &[QueuedLog]) -> bool {
         let endpoint = logs[0].endpoint.clone();
         let started = Instant::now();
         let outcome = match endpoint.mode {
@@ -512,6 +590,7 @@ impl SlsInner {
             SlsMode::ApiKey => self.flush_via_api_key(&endpoint, logs).await,
             SlsMode::Webtracking => self.flush_via_webtracking(&endpoint, logs).await,
         };
+        let accepted = outcome.failed_entries == 0;
         let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
         if let Some(counter) = state.counters.get_mut(&endpoint.name) {
             counter.out_entries += outcome.sent_entries;
@@ -522,6 +601,7 @@ impl SlsInner {
                 counter.last_flush_time = format_time(Local::now());
             }
         }
+        accepted
     }
 
     fn effective_service_name(&self, endpoint: &SlsEndpoint) -> String {

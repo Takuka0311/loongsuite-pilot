@@ -4,6 +4,7 @@
 //! the batch back at the head of the buffer, matching axios rejecting and the
 //! flusher calling `unshift`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,6 +22,9 @@ pub struct HttpFlusher {
 
 struct HttpInner {
     config: HttpFlusherConfig,
+    codex_gate: tokio::sync::Mutex<()>,
+    stopped: AtomicBool,
+    shutdown: tokio::sync::Notify,
     client: reqwest::Client,
     buffer: std::sync::Mutex<Vec<SerializedLogEntry>>,
     timer: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -34,6 +38,9 @@ impl HttpFlusher {
         Self {
             inner: Arc::new(HttpInner {
                 config,
+                codex_gate: tokio::sync::Mutex::new(()),
+                stopped: AtomicBool::new(false),
+                shutdown: tokio::sync::Notify::new(),
                 client,
                 buffer: std::sync::Mutex::new(Vec::new()),
                 timer: std::sync::Mutex::new(None),
@@ -53,6 +60,7 @@ impl BaseFlusher for HttpFlusher {
     }
 
     async fn start(&self) -> Result<(), FlushError> {
+        self.inner.stopped.store(false, Ordering::SeqCst);
         let interval = self.inner.config.flush_interval_ms.max(1);
         let inner = Arc::clone(&self.inner);
         let handle = tokio::spawn(async move {
@@ -76,6 +84,9 @@ impl BaseFlusher for HttpFlusher {
         entry: AgentActivityEntry,
         _logical_bytes: Option<f64>,
     ) -> Result<(), FlushError> {
+        if crate::utils::normalize_agent_type(&entry.agent_type) == "codex" {
+            return self.send_batch(vec![entry], None).await;
+        }
         let serialized = serialise_log_entry(&entry, &SerialiseLogEntryOptions::default());
         let should_flush = {
             let mut buffer = self
@@ -97,22 +108,30 @@ impl BaseFlusher for HttpFlusher {
         entries: Vec<AgentActivityEntry>,
         _logical_bytes: Option<Vec<f64>>,
     ) -> Result<(), FlushError> {
+        let mut codex = Vec::new();
+        let mut ordinary = Vec::new();
+        for entry in entries {
+            let serialized = serialise_log_entry(&entry, &SerialiseLogEntryOptions::default());
+            if crate::utils::normalize_agent_type(&entry.agent_type) == "codex" {
+                codex.push(serialized);
+            } else {
+                ordinary.push(serialized);
+            }
+        }
         let should_flush = {
             let mut buffer = self
                 .inner
                 .buffer
                 .lock()
-                .unwrap_or_else(|err| err.into_inner());
-            for entry in &entries {
-                buffer.push(serialise_log_entry(
-                    entry,
-                    &SerialiseLogEntryOptions::default(),
-                ));
-            }
+                .unwrap_or_else(|error| error.into_inner());
+            buffer.extend(ordinary);
             buffer.len() >= self.inner.config.batch_max_size
         };
         if should_flush {
             self.inner.flush_buffer().await;
+        }
+        if !codex.is_empty() {
+            self.inner.accept_codex(codex).await?;
         }
         Ok(())
     }
@@ -123,6 +142,8 @@ impl BaseFlusher for HttpFlusher {
     }
 
     async fn shutdown(&self) -> Result<(), FlushError> {
+        self.inner.stopped.store(true, Ordering::SeqCst);
+        self.inner.shutdown.notify_waiters();
         if let Some(handle) = self
             .inner
             .timer
@@ -132,6 +153,8 @@ impl BaseFlusher for HttpFlusher {
         {
             handle.abort();
         }
+        let gate = self.inner.codex_gate.lock().await;
+        drop(gate);
         self.inner.flush_buffer().await;
         Ok(())
     }
@@ -156,6 +179,38 @@ impl BaseFlusher for HttpFlusher {
 }
 
 impl HttpInner {
+    async fn accept_codex(&self, entries: Vec<SerializedLogEntry>) -> Result<(), FlushError> {
+        let _gate = self.codex_gate.lock().await;
+        let body = json!({"entries":entries.iter().map(string_map_value).collect::<Vec<_>>()});
+        loop {
+            let stopped = self.shutdown.notified();
+            if self.stopped.load(Ordering::SeqCst) {
+                return Err(FlushError::codex_output("HTTP"));
+            }
+            let result = tokio::select! {
+                biased;
+                _=stopped=>return Err(FlushError::codex_output("HTTP")),
+                result=self.post_value(&body)=>result,
+            };
+            if result.is_ok() {
+                return Ok(());
+            }
+            create_logger("HttpFlusher").warn(
+                "Codex batch retained for retry",
+                Some(&meta(&[("count", Value::from(entries.len()))])),
+            );
+            let stopped = self.shutdown.notified();
+            if self.stopped.load(Ordering::SeqCst) {
+                return Err(FlushError::codex_output("HTTP"));
+            }
+            tokio::select! {
+                biased;
+                _=stopped=>return Err(FlushError::codex_output("HTTP")),
+                _=tokio::time::sleep(Duration::from_millis(self.config.flush_interval_ms.max(1)))=>{},
+            }
+        }
+    }
+
     async fn flush_buffer(&self) {
         let batch = {
             let mut buffer = self.buffer.lock().unwrap_or_else(|err| err.into_inner());

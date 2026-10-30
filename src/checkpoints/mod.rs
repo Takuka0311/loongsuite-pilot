@@ -10,7 +10,7 @@ mod snapshot_store;
 mod state_store;
 
 pub use snapshot_store::{SnapshotEntry, SnapshotStatus, SnapshotStore};
-pub use state_store::{InputState, InputStatePatch, StateStore};
+pub use state_store::{CheckpointOutputHold, InputState, InputStatePatch, StateStore};
 
 use std::collections::HashMap;
 

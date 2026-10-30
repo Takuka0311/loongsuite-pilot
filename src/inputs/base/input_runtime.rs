@@ -117,6 +117,9 @@ pub struct InputRuntime {
     pub logger: BoundLogger,
     pub state_store: Arc<StateStore>,
     poll_interval_ms: AtomicU64,
+    checkpoint_waiting: AtomicBool,
+    checkpoint_ready: Notify,
+    checkpoint_release: Notify,
     lifecycle: Mutex<Lifecycle>,
     timer: Mutex<Option<JoinHandle<()>>>,
     workspace_policy: Mutex<WorkspacePolicy>,
@@ -373,6 +376,9 @@ impl<T: InputBody> HostedInput<T> {
                     poll_interval_ms,
                     DEFAULT_POLL_INTERVAL_MS,
                 )),
+                checkpoint_waiting: AtomicBool::new(false),
+                checkpoint_ready: Notify::new(),
+                checkpoint_release: Notify::new(),
                 lifecycle: Mutex::new(Lifecycle {
                     running: false,
                     start: None,
@@ -507,7 +513,25 @@ impl<T: InputBody> HostedInput<T> {
         if !self.runtime.is_running() {
             return Ok(());
         }
-        self.run_cycle().await;
+        let first = Arc::clone(self);
+        let mut first_cycle = tokio::spawn(async move {
+            if first.runtime.is_running() {
+                first.run_cycle().await;
+            }
+        });
+        loop {
+            let ready = self.runtime.checkpoint_ready.notified();
+            if self.runtime.checkpoint_waiting.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::select! {
+                result=&mut first_cycle => {
+                    result.map_err(|error|format!("initial collection failed: {error}"))?;
+                    break;
+                },
+                _=ready=>{},
+            }
+        }
         if !self.runtime.is_running() {
             return Ok(());
         }
@@ -561,6 +585,9 @@ impl<T: InputBody> HostedInput<T> {
                 Action::Lead(gate)
             }
         };
+        if self.runtime.state_store.waiting_for_output() {
+            self.runtime.checkpoint_release.notify_waiters();
+        }
         match action {
             Action::Wait(gate) => gate.wait().await,
             Action::Idle => Ok(()),
@@ -621,6 +648,9 @@ impl<T: InputBody> HostedInput<T> {
     }
 
     pub async fn run_cycle(self: &Arc<Self>) {
+        if self.runtime.state_store.save_failed() {
+            return;
+        }
         enum Action {
             Wait(Arc<CycleGate>),
             Lead(Arc<CycleGate>),
@@ -663,7 +693,9 @@ impl<T: InputBody> HostedInput<T> {
             .accumulator
             .lock()
             .unwrap_or_else(|err| err.into_inner()) = Some(InputRuntimeAccumulator::new());
-        let cycle_result = async {
+        let collect_hold = (self.runtime.agent_type.as_str() == "codex")
+            .then(|| self.runtime.state_store.begin_output());
+        let produced = async {
             let entries = self.body.collect(&self.runtime).await?;
             let filtered = self.runtime.with_workspace_policy(|policy| {
                 policy.filter_entries(&entries, self.runtime.agent_type)
@@ -682,10 +714,37 @@ impl<T: InputBody> HostedInput<T> {
                     json!({ "count": filtered.len() }).as_object(),
                 );
             }
-            self.runtime.state_store.save().await?;
             Ok::<(), anyhow::Error>(())
         }
         .await;
+        // Reading errors remain retryable. The separate output acceptance
+        // guards, registered by the emit callbacks, own durability failures.
+        if let Some(hold) = collect_hold {
+            hold.finish(Ok(()));
+        }
+        let cycle_result = async {
+            produced?;
+            let released = self.runtime.checkpoint_release.notified();
+            let waiting = self.runtime.state_store.waiting_for_output();
+            if waiting {
+                self.runtime
+                    .checkpoint_waiting
+                    .store(true, Ordering::SeqCst);
+                self.runtime.checkpoint_ready.notify_waiters();
+            }
+            if waiting && !self.runtime.is_running() {
+                return Ok(());
+            }
+            tokio::select! {
+                result=self.runtime.state_store.save()=>result?,
+                _=released=>{},
+            }
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+        self.runtime
+            .checkpoint_waiting
+            .store(false, Ordering::SeqCst);
         if let Err(err) = cycle_result {
             let message = err.to_string();
             self.runtime.logger.error(

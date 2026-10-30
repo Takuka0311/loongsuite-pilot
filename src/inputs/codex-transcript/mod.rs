@@ -12,6 +12,7 @@ mod checkpoint;
 mod discovery;
 mod extractor;
 mod input;
+mod invocation_audit;
 mod scan;
 mod subagent_linker;
 mod types;

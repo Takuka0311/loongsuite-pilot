@@ -78,6 +78,8 @@ pub(super) struct CachedDefault {
 
 pub(super) struct Shared {
     pub linker: CodexSubagentLinker,
+    pub delivered_invocations: std::collections::BTreeSet<String>,
+    pub pending_agent_results: IndexMap<String, super::invocation_audit::PendingAgentResult>,
     pub reported: IndexMap<String, String>,
     pub last_summary: String,
     pub last_wakeup_cleanup_at: i64,
@@ -129,6 +131,8 @@ impl CodexTranscriptInput {
             uri_cache: Mutex::new(LruMap::new(MULTIMODAL_LRU_LIMIT).expect("lru")),
             shared: Mutex::new(Shared {
                 linker: CodexSubagentLinker::new(),
+                delivered_invocations: Default::default(),
+                pending_agent_results: Default::default(),
                 reported: IndexMap::new(),
                 last_summary: String::new(),
                 last_wakeup_cleanup_at: 0,
@@ -304,6 +308,7 @@ impl InputBody for CodexTranscriptBody {
     }
 
     async fn on_start(&self, rt: &InputRuntime) -> anyhow::Result<()> {
+        self.engine().restore_delegation_state(rt);
         self.engine().discard_legacy_global_turn_registry(rt);
         let discovered = self.engine().discover_session_files().await;
         self.engine()
@@ -393,7 +398,7 @@ impl InputBody for CodexTranscriptBody {
             }
             emitted += self.engine().process_file(rt, &file.file_path).await?;
         }
-        emitted += self.engine().finalize_ready_subagent_fusions(rt).await?;
+        emitted += self.engine().retry_pending_agent_results(rt).await?;
         self.engine().report_subagent_links(rt);
         if emitted > 0 {
             let meta = json!({ "count": emitted });

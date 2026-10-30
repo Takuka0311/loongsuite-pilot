@@ -291,23 +291,8 @@ impl Orchestrator {
         let state_store = Arc::new(StateStore::new(self.data_dir_join("logs/input-state.json")));
         state_store.load().await;
         *self.state_store.lock().expect("state") = Some(Arc::clone(&state_store));
+        self.inputs.set_state_store(Arc::clone(&state_store));
         self.load_agent_control().await;
-        let attributes = Arc::new(Mutex::new(GlobalAttributesProvider::new(
-            &span_map(self.config.global_span_attributes.as_ref()),
-            self.data_dir_join("span-attributes.json"),
-        )));
-        let (flusher, sls, otlp) = self.build_flusher(Arc::clone(&attributes)).await;
-        *self.flusher.lock().expect("flusher") = Some(Arc::clone(&flusher));
-        *self.sls.lock().expect("sls") = sls;
-        *self.otlp.lock().expect("otlp") = otlp;
-        let version = read_installed_version(&self.data_dir);
-        let alarm = Arc::new(AlarmManager::new(
-            resolve_local_ip(),
-            version.clone(),
-            self.config.user_id.clone(),
-        ));
-        *self.alarm.lock().expect("alarm") = Some(Arc::clone(&alarm));
-        self.inputs.set_flusher(flusher);
         self.inputs
             .set_configured_user_id(self.config.user_id.clone());
         let policy = WorkspacePolicy::new(
@@ -334,8 +319,24 @@ impl Orchestrator {
         ));
         self.inputs.set_workspace_policy(policy);
         self.inputs.set_agents_config(&self.config.agents);
-        self.inputs.set_alarm_manager(Arc::clone(&alarm));
         self.inputs.set_mask_config(self.config.mask.clone());
+        let attributes = Arc::new(Mutex::new(GlobalAttributesProvider::new(
+            &span_map(self.config.global_span_attributes.as_ref()),
+            self.data_dir_join("span-attributes.json"),
+        )));
+        let (flusher, sls, otlp) = self.build_flusher(Arc::clone(&attributes)).await?;
+        *self.flusher.lock().expect("flusher") = Some(Arc::clone(&flusher));
+        *self.sls.lock().expect("sls") = sls;
+        *self.otlp.lock().expect("otlp") = otlp;
+        let version = read_installed_version(&self.data_dir);
+        let alarm = Arc::new(AlarmManager::new(
+            resolve_local_ip(),
+            version.clone(),
+            self.config.user_id.clone(),
+        ));
+        *self.alarm.lock().expect("alarm") = Some(Arc::clone(&alarm));
+        self.inputs.set_flusher(flusher);
+        self.inputs.set_alarm_manager(Arc::clone(&alarm));
         let verdicts = Arc::new(ToolVerdictStore::new(
             interceptor::interceptor_tool_verdict_path(Some(&self.data_dir)),
         ));
@@ -711,6 +712,7 @@ impl Orchestrator {
                 );
             }
         }
+        self.inputs.cancel_pending_outputs();
         let discovery = self.discovery.lock().expect("discovery").clone();
         if let Some(discovery) = discovery {
             discovery.stop().await;
@@ -1406,11 +1408,11 @@ impl Orchestrator {
     async fn build_flusher(
         &self,
         attributes: Arc<Mutex<GlobalAttributesProvider>>,
-    ) -> (
+    ) -> anyhow::Result<(
         Arc<dyn BaseFlusher>,
         Option<Arc<SlsFlusher>>,
         Option<Arc<OtlpTraceFlusher>>,
-    ) {
+    )> {
         let mut flushers: Vec<Arc<dyn BaseFlusher>> = Vec::new();
         let mut sls = None;
         let version = self.read_package_version();
@@ -1476,6 +1478,25 @@ impl Orchestrator {
                 trace.data_dir = Some(self.data_dir.clone());
                 match OtlpTraceFlusher::with_parts(trace, Some(attributes), None, None) {
                     Ok(flusher) => {
+                        let manager = Arc::downgrade(&self.inputs);
+                        let journal = Arc::new(crate::flushers::CodexTurnJournal::new(
+                            self.data_dir_join("logs/codex-pending-turns"),
+                        ));
+                        let flusher = flusher.with_codex_journal(journal, move |entries| {
+                            manager
+                                .upgrade()
+                                .map(|manager| manager.prepare_restored_entries(entries))
+                                .ok_or_else(|| {
+                                    "Codex replay privacy context is unavailable".to_string()
+                                })
+                        });
+                        if let Err(error) = flusher.start().await {
+                            let _ = flusher.shutdown().await;
+                            for prior in &flushers {
+                                let _ = prior.shutdown().await;
+                            }
+                            return Err(anyhow::Error::new(error));
+                        }
                         let flusher = Arc::new(flusher);
                         otlp = Some(Arc::clone(&flusher));
                         flushers.push(flusher);
@@ -1503,7 +1524,7 @@ impl Orchestrator {
         } else {
             Arc::new(MultiFlusher::new(flushers))
         };
-        (flusher, sls, otlp)
+        Ok((flusher, sls, otlp))
     }
 
     async fn register_all_inputs(

@@ -104,6 +104,14 @@ pub struct CodexActiveTranscriptTurn {
     pub input_context: Option<CodexTranscriptInputContext>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subagent_spawns: Vec<CodexPendingFusionChild>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation: Option<super::subagent_linker::CodexSubagentLink>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub delegation_unbound: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emitted_trace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emitted_audit_event_ids: Vec<String>,
 }
 
 fn is_zero_u64(value: &u64) -> bool {
@@ -133,6 +141,10 @@ impl Default for CodexActiveTranscriptTurn {
             emitted_tool_result_ids: Vec::new(),
             input_context: None,
             subagent_spawns: Vec::new(),
+            delegation: None,
+            delegation_unbound: false,
+            emitted_trace_id: None,
+            emitted_audit_event_ids: Vec::new(),
         }
     }
 }
@@ -237,6 +249,8 @@ pub struct CodexForkBootstrap {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexTranscriptCheckpoint {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_owned_turn_id: Option<String>,
     pub inode: u64,
     pub scan_offset: i64,
     pub active_turn: Option<CodexActiveTranscriptTurn>,

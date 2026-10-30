@@ -2,6 +2,8 @@
 //! OTLP 默认使用 Rust 事件转换器与 HTTP/protobuf exporter，不需要 JS 运行时。
 
 mod base_flusher;
+mod codex_turn_converter;
+mod codex_turn_journal;
 mod delegated_turn_converter;
 mod event_log_converter;
 mod http_flusher;
@@ -20,7 +22,11 @@ mod span_enricher;
 mod span_id_reservation;
 mod trace_event_compat;
 
-pub use base_flusher::{BaseFlusher, FlushError, TraceRuntimeCounters, TraceRuntimeSnapshot};
+pub use base_flusher::{
+    BaseFlusher, FlushError, FlushErrorKind, TraceRuntimeCounters, TraceRuntimeSnapshot,
+};
+pub use codex_turn_converter::convert_codex_turn;
+pub use codex_turn_journal::{codex_turn_journal_group_key, CodexJournalReplay, CodexTurnJournal};
 pub use delegated_turn_converter::convert_delegated_turn;
 pub use event_log_converter::GenAiEventLogConverter;
 pub use http_flusher::HttpFlusher;

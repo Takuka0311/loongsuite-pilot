@@ -180,7 +180,7 @@ struct ConvertState {
 struct OtlpState {
     buffers: IndexMap<String, TurnBuffer>,
     flushed: HashSet<String>,
-    defer_signal_a: bool,
+    batch_depth: usize,
     counters: IndexMap<String, TraceRuntimeCounters>,
     endpoint_counters: HashMap<String, OtlpEndpointCounter>,
     export_states: HashMap<String, ExportState>,
@@ -201,7 +201,41 @@ impl std::fmt::Debug for OtlpTraceFlusher {
     }
 }
 
+type CodexReplayPrepare =
+    Arc<dyn Fn(Vec<AgentActivityEntry>) -> Result<Vec<AgentActivityEntry>, String> + Send + Sync>;
+
+#[derive(Clone)]
+struct CodexJournalContext {
+    journal: Arc<super::CodexTurnJournal>,
+    prepare: CodexReplayPrepare,
+}
+
+struct OtlpBatch(Arc<OtlpInner>);
+
+impl OtlpBatch {
+    fn new(inner: &Arc<OtlpInner>) -> Self {
+        inner
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .batch_depth += 1;
+        Self(Arc::clone(inner))
+    }
+}
+impl Drop for OtlpBatch {
+    fn drop(&mut self) {
+        self.0
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .batch_depth -= 1;
+    }
+}
+
 struct OtlpInner {
+    codex_journal: Mutex<Option<CodexJournalContext>>,
+    journal_restore: tokio::sync::OnceCell<()>,
+    acceptance: tokio::sync::Mutex<()>,
     cfg: OtlpTraceFlusherConfig,
     endpoints: Vec<ResolvedEndpoint>,
     state: Mutex<OtlpState>,
@@ -293,6 +327,9 @@ impl OtlpTraceFlusher {
         }
         let data_dir = cfg.data_dir.clone().unwrap_or_else(default_data_dir);
         let inner = Arc::new(OtlpInner {
+            codex_journal: Mutex::new(None),
+            journal_restore: tokio::sync::OnceCell::new(),
+            acceptance: tokio::sync::Mutex::new(()),
             enrichers: SpanEnricherRunner::new(cfg.span_enricher_paths.as_deref().unwrap_or(&[]))?,
             converter: converter
                 .unwrap_or_else(|| Arc::new(super::event_log_converter::GenAiEventLogConverter)),
@@ -329,7 +366,7 @@ impl OtlpTraceFlusher {
             state: Mutex::new(OtlpState {
                 buffers: IndexMap::new(),
                 flushed: HashSet::new(),
-                defer_signal_a: false,
+                batch_depth: 0,
                 counters: IndexMap::new(),
                 endpoint_counters,
                 export_states: HashMap::new(),
@@ -363,6 +400,25 @@ impl OtlpTraceFlusher {
         create_logger("otlp-trace-flusher")
             .info(&format!("OTLP trace flusher initialized → {names}"), None);
         Ok(Self { inner })
+    }
+
+    pub fn with_codex_journal(
+        self,
+        journal: Arc<super::CodexTurnJournal>,
+        prepare: impl Fn(Vec<AgentActivityEntry>) -> Result<Vec<AgentActivityEntry>, String>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        *self
+            .inner
+            .codex_journal
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(CodexJournalContext {
+            journal,
+            prepare: Arc::new(prepare),
+        });
+        self
     }
 
     pub fn endpoint_counters(&self) -> HashMap<String, OtlpEndpointCounter> {
@@ -420,15 +476,17 @@ impl BaseFlusher for OtlpTraceFlusher {
         self.inner.snapshot()
     }
 
+    async fn start(&self) -> Result<(), FlushError> {
+        self.inner.ensure_started().await
+    }
+
     async fn send(
         &self,
         entry: AgentActivityEntry,
         logical_bytes: Option<f64>,
     ) -> Result<(), FlushError> {
-        Arc::clone(&self.inner)
-            .send_entry(entry, logical_bytes)
-            .await;
-        Ok(())
+        self.send_batch(vec![entry], logical_bytes.map(|bytes| vec![bytes]))
+            .await
     }
 
     async fn send_batch(
@@ -436,26 +494,31 @@ impl BaseFlusher for OtlpTraceFlusher {
         entries: Vec<AgentActivityEntry>,
         logical_bytes: Option<Vec<f64>>,
     ) -> Result<(), FlushError> {
+        self.inner.ensure_started().await?;
+        let batch = OtlpBatch::new(&self.inner);
         let sizes = logical_bytes.filter(|sizes| sizes.len() == entries.len());
-        self.inner
-            .state
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .defer_signal_a = true;
-        for (index, entry) in entries.into_iter().enumerate() {
-            let bytes = sizes.as_ref().map(|sizes| sizes[index]);
-            Arc::clone(&self.inner).send_entry(entry, bytes).await;
+        {
+            let _acceptance = if entries
+                .iter()
+                .any(|entry| normalize_agent_type(&entry.agent_type) == "codex")
+            {
+                Some(self.inner.acceptance.lock().await)
+            } else {
+                None
+            };
+            self.inner.persist_codex_entries(&entries).await?;
+            for (index, entry) in entries.into_iter().enumerate() {
+                self.inner
+                    .send_entry(entry, sizes.as_ref().map(|sizes| sizes[index]))
+                    .await?;
+            }
         }
-        self.inner
-            .state
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .defer_signal_a = false;
-        Arc::clone(&self.inner).flush_completed().await;
-        Ok(())
+        drop(batch);
+        self.inner.finish_batch().await
     }
 
     async fn flush(&self) -> Result<(), FlushError> {
+        let journaled = self.inner.codex_context().is_some();
         {
             let mut state = self
                 .inner
@@ -463,11 +526,13 @@ impl BaseFlusher for OtlpTraceFlusher {
                 .lock()
                 .unwrap_or_else(|err| err.into_inner());
             for buffer in state.buffers.values_mut() {
+                if journaled && buffer.agent_type == "codex" && !buffer.completed {
+                    continue;
+                }
                 buffer.completed = true;
             }
         }
-        Arc::clone(&self.inner).flush_completed().await;
-        Ok(())
+        self.inner.flush_completed().await
     }
 
     async fn shutdown(&self) -> Result<(), FlushError> {
@@ -519,29 +584,188 @@ impl BaseFlusher for OtlpTraceFlusher {
 }
 
 impl OtlpInner {
-    async fn send_entry(self: &Arc<Self>, entry: AgentActivityEntry, logical_bytes: Option<f64>) {
+    fn codex_context(&self) -> Option<CodexJournalContext> {
+        self.codex_journal
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    async fn ensure_started(self: &Arc<Self>) -> Result<(), FlushError> {
+        let Some(context) = self.codex_context() else {
+            return Ok(());
+        };
+        self.journal_restore
+            .get_or_try_init(|| async {
+                let replay = context
+                    .journal
+                    .load(None)
+                    .await
+                    .map_err(FlushError::codex_journal)?;
+                self.replay_journal(replay).await
+            })
+            .await
+            .map(|_| ())
+    }
+
+    async fn replay_journal(
+        self: &Arc<Self>,
+        mut replay: super::CodexJournalReplay,
+    ) -> Result<(), FlushError> {
+        let context = self.codex_context().expect("journal replay context");
+        while let Some(group) = replay
+            .next_group()
+            .await
+            .map_err(FlushError::codex_journal)?
+        {
+            let prepared = (context.prepare)(group.clone()).map_err(FlushError::codex_journal)?;
+            if prepared.is_empty() {
+                context
+                    .journal
+                    .remove_entries(&group)
+                    .await
+                    .map_err(FlushError::codex_journal)?;
+                continue;
+            }
+            let batch = OtlpBatch::new(self);
+            for entry in prepared {
+                self.send_entry(entry, None).await?;
+            }
+            drop(batch);
+            self.finish_batch().await?;
+        }
+        Ok(())
+    }
+
+    async fn persist_codex_entries(
+        self: &Arc<Self>,
+        entries: &[AgentActivityEntry],
+    ) -> Result<(), FlushError> {
+        let Some(context) = self.codex_context() else {
+            return Ok(());
+        };
+        let codex: Vec<_> = entries
+            .iter()
+            .filter(|entry| {
+                normalize_agent_type(&entry.agent_type) == "codex"
+                    && !super::trace_event_compat::is_agent_audit_event(entry)
+            })
+            .collect();
+        let mut checked = HashSet::new();
+        for entry in &codex {
+            let key = resolve_group_key(entry).2;
+            if !checked.insert(key.clone()) {
+                continue;
+            }
+            let resident = {
+                let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                state.buffers.contains_key(&key) || state.flushed.contains(&key)
+            };
+            if resident {
+                continue;
+            }
+            if context
+                .journal
+                .is_acknowledged(entry)
+                .await
+                .map_err(FlushError::codex_journal)?
+            {
+                self.state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .flushed
+                    .insert(key);
+                continue;
+            }
+            let group = super::codex_turn_journal_group_key(entry);
+            let replay = context
+                .journal
+                .load(Some(&group))
+                .await
+                .map_err(FlushError::codex_journal)?;
+            self.replay_journal(replay).await?;
+        }
+        let pending: Vec<_> = {
+            let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            codex
+                .into_iter()
+                .filter(|entry| !state.flushed.contains(&resolve_group_key(entry).2))
+                .cloned()
+                .collect()
+        };
+        context
+            .journal
+            .append(&pending)
+            .await
+            .map_err(FlushError::codex_journal)
+    }
+
+    async fn finish_batch(self: &Arc<Self>) -> Result<(), FlushError> {
+        self.flush_completed().await?;
+        self.trim_turn_buffers().await
+    }
+
+    async fn trim_turn_buffers(self: &Arc<Self>) -> Result<(), FlushError> {
+        let journaled = self.codex_context().is_some();
+        let evicted = {
+            let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            if state.batch_depth > 0 || state.buffers.len() <= MAX_TURN_BUFFERS {
+                return Ok(());
+            }
+            let overflow = state.buffers.len() - MAX_TURN_BUFFERS;
+            let mut candidates: Vec<_> = state
+                .buffers
+                .iter()
+                .filter(|(_, buffer)| !buffer.completed)
+                .map(|(key, buffer)| (key.clone(), buffer.last_activity_ms))
+                .collect();
+            candidates.sort_by_key(|(_, activity)| *activity);
+            candidates
+                .into_iter()
+                .take(overflow)
+                .filter_map(|(key, _)| state.buffers.shift_remove(&key))
+                .collect::<Vec<_>>()
+        };
+        for mut buffer in evicted {
+            if journaled && buffer.agent_type == "codex" {
+                self.record_removal(&buffer);
+            } else {
+                buffer.completed = true;
+                self.finish_buffer(buffer, false).await?;
+            }
+        }
+        Ok(())
+    }
+    async fn send_entry(
+        self: &Arc<Self>,
+        entry: AgentActivityEntry,
+        logical_bytes: Option<f64>,
+    ) -> Result<(), FlushError> {
         if super::trace_event_compat::is_agent_audit_event(&entry) {
-            return;
+            return Ok(());
         }
         let (source, value, key) = resolve_group_key(&entry);
         let agent_type = normalize_agent_type(&entry.agent_type);
         if source == KeySource::Ephemeral {
             if is_metadata_only_other(&entry) {
-                return;
+                return Ok(());
             }
             Arc::clone(self)
-                .convert_and_export(&agent_type, vec![entry])
+                .convert_and_export(&agent_type, &[entry])
                 .await;
-            return;
+            return Ok(());
         }
         let incoming_session = nonempty(entry_str(&entry, "gen_ai.session.id"));
         let preempted = {
             let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
             if state.flushed.contains(&key) {
-                return;
+                return Ok(());
             }
             let mut preempt = Vec::new();
             for (buf_key, buffer) in &state.buffers {
+                if agent_type == "codex" {
+                    break;
+                }
                 if buffer.agent_type != agent_type || buf_key == &key || buffer.completed {
                     continue;
                 }
@@ -571,36 +795,7 @@ impl OtlpInner {
             buffers
         };
         for buffer in preempted {
-            self.finish_buffer(buffer, false).await;
-        }
-        let evicted = {
-            let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
-            let mut buffers = Vec::new();
-            if state.buffers.len() > MAX_TURN_BUFFERS {
-                let overflow = state.buffers.len() - MAX_TURN_BUFFERS;
-                let mut candidates: Vec<(String, i64)> = state
-                    .buffers
-                    .iter()
-                    .filter(|(_, buffer)| !buffer.completed)
-                    .map(|(key, buffer)| (key.clone(), buffer.last_activity_ms))
-                    .collect();
-                candidates.sort_by_key(|(_, activity)| *activity);
-                let old: Vec<String> = candidates
-                    .into_iter()
-                    .take(overflow)
-                    .map(|(key, _)| key)
-                    .collect();
-                for buf_key in old {
-                    if let Some(mut buffer) = state.buffers.shift_remove(&buf_key) {
-                        buffer.completed = true;
-                        buffers.push(buffer);
-                    }
-                }
-            }
-            buffers
-        };
-        for buffer in evicted {
-            self.finish_buffer(buffer, false).await;
+            self.finish_buffer(buffer, false).await?;
         }
         let ready = {
             let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
@@ -646,7 +841,7 @@ impl OtlpInner {
                     buffer.completed = true;
                 }
             }
-            let defer = state.defer_signal_a;
+            let defer = state.batch_depth > 0;
             let should_flush = state
                 .buffers
                 .get(&key)
@@ -659,11 +854,16 @@ impl OtlpInner {
             }
         };
         if let Some(buffer) = ready {
-            self.finish_buffer(buffer, true).await;
+            self.finish_buffer(buffer, true).await?;
         }
+        Ok(())
     }
 
-    async fn finish_buffer(self: &Arc<Self>, mut buffer: TurnBuffer, mark_flushed: bool) {
+    async fn finish_buffer(
+        self: &Arc<Self>,
+        mut buffer: TurnBuffer,
+        mark_flushed: bool,
+    ) -> Result<(), FlushError> {
         if mark_flushed {
             self.state
                 .lock()
@@ -679,8 +879,19 @@ impl OtlpInner {
                 }
             }
         }
-        self.convert_and_export(&buffer.agent_type, buffer.records)
+        let exported = self
+            .convert_and_export(&buffer.agent_type, &buffer.records)
             .await;
+        if exported && buffer.completed && buffer.agent_type == "codex" {
+            if let Some(context) = self.codex_context() {
+                context
+                    .journal
+                    .acknowledge(&buffer.records)
+                    .await
+                    .map_err(FlushError::codex_journal)?;
+            }
+        }
+        Ok(())
     }
 
     fn record_removal(&self, buffer: &TurnBuffer) {
@@ -695,43 +906,51 @@ impl OtlpInner {
         }
     }
 
-    async fn flush_completed(self: &Arc<Self>) {
-        let completed: Vec<TurnBuffer> = {
-            let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
-            let keys: Vec<String> = state
+    async fn flush_completed(self: &Arc<Self>) -> Result<(), FlushError> {
+        let completed = {
+            let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            if state.batch_depth > 0 {
+                return Ok(());
+            }
+            let keys: Vec<_> = state
                 .buffers
                 .iter()
                 .filter(|(_, buffer)| buffer.completed)
                 .map(|(key, _)| key.clone())
                 .collect();
-            let mut out = Vec::new();
+            let mut completed = Vec::new();
             for key in keys {
                 if let Some(buffer) = state.buffers.shift_remove(&key) {
                     state.flushed.insert(key);
-                    out.push(buffer);
+                    completed.push(buffer);
                 }
             }
-            out
+            completed
         };
-        for buffer in &completed {
-            self.record_removal(buffer);
-        }
-        for mut buffer in completed {
-            if buffer.key_source != KeySource::TurnId {
-                for record in &mut buffer.records {
-                    if entry_str(record, "gen_ai.turn.id").is_none() {
-                        set_string(record, "gen_ai.turn.id", &buffer.key_value);
-                    }
+        let mut failure = None;
+        for buffer in completed {
+            if let Err(error) = self.finish_buffer(buffer, false).await {
+                if failure.is_none() {
+                    failure = Some(error);
                 }
             }
-            Arc::clone(self)
-                .convert_and_export(&buffer.agent_type, buffer.records)
-                .await;
+        }
+        if let Some(error) = failure {
+            Err(error)
+        } else {
+            Ok(())
         }
     }
 
     async fn tick_idle(self: &Arc<Self>, timeout: u64) {
-        if timeout == 0 {
+        if timeout == 0
+            || self
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .batch_depth
+                > 0
+        {
             return;
         }
         let now = now_ms();
@@ -753,8 +972,14 @@ impl OtlpInner {
                 state.buffers.shift_remove(&key)
             };
             if let Some(mut buffer) = buffer {
+                if buffer.agent_type == "codex" && self.codex_context().is_some() {
+                    self.record_removal(&buffer);
+                    continue;
+                }
                 buffer.completed = true;
-                self.finish_buffer(buffer, true).await;
+                if let Err(error) = self.finish_buffer(buffer, true).await {
+                    create_logger("otlp-trace-flusher").warn(&error.to_string(), None);
+                }
             }
         }
     }
@@ -762,17 +987,17 @@ impl OtlpInner {
     async fn convert_and_export(
         self: &Arc<Self>,
         agent_type: &str,
-        records: Vec<AgentActivityEntry>,
-    ) {
+        records: &[AgentActivityEntry],
+    ) -> bool {
         if records.is_empty() {
-            return;
+            return true;
         }
-        let projected = collect_resource_attributes(self, &records);
-        let (system, framework) = resource_identity(agent_type, &records);
+        let projected = collect_resource_attributes(self, records);
+        let (system, framework) = resource_identity(agent_type, records);
         let service_names = unique_service_names(self, agent_type);
         let mut set = tokio::task::JoinSet::new();
         for service_name in service_names {
-            let records = records.clone();
+            let records = records.to_vec();
             let projected = projected.clone();
             let agent_type = agent_type.to_string();
             let system = system.clone();
@@ -796,11 +1021,15 @@ impl OtlpInner {
                         projected,
                         converter.as_ref(),
                     )
-                    .await;
+                    .await
             });
         }
-        while set.join_next().await.is_some() {}
+        let mut exported = true;
+        while let Some(result) = set.join_next().await {
+            exported &= matches!(result, Ok(true));
+        }
         self.evict_convert_states();
+        exported
     }
 
     fn convert_lock(&self, key: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -820,7 +1049,7 @@ impl OtlpInner {
         records: Vec<AgentActivityEntry>,
         projected: Map<String, Value>,
         converter: &dyn EventLogConverter,
-    ) {
+    ) -> bool {
         let ConvertScope {
             agent_type,
             service_name,
@@ -854,7 +1083,7 @@ impl OtlpInner {
         }
         let Ok(mut result) = result else {
             self.note_convert_done(convert_key);
-            return;
+            return false;
         };
         if !result.warnings.is_empty() {
             create_logger("otlp-trace-flusher").warn(
@@ -867,7 +1096,7 @@ impl OtlpInner {
         }
         if result.spans.is_empty() {
             self.note_convert_done(convert_key);
-            return;
+            return true;
         }
         let resource = self.build_resource(agent_type, service_name, &projected, framework, system);
         for span in &mut result.spans {
@@ -897,9 +1126,11 @@ impl OtlpInner {
         if self.cfg.debug == Some(true) {
             self.write_debug_log(agent_type, &spans).await;
         }
-        self.export_in_batches(agent_type, service_name, spans)
+        let exported = self
+            .export_in_batches(agent_type, service_name, spans)
             .await;
         self.note_convert_done(convert_key);
+        exported
     }
 
     fn note_convert_done(&self, key: &str) {
@@ -945,7 +1176,7 @@ impl OtlpInner {
         agent_type: &str,
         service_name: &str,
         spans: Vec<ReadableSpan>,
-    ) {
+    ) -> bool {
         let max_bytes = self
             .cfg
             .max_export_batch_bytes
@@ -972,14 +1203,20 @@ impl OtlpInner {
             let agent_type = agent_type.to_string();
             let inner = Arc::clone(self);
             set.spawn(async move {
+                let mut exported = true;
                 for batch in batches {
-                    inner
+                    exported &= inner
                         .do_export(exporter.as_ref(), &name, &agent_type, batch)
                         .await;
                 }
+                exported
             });
         }
-        while set.join_next().await.is_some() {}
+        let mut exported = true;
+        while let Some(result) = set.join_next().await {
+            exported &= matches!(result, Ok(true));
+        }
+        exported
     }
 
     async fn do_export(
@@ -988,7 +1225,7 @@ impl OtlpInner {
         endpoint_name: &str,
         agent_type: &str,
         spans: Vec<ReadableSpan>,
-    ) {
+    ) -> bool {
         let batch_bytes: u64 = spans
             .iter()
             .map(|span| estimate_span_size(span) as u64)
@@ -1020,6 +1257,7 @@ impl OtlpInner {
                 }
             }
         }
+        let exported = result.is_ok();
         if let Err(error) = result {
             create_logger("otlp-trace-flusher").warn(
                 &format!("Export failed for {agent_type} → {endpoint_name}: {error}"),
@@ -1028,6 +1266,7 @@ impl OtlpInner {
             self.write_failed_log(agent_type, endpoint_name, &spans, &error)
                 .await;
         }
+        exported
     }
 
     fn exporters_for(
@@ -1328,7 +1567,9 @@ fn route_convert(
         strict: false,
         passthrough_keys: passthrough.to_vec(),
     };
-    if agent_type == "qwen-code-cli" {
+    if agent_type == "codex" {
+        super::convert_codex_turn(records, &options, converter)
+    } else if agent_type == "qwen-code-cli" {
         convert_qwen_subagents(records, &options, converter)
     } else if agent_type == "hermes" || agent_type == "openclaw" {
         convert_delegated_turn(records, &options, converter)
@@ -1369,6 +1610,18 @@ fn convert_state_key(
 
 fn resolve_group_key(entry: &AgentActivityEntry) -> (KeySource, String, String) {
     if let Some(turn_id) = entry_str(entry, "gen_ai.turn.id") {
+        if normalize_agent_type(&entry.agent_type) == "codex" {
+            let parts = [
+                entry.user_id.as_str(),
+                entry.session_id.as_str(),
+                turn_id.as_str(),
+            ];
+            let key = parts
+                .into_iter()
+                .map(|part| format!("{}:{part}", part.encode_utf16().count()))
+                .collect::<String>();
+            return (KeySource::TurnId, turn_id, format!("codex:{key}"));
+        }
         return (
             KeySource::TurnId,
             turn_id.clone(),
@@ -1418,9 +1671,6 @@ fn is_terminal_event(entry: &AgentActivityEntry) -> bool {
             && entry_bool(entry, "gen_ai.turn.end") == Some(true);
     }
     if agent_type == "codex" {
-        if entry_str(entry, "gen_ai.agent.scope").as_deref() == Some("subagent") {
-            return false;
-        }
         let status = entry_str(entry, "agent.codex.turn_status");
         if status.as_deref() != Some("completed") && status.as_deref() != Some("interrupted") {
             return false;

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::Local;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{watch, Mutex as AsyncMutex};
 
 use crate::flushers::BaseFlusher;
 use crate::inputs::base::InputRuntimeDelta;
@@ -100,6 +100,27 @@ impl LiveInput {
 struct QueueGate {
     lock: AsyncMutex<()>,
     inflight: AtomicUsize,
+    cancellation: Mutex<Option<watch::Sender<bool>>>,
+}
+
+struct QueueActivity(Arc<QueueGate>);
+
+impl Drop for QueueActivity {
+    fn drop(&mut self) {
+        self.0.inflight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+async fn wait_output_cancellation(mut receiver: watch::Receiver<bool>) {
+    loop {
+        let stopped = *receiver.borrow_and_update();
+        if stopped {
+            return;
+        }
+        if receiver.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 type FlushListener = Arc<dyn Fn(usize, u64) + Send + Sync>;
@@ -109,6 +130,7 @@ pub struct InputManager {
     counters: Mutex<HashMap<String, InputCounter>>,
     queues: Mutex<HashMap<String, Arc<QueueGate>>>,
     flusher: Mutex<Option<Arc<dyn BaseFlusher>>>,
+    state_store: Mutex<Option<Arc<crate::checkpoints::StateStore>>>,
     alarm_manager: Mutex<Option<Arc<AlarmManager>>>,
     user_id: Mutex<String>,
     configured_user_id: Mutex<String>,
@@ -129,6 +151,7 @@ impl InputManager {
             counters: Mutex::new(HashMap::new()),
             queues: Mutex::new(HashMap::new()),
             flusher: Mutex::new(None),
+            state_store: Mutex::new(None),
             alarm_manager: Mutex::new(None),
             user_id: Mutex::new(String::new()),
             configured_user_id: Mutex::new(String::new()),
@@ -155,6 +178,10 @@ impl InputManager {
 
     pub fn set_workspace_policy(&self, policy: WorkspacePolicy) {
         *self.workspace_policy.lock().expect("policy") = policy;
+    }
+
+    pub fn set_state_store(&self, store: Arc<crate::checkpoints::StateStore>) {
+        *self.state_store.lock().expect("state store") = Some(store);
     }
 
     pub fn set_flusher(&self, flusher: Arc<dyn BaseFlusher>) {
@@ -227,6 +254,10 @@ impl InputManager {
             Arc::new(QueueGate {
                 lock: AsyncMutex::new(()),
                 inflight: AtomicUsize::new(0),
+                cancellation: Mutex::new(
+                    (crate::utils::normalize_agent_type(&input.agent_type) == "codex")
+                        .then(|| watch::channel(false).0),
+                ),
             }),
         );
         let id = input.id.clone();
@@ -240,26 +271,78 @@ impl InputManager {
         );
     }
 
+    fn output_hold(
+        &self,
+        gate: &QueueGate,
+    ) -> Result<Option<crate::checkpoints::CheckpointOutputHold>, String> {
+        if gate.cancellation.lock().expect("cancellation").is_none() {
+            return Ok(None);
+        }
+        let store = self.state_store.lock().expect("state store").clone();
+        let Some(store) = store else {
+            return Ok(None);
+        };
+        if store.save_failed() {
+            return Err("Codex checkpoint is frozen after output failure".into());
+        }
+        Ok(Some(store.begin_output()))
+    }
+
+    async fn queued_entries(
+        &self,
+        id: &str,
+        entries: Vec<AgentActivityEntry>,
+        gate: &QueueGate,
+    ) -> Result<(), String> {
+        let cancellation = gate
+            .cancellation
+            .lock()
+            .expect("cancellation")
+            .as_ref()
+            .map(watch::Sender::subscribe);
+        let processing = async {
+            let _guard = gate.lock.lock().await;
+            self.handle_entries(id, entries).await
+        };
+        if let Some(receiver) = cancellation {
+            tokio::select! {
+                biased;
+                _=wait_output_cancellation(receiver)=>Err("Codex output acceptance cancelled".into()),
+                result=processing=>result,
+            }
+        } else {
+            processing.await
+        }
+    }
+
     pub fn bind_entries(self: &Arc<Self>, input_id: &str, entries: Vec<AgentActivityEntry>) {
         let Some(gate) = self.queues.lock().expect("queues").get(input_id).cloned() else {
             return;
         };
-        let id = input_id.to_string();
+        let hold = match self.output_hold(&gate) {
+            Ok(hold) => hold,
+            Err(_) => return,
+        };
+        let id = input_id.to_owned();
         let manager = Arc::clone(self);
         gate.inflight.fetch_add(1, Ordering::SeqCst);
         tokio::spawn(async move {
-            let _guard = gate.lock.lock().await;
-            if let Err(err) = manager.handle_entries(&id, entries).await {
+            let activity = QueueActivity(Arc::clone(&gate));
+            let result = manager.queued_entries(&id, entries, &gate).await;
+            if let Err(error) = &result {
                 logger("InputManager").error(
                     "entry handling failed",
-                    Some(&fields(serde_json::json!({ "inputId": id, "error": err }))),
+                    Some(&fields(serde_json::json!({"inputId":id,"error":error}))),
                 );
             }
-            gate.inflight.fetch_sub(1, Ordering::SeqCst);
+            if let Some(hold) = hold {
+                hold.finish(result);
+            }
+            drop(activity);
         });
     }
 
-    /// Test and in-process entry point that awaits the same pipeline as a collector emit.
+    /// Await the same ordered, cancellable acceptance path used by collectors.
     pub async fn accept_entries(
         &self,
         input_id: &str,
@@ -272,11 +355,30 @@ impl InputManager {
             .get(input_id)
             .cloned()
             .ok_or_else(|| format!("unknown input {input_id}"))?;
+        let hold = self.output_hold(&gate)?;
         gate.inflight.fetch_add(1, Ordering::SeqCst);
-        let _guard = gate.lock.lock().await;
-        let result = self.handle_entries(input_id, entries).await;
-        gate.inflight.fetch_sub(1, Ordering::SeqCst);
+        let activity = QueueActivity(Arc::clone(&gate));
+        let result = self.queued_entries(input_id, entries, &gate).await;
+        if let Some(hold) = hold {
+            hold.finish(result.clone());
+        }
+        drop(activity);
         result
+    }
+
+    pub fn cancel_pending_outputs(&self) {
+        for gate in self.queues.lock().expect("queues").values() {
+            if let Some(sender) = gate.cancellation.lock().expect("cancellation").as_ref() {
+                sender.send_replace(true);
+            }
+        }
+    }
+
+    pub fn prepare_restored_entries(
+        &self,
+        entries: Vec<AgentActivityEntry>,
+    ) -> Vec<AgentActivityEntry> {
+        self.apply_mask(self.filter_workspace(entries, "codex"))
     }
 
     pub fn record_runtime_delta(&self, input_id: &str, delta: &InputRuntimeDelta) {
@@ -321,6 +423,12 @@ impl InputManager {
             );
             return;
         };
+        if let Some(gate) = self.queues.lock().expect("queues").get(id) {
+            let mut slot = gate.cancellation.lock().expect("cancellation");
+            if slot.as_ref().is_some_and(|sender| *sender.borrow()) {
+                *slot = Some(watch::channel(false).0);
+            }
+        }
         if let Err(err) = input.start().await {
             logger("InputManager").warn(
                 "input start failed",
@@ -337,6 +445,11 @@ impl InputManager {
     pub async fn stop_input(&self, id: &str) {
         let input = self.inputs.lock().expect("inputs").get(id).cloned();
         let Some(input) = input else { return };
+        if let Some(gate) = self.queues.lock().expect("queues").get(id) {
+            if let Some(sender) = gate.cancellation.lock().expect("cancellation").as_ref() {
+                sender.send_replace(true);
+            }
+        }
         input.stop().await;
         self.drain_input(id).await;
         logger("InputManager").info(
@@ -346,6 +459,7 @@ impl InputManager {
     }
 
     pub async fn stop_all(&self) {
+        self.cancel_pending_outputs();
         let inputs: Vec<Arc<LiveInput>> = self
             .inputs
             .lock()

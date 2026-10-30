@@ -103,6 +103,7 @@ pub fn parse_checkpoint(raw: &Value) -> Option<CodexTranscriptCheckpoint> {
     }
     let fork_bootstrap = parse_fork_bootstrap(value.get("forkBootstrap"));
     Some(CodexTranscriptCheckpoint {
+        first_owned_turn_id: string_value(value.get("firstOwnedTurnId")).map(str::to_owned),
         inode,
         scan_offset,
         active_turn,
@@ -155,6 +156,12 @@ pub fn parse_active_turn(value: Option<&Value>) -> Option<CodexActiveTranscriptT
         emitted_tool_result_ids: string_array(active.get("emittedToolResultIds")),
         input_context: parse_input_context(active.get("inputContext")),
         subagent_spawns: parse_pending_fusion_children(active.get("subagentSpawns")),
+        delegation: active
+            .get("delegation")
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+        delegation_unbound: active.get("delegationUnbound").and_then(Value::as_bool) == Some(true),
+        emitted_trace_id: string_value(active.get("emittedTraceId")).map(str::to_owned),
+        emitted_audit_event_ids: string_array(active.get("emittedAuditEventIds")),
     })
 }
 
@@ -186,40 +193,6 @@ pub fn parse_pending_fusion_children(value: Option<&Value>) -> Vec<CodexPendingF
         });
     }
     children
-}
-
-pub fn merge_pending_fusion_children(
-    current: &[CodexPendingFusionChild],
-    incoming: &[CodexPendingFusionChild],
-) -> Vec<CodexPendingFusionChild> {
-    let mut merged: indexmap::IndexMap<String, CodexPendingFusionChild> = current
-        .iter()
-        .map(|child| (child.parent_tool_call_id.clone(), child.clone()))
-        .collect();
-    for child in incoming {
-        let next = match merged.get(&child.parent_tool_call_id) {
-            Some(previous) => CodexPendingFusionChild {
-                parent_tool_call_id: child.parent_tool_call_id.clone(),
-                parent_trace_id: child.parent_trace_id.clone(),
-                spawned_at_ms: child.spawned_at_ms,
-                task_name: child
-                    .task_name
-                    .clone()
-                    .or_else(|| previous.task_name.clone()),
-                agent_path: child
-                    .agent_path
-                    .clone()
-                    .or_else(|| previous.agent_path.clone()),
-                child_thread_id: child
-                    .child_thread_id
-                    .clone()
-                    .or_else(|| previous.child_thread_id.clone()),
-            },
-            None => child.clone(),
-        };
-        merged.insert(child.parent_tool_call_id.clone(), next);
-    }
-    merged.into_values().collect()
 }
 
 fn parse_input_context(value: Option<&Value>) -> Option<CodexTranscriptInputContext> {
@@ -329,17 +302,9 @@ pub fn update_active_turn_from_extracted(
     }
 }
 
-pub fn has_emitted_active_turn_state(active: &CodexActiveTranscriptTurn) -> bool {
-    active.emitted_prompt
-        || active.emitted_step_count > 0
-        || !active.emitted_step_request_ids.is_empty()
-        || !active.emitted_step_response_ids.is_empty()
-        || !active.emitted_tool_call_ids.is_empty()
-        || !active.emitted_tool_result_ids.is_empty()
-}
-
 pub fn empty_checkpoint(inode: u64) -> CodexTranscriptCheckpoint {
     CodexTranscriptCheckpoint {
+        first_owned_turn_id: None,
         inode,
         scan_offset: 0,
         active_turn: None,

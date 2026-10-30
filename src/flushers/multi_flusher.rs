@@ -1,6 +1,6 @@
 //! Port of `src/flushers/multi-flusher.ts`.
 //!
-//! Child failures are logged and do not fail the fan-out. Each child receives
+//! Ordinary child failures are isolated; Codex durability failures propagate. Each child receives
 //! its own clone of the entry. The TypeScript flusher shares one object, so a
 //! child that mutates an entry during `send` can be observed by a sibling that
 //! has not finished. The Rust port does not share that mutation.
@@ -48,6 +48,7 @@ impl BaseFlusher for MultiFlusher {
             });
         }
         let logger = create_logger("MultiFlusher");
+        let mut durable_failure = None;
         while let Some(joined) = set.join_next().await {
             match joined {
                 Ok((_, name, Err(error))) => {
@@ -58,6 +59,9 @@ impl BaseFlusher for MultiFlusher {
                             ("error", Value::String(error.to_string())),
                         ])),
                     );
+                    if error.preserves_checkpoint() && durable_failure.is_none() {
+                        durable_failure = Some(error);
+                    }
                 }
                 Ok((_, _, Ok(()))) => {}
                 Err(error) => {
@@ -67,6 +71,9 @@ impl BaseFlusher for MultiFlusher {
                     );
                 }
             }
+        }
+        if let Some(error) = durable_failure {
+            return Err(error);
         }
         Ok(())
     }
@@ -87,6 +94,7 @@ impl BaseFlusher for MultiFlusher {
             });
         }
         let logger = create_logger("MultiFlusher");
+        let mut durable_failure = None;
         while let Some(joined) = set.join_next().await {
             if let Ok((name, Err(error))) = joined {
                 logger.error(
@@ -96,7 +104,13 @@ impl BaseFlusher for MultiFlusher {
                         ("error", Value::String(error.to_string())),
                     ])),
                 );
+                if error.preserves_checkpoint() && durable_failure.is_none() {
+                    durable_failure = Some(error);
+                }
             }
+        }
+        if let Some(error) = durable_failure {
+            return Err(error);
         }
         Ok(())
     }

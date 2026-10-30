@@ -258,3 +258,17 @@ Linux Hook 4 项、候选进程 5 项、fmt 与严格 clippy 已通过；Windows
 41b3253 的 dry-run 40990254408 中，显式模块目录仍得到 entered 后超时，尚无修复证据。新增开发用 Windows Shell Diagnostics（x64/ARM64 两个任务），通过 Python 标准库直接运行固定 PowerShell 脚本，对照继承环境、隔离环境和显式模块目录，以及 Console、捕获 cmdlet、字面量和普通输出管道。每例诊断预算为 5 秒，记录退出码、固定阶段、输出长度和 sentinel 布尔值，不记录环境值、子进程正文或 stderr。任一用例超出诊断预算或断言失败，流程仍返回失败；不是发布门禁，也不改变原生用例的 20 秒上限和成功要求。Python 只用于开发诊断，不进入安装运行包。无需等待 Rust 编译或打包即可读取阶段证据。
 
 日常 CI 与八平台发布门禁保持原有检查。该诊断流程仅手动运行或这两份诊断文件在 Rust 分支变化时运行，单次两个 runner 任务；不创建 tag 或 Release。脚本语法、fmt 和严格 clippy 已检查，Windows 对照结果待记录。
+
+### 2026-10-30 执行顺序调整与 Codex 功能批次
+
+按用户要求，先推进剩余功能、运行入口和测试迁移，再集中修复已知行为及跨平台问题；暂停逐个问题触发八平台发布 dry-run。保留严格 lint 门禁和已有失败证据，正式发布仍关闭。每次实际构建开发安装包后，继续替换 xuanyang-dev-inner 的安装态并验证，不能以未验证的功能批次冒充可发布候选。
+
+本批接入 Codex 按 user/session/native turn 分组的持久化 journal、增量尾部修复、惰性恢复、独立 ACK 和有界清理；checkpoint 在输出接收确认前等待，失败或取消冻结磁盘进度。HTTP 对 Codex 等待真实接收并有界取消，SLS 等待所有输出端结果，OTLP 在所有服务及端点接收完整原生 turn 后 ACK，未完成 turn 的内存淘汰保留 journal。其他 Agent 继续使用原有缓冲策略。
+
+子任务保留自己的 session/turn，以独立生命周期输出，父任务终止不再合成子任务终止。派工扩展到 spawn/followup/input 和批量位置；保存 invocation、明确的原生输入绑定、工作及精确结果摘要，恢复状态不保存任务或结果正文。派工/收到结果产生标准 Agent 审计事件；模型/工具标准副本仅在 trace 转换边界去重。Codex 专用转换器按具体操作计算工作属性，外部上下文一致时去除虚拟 ENTRY，保留原始审计上下文。
+
+当前功能批次的 fmt、全 workspace/all-targets/all-features 严格 clippy 通过；all-features 下 Codex 相关 47 项与 StateStore 25 项通过（有交叠之外的原有测试，不相加为全量数量）。本批尚不将 main fd27d45 标为完成：端到端输出取消/恢复、独立子任务生命周期、验证脚本与历史用例映射仍需补齐和集中验收。没有据此创建 tag、Release 或声称 Windows 已通过。
+
+集中验收保留的问题包括：Windows PowerShell 在 entered 后的管道阶段超时、Windows ARM64 DSH 竞争用例超时，以及这轮功能推进中新增的失败。Shell 快速诊断流程已准备，其结果不能替代八平台发布门禁。Copilot CLI、来源索引/磁盘治理、依赖安全同步和剩余历史测试迁移继续排在功能阶段。
+
+本批提交前另执行 all-features 库级回归：1,352 项通过，0 失败、0 忽略；它不含独立集成测试、xtask、doc-tests 或 Windows/macOS 实跑，不能替代最终全 workspace/八平台验收。
