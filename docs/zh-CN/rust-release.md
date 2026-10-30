@@ -234,3 +234,9 @@ JXA 策略的 13 处声明已登记为 retained，实际 Linux Vitest 参数展�
 2026-10-29 的 d2d9fa4 dry-run 40869976740 中，Windows 两架构仍在首次 PowerShell 5.1 FullLanguage 调用超时，两个独立 Hook 用例都没有 stdout/stderr。进一步发现候选进程管理器强制 CREATE_SUSPENDED 时没有带 CREATE_NO_WINDOW，覆盖了无控制台启动要求；已将两者同时设置，保留执行前加入 Job 和整棵进程树清理。新增独立 PowerShell 首条指令探针，使用相同的隔离环境和原 20 秒界限，使后续 Hook 故障能与 Shell 启动故障区分。Linux 默认 1,473 项、all-features 1,475 项以及严格 clippy 已通过；Windows 启动修订仍待新一轮实跑，不将本轮失败计作通过。
 
 d2d9fa4 本地 proprietary 候选已通过原生安装器替换远端安装，业务配置 mtime 保持不变。新进程 PID 104046 在 12:04:44Z 获接收端接受 pilot_pipeline 批次，本地指标持续刷新，Dashboard 返回 HTTP 200；仍未直接验证 SLS 索引可见性。
+
+### 2026-10-30 Windows 系统启动环境跟进
+
+62e874d 的 dry-run 40872545795 通过四个 Linux 与两个 macOS 包；Windows 两架构的新独立探针均在 PowerShell 5.1 首条指令之前超时，说明单加无控制台标志不足以解决启动。候选进程和 Hook 测试夹具现保留与已通过安装夹具一致的 Windows 系统启动变量：TEMP/TMP、ComSpec、ProgramFiles 系列及 PATHEXT；HOME、USERPROFILE、配置与隐藏运行时的 PATH 继续隔离。未继承完整用户环境、认证变量或 Agent 设置，也没有延长 20 秒上限。这个环境修订仍待 Windows 实跑确认。
+
+修订后 Linux 候选进程 5 项、Hook 入口 4 项，以及默认/私有构建各 1 项原生 Codex→指标镜像/HTTP 链路通过；fmt 与严格 clippy 通过。本批只调整测试夹具的系统启动环境，前一批默认 1,473 / all-features 1,475 的全量记录保留，不将 Linux 验证替代 Windows 结果。

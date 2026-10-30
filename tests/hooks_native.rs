@@ -25,7 +25,17 @@ fn execute(mut command: Command, root: &Path, input: &[u8]) -> Output {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    for key in ["SystemRoot", "WINDIR"] {
+    for key in [
+        "SystemRoot",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "ComSpec",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "PATHEXT",
+    ] {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
         }

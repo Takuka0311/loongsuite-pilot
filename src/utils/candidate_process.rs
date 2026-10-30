@@ -426,7 +426,17 @@ pub(crate) mod tests {
             .env("USERPROFILE", root)
             .current_dir(root)
             .stdin(Stdio::null());
-        for key in ["SystemRoot", "WINDIR"] {
+        for key in [
+            "SystemRoot",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+            "ComSpec",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramW6432",
+            "PATHEXT",
+        ] {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
             }
@@ -651,7 +661,17 @@ pub(crate) mod tests {
             .env("HOME", root.path())
             .env("USERPROFILE", root.path())
             .env("PATH", root.path().join("no-runtimes"));
-        for key in ["SystemRoot", "WINDIR"] {
+        for key in [
+            "SystemRoot",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+            "ComSpec",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramW6432",
+            "PATHEXT",
+        ] {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
             }

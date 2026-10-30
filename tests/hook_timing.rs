@@ -171,7 +171,17 @@ async fn native_codex_timing_reaches_mirror_and_only_private_http() {
         .env("AGENT_DATA_COLLECTION_CONFIG", &config_path)
         .env("PATH", root.path().join("no-runtimes"))
         .stdin(Stdio::null());
-    for key in ["SystemRoot", "WINDIR"] {
+    for key in [
+        "SystemRoot",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "ComSpec",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "PATHEXT",
+    ] {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
         }
