@@ -1032,4 +1032,1663 @@ mod tests {
             .unwrap()
             .contains("private"));
     }
+    fn completion(
+        turn_id: &str,
+        text: Option<&str>,
+        interrupted: bool,
+    ) -> CodexTranscriptSourceRecord {
+        let mut payload =
+            json!({"type":if interrupted {"turn_aborted"}else{"task_complete"},"turn_id":turn_id});
+        if let Some(text) = text {
+            payload["last_agent_message"] = json!(text);
+        }
+        CodexTranscriptSourceRecord {
+            start_offset: 0,
+            end_offset: 1,
+            record: json!({"type":"event_msg","payload":payload})
+                .as_object()
+                .unwrap()
+                .clone(),
+        }
+    }
+    fn encrypted(turn_id: &str, opaque: &str, result: bool) -> CodexTranscriptSourceRecord {
+        source(
+            json!({"type":"agent_message","author":"/root","recipient":"/root/worker",
+            "internal_chat_message_metadata_passthrough":{"turn_id":turn_id},
+            "content":[{"type":"input_text","text":format!("Message Type: {}\nTask name: /root/worker",if result {"FINAL_ANSWER"} else {"NEW_TASK"})},
+                {"type":"encrypted_content","encrypted_content":opaque}]}),
+        )
+    }
+    #[test]
+    fn sparse_reobservation_preserves_inferred_child_and_native_dispatch_facts() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut known = spawn("sparse", "private task");
+        known.child_thread_id = None;
+        known.task_name = Some("/root/worker".into());
+        known.child_turn_id = Some("bound-turn".into());
+        known.agent_nickname = Some("NativeName".into());
+        linker.register_spawns(&[known.clone()]);
+        let link = linker
+            .resolve_work(&meta(), &turn("bound-turn"), &[], false)
+            .unwrap();
+        assert_eq!(link.child_thread_id, "child");
+        let before = linker.serialize()["spawns"][0].clone();
+        assert_eq!(before["resolvedChildThreadId"], "child");
+        let sparse = CodexSpawnDescriptor {
+            parent_thread_id: known.parent_thread_id.clone(),
+            parent_turn_id: known.parent_turn_id.clone(),
+            parent_trace_id: known.parent_trace_id.clone(),
+            parent_tool_call_id: known.parent_tool_call_id.clone(),
+            spawned_at_ms: known.spawned_at_ms,
+            ..Default::default()
+        };
+        linker.register_spawns(&[sparse]);
+        let after = linker.serialize()["spawns"][0].clone();
+        for key in [
+            "resolvedChildThreadId",
+            "childTurnId",
+            "workFingerprint",
+            "agentNickname",
+            "dispatchKind",
+        ] {
+            assert_eq!(after[key], before[key], "sparse observation erased {key}");
+        }
+    }
+
+    #[test]
+    fn restores_legacy_work_prompt_as_hash_without_retaining_plaintext() {
+        let mut legacy = serde_json::to_value(spawn("legacy", "unused")).unwrap();
+        legacy.as_object_mut().unwrap().remove("workFingerprint");
+        legacy["workPrompt"] = json!("legacy private work");
+        let mut linker = CodexSubagentLinker::new();
+        linker.restore(&json!({"version":1,"spawns":[legacy],"children":[],"bindings":[]}));
+        let state = linker.serialize();
+        assert_eq!(
+            state["spawns"][0]["workFingerprint"],
+            work_fingerprint("legacy private work")
+        );
+        assert!(!state.to_string().contains("legacy private work"));
+        assert!(!state.to_string().contains("workPrompt"));
+        let input = source(
+            json!({"type":"agent_message","content":[{"type":"input_text","text":"legacy private work"}]}),
+        );
+        assert_eq!(
+            linker
+                .resolve_work(&meta(), &turn("owned"), &[input], false)
+                .unwrap()
+                .parent_tool_call_id
+                .as_deref(),
+            Some("legacy")
+        );
+    }
+
+    #[test]
+    fn encrypted_work_and_final_answer_preserve_binding_across_restore_but_new_input_does_not() {
+        for restore in [false, true] {
+            let mut linker = CodexSubagentLinker::new();
+            linker.register_spawns(&[
+                spawn("first", "opaque-first"),
+                spawn("second", "opaque-second"),
+            ]);
+            let original = linker
+                .resolve_work(
+                    &meta(),
+                    &turn("owned"),
+                    &[encrypted("owned", "opaque-first", false)],
+                    false,
+                )
+                .unwrap();
+            if restore {
+                let state = linker.serialize();
+                linker = CodexSubagentLinker::new();
+                linker.restore(&state);
+            }
+            let before = linker.serialize();
+            assert!(!is_codex_work_input(
+                &encrypted("owned", "opaque-result", true),
+                "owned"
+            ));
+            assert_eq!(
+                linker.resolve_work(
+                    &meta(),
+                    &turn("owned"),
+                    &[encrypted("owned", "opaque-result", true)],
+                    false
+                ),
+                Some(original.clone())
+            );
+            assert_eq!(linker.serialize(), before);
+            assert!(linker
+                .resolve_work(
+                    &meta(),
+                    &turn("owned"),
+                    &[encrypted("owned", "unknown-work", false)],
+                    false
+                )
+                .is_none());
+            let direct = source(
+                json!({"type":"message","role":"user","content":[{"type":"input_text","text":"opaque-first"}]}),
+            );
+            assert!(linker
+                .resolve_work(&meta(), &turn("owned"), &[direct], false)
+                .is_none());
+            let second = linker
+                .resolve_work(
+                    &meta(),
+                    &turn("owned"),
+                    &[encrypted("owned", "opaque-second", false)],
+                    false,
+                )
+                .unwrap();
+            assert_ne!(original.invocation_id, second.invocation_id);
+            assert_eq!(second.parent_tool_call_id.as_deref(), Some("second"));
+            let text = linker.serialize().to_string();
+            for raw in ["opaque-first", "opaque-second", "opaque-result"] {
+                assert!(!text.contains(raw));
+            }
+        }
+    }
+
+    #[test]
+    fn opaque_conflict_is_rejected_even_with_explicit_turn_but_other_turns_are_scoped_out() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut first = spawn("first", "opaque-first");
+        first.child_turn_id = Some("owned".into());
+        linker.register_spawns(&[first, spawn("second", "opaque-second")]);
+        assert!(linker
+            .resolve_work(
+                &meta(),
+                &turn("owned"),
+                &[
+                    encrypted("owned", "opaque-first", false),
+                    encrypted("owned", "opaque-second", false)
+                ],
+                false
+            )
+            .is_none());
+        assert_eq!(
+            linker
+                .resolve_work(
+                    &meta(),
+                    &turn("owned"),
+                    &[
+                        encrypted("owned", "opaque-first", false),
+                        encrypted("other", "opaque-second", false)
+                    ],
+                    false
+                )
+                .unwrap()
+                .parent_tool_call_id
+                .as_deref(),
+            Some("first")
+        );
+    }
+
+    #[test]
+    fn final_answer_text_quoted_inside_new_task_is_not_a_result_notification() {
+        for text in ["Message Type: NEW_TASK\nTask name: /root/worker\nPayload:\nExplain:\nMessage Type: FINAL_ANSWER\nPayload: sample",
+            "Review FINAL_ANSWER in this example:\nMessage Type: FINAL_ANSWER\nPayload: sample"] {
+            let mut linker=CodexSubagentLinker::new();linker.register_spawns(&[spawn("quoted",text)]);
+            let input=source(json!({"type":"agent_message","content":[{"type":"input_text","text":text}]}));
+            assert!(is_codex_work_input(&input,"quoted"));
+            assert_eq!(linker.resolve_work(&meta(),&turn("quoted"),&[input],false).unwrap().parent_tool_call_id.as_deref(),Some("quoted"));
+        }
+    }
+
+    #[test]
+    fn same_text_direct_user_input_does_not_inherit_creation_or_followup_binding() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut creation = spawn("create", "repeat");
+        creation.dispatch_kind = Some("spawn".into());
+        linker.register_spawns(&[creation]);
+        let direct = || {
+            source(
+                json!({"type":"message","role":"user","content":[{"type":"input_text","text":"repeat"}]}),
+            )
+        };
+        let incoming = || {
+            source(
+                json!({"type":"agent_message","content":[{"type":"input_text","text":"repeat"}]}),
+            )
+        };
+        assert!(linker
+            .resolve_work(&meta(), &turn("initial"), &[direct(), incoming()], true)
+            .is_none());
+        let bound = linker
+            .resolve_work(&meta(), &turn("initial"), &[direct()], true)
+            .unwrap();
+        assert_eq!(bound.parent_tool_call_id.as_deref(), Some("create"));
+        assert!(linker
+            .resolve_work(&meta(), &turn("later"), &[direct()], false)
+            .is_none());
+        let event = CodexTranscriptSourceRecord {
+            start_offset: 0,
+            end_offset: 1,
+            record:
+                json!({"type":"event_msg","payload":{"type":"user_message","message":"repeat"}})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+        };
+        assert!(linker
+            .resolve_work(&meta(), &turn("later"), &[event], false)
+            .is_none());
+    }
+
+    #[test]
+    fn creation_fallback_requires_first_owned_turn_and_never_selects_a_future_dispatch() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut creation = spawn("create", "original");
+        creation.dispatch_kind = Some("spawn".into());
+        creation.spawned_at_ms = 20.0;
+        linker.register_spawns(&[creation]);
+        let mut before = turn("before");
+        before.started_at_ms = 10.0;
+        assert!(linker.resolve_work(&meta(), &before, &[], true).is_none());
+        let mut expanded = turn("first");
+        expanded.prompt = Some("expanded context original".into());
+        assert!(linker
+            .resolve_work(&meta(), &expanded, &[], false)
+            .is_none());
+        assert!(linker.resolve_work(&meta(), &expanded, &[], true).is_some());
+        let mut later = turn("later");
+        later.prompt = Some("unrelated".into());
+        assert!(linker.resolve_work(&meta(), &later, &[], true).is_none());
+    }
+
+    #[test]
+    fn every_completed_child_turn_needs_exact_result_evidence_before_outcome_is_known() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = spawn("work", "task");
+        descriptor.child_turn_id = Some("first".into());
+        linker.register_spawns(&[descriptor]);
+        let first = turn("first");
+        let link = linker.resolve_work(&meta(), &first, &[], false).unwrap();
+        linker.register_completed_work_result(
+            &link,
+            &first,
+            &[completion("first", Some("known\n"), false)],
+        );
+        assert!(linker.get_delegations_for_parent("parent")[0].result_outcome_known);
+        let second = turn("second");
+        let mut second_link = link.clone();
+        second_link.child_turn_id = Some("second".into());
+        linker.register_completed_work_result(
+            &second_link,
+            &second,
+            &[completion("second", None, false)],
+        );
+        let partial = linker.get_delegations_for_parent("parent").pop().unwrap();
+        assert!(partial.result_terminal_observed);
+        assert!(!partial.result_outcome_known);
+        assert_eq!(partial.result_child_turn_ids, ["first", "second"]);
+        let state = linker.serialize();
+        let mut restored = CodexSubagentLinker::new();
+        restored.restore(&state);
+        assert!(!restored.get_delegations_for_parent("parent")[0].result_outcome_known);
+        restored.register_completed_work_result(
+            &second_link,
+            &second,
+            &[completion("second", Some("second result"), false)],
+        );
+        assert!(restored.get_delegations_for_parent("parent")[0].result_outcome_known);
+        let serialized = restored.serialize().to_string();
+        for raw in ["known\\n", "second result", "resultOutcomeKnown"] {
+            assert!(!serialized.contains(raw));
+        }
+    }
+
+    #[test]
+    fn unknown_followup_and_identical_results_never_prove_a_unique_receipt() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut first = spawn("first", "task1");
+        first.child_turn_id = Some("t1".into());
+        let mut second = spawn("second", "task2");
+        second.child_turn_id = Some("t2".into());
+        linker.register_spawns(&[first, second]);
+        let first = turn("t1");
+        let first_link = linker.resolve_work(&meta(), &first, &[], false).unwrap();
+        linker.register_completed_work_result(
+            &first_link,
+            &first,
+            &[completion("t1", Some("same"), false)],
+        );
+        let before = linker.get_delegations_for_parent("parent");
+        assert!(before[0].result_outcome_known);
+        assert!(!before[1].result_outcome_known);
+        assert!(before[1].result_child_turn_ids.is_empty());
+        let second = turn("t2");
+        let second_link = linker.resolve_work(&meta(), &second, &[], false).unwrap();
+        linker.register_completed_work_result(
+            &second_link,
+            &second,
+            &[completion("t2", Some("same"), false)],
+        );
+        assert_eq!(
+            linker
+                .get_delegations_for_parent("parent")
+                .iter()
+                .filter(|s| s.result_fingerprints.contains(&digest("same", 64)))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn interrupted_terminal_and_legacy_result_restore_do_not_invent_result_text() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = spawn("abort", "task");
+        descriptor.child_turn_id = Some("abort".into());
+        linker.register_spawns(&[descriptor]);
+        let mut aborted = turn("abort");
+        aborted.status = CodexTerminalStatus::Interrupted;
+        let link = linker.resolve_work(&meta(), &aborted, &[], false).unwrap();
+        linker.register_completed_work_result(
+            &link,
+            &aborted,
+            &[completion("abort", Some("not delivered"), true)],
+        );
+        let state = linker.serialize();
+        assert!(state["completedWorkResults"].as_array().unwrap().is_empty());
+        assert!(!state.to_string().contains("not delivered"));
+        let mut restored = CodexSubagentLinker::new();
+        restored.restore(&state);
+        let result = restored.get_delegations_for_parent("parent").pop().unwrap();
+        assert!(result.result_outcome_known && result.result_terminal_observed);
+        assert!(result.result_fingerprints.is_empty());
+        assert_eq!(result.result_child_turn_ids, ["abort"]);
+        let mut legacy = state;
+        legacy.as_object_mut().unwrap().remove("workTerminals");
+        legacy["completedWorkResults"] = json!([{"invocationId":link.invocation_id,"childThreadId":"child","childTurnId":"legacy-complete","fingerprint":digest("legacy result",64)}]);
+        let mut restored = CodexSubagentLinker::new();
+        restored.restore(&legacy);
+        let result = restored.get_delegations_for_parent("parent").pop().unwrap();
+        assert!(result.result_terminal_observed && result.result_outcome_known);
+        assert_eq!(result.result_child_turn_ids, ["legacy-complete"]);
+    }
+
+    #[test]
+    fn result_projection_deduplicates_equal_fingerprints_across_distinct_child_turns() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = spawn("work", "task");
+        descriptor.child_turn_id = Some("first".into());
+        linker.register_spawns(&[descriptor]);
+        let first = turn("first");
+        let link = linker.resolve_work(&meta(), &first, &[], false).unwrap();
+        linker.register_completed_work_result(
+            &link,
+            &first,
+            &[
+                completion("first", Some("first delivered result"), false),
+                completion("first", Some("分段结果\n"), false),
+            ],
+        );
+        let next = turn("continued");
+        let mut continued = link.clone();
+        continued.child_turn_id = Some("continued".into());
+        linker.register_completed_work_result(
+            &continued,
+            &next,
+            &[completion(
+                "continued",
+                Some("first delivered result"),
+                false,
+            )],
+        );
+        assert_eq!(
+            linker.serialize()["completedWorkResults"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        let projection = linker.get_delegations_for_parent("parent").pop().unwrap();
+        assert_eq!(
+            projection.result_fingerprints.len(),
+            2,
+            "projection repeats identical result digest"
+        );
+        assert_eq!(
+            projection
+                .result_fingerprints
+                .iter()
+                .collect::<HashSet<_>>()
+                .len(),
+            2
+        );
+        let snapshot = linker.snapshot();
+        let state = linker.serialize();
+        linker.register_completed_work_result(
+            &link,
+            &first,
+            &[completion("first", Some("first delivered result"), false)],
+        );
+        assert_eq!(linker.serialize(), state);
+        assert_eq!(linker.snapshot(), snapshot);
+    }
+
+    #[test]
+    fn result_registration_rejects_wrong_turn_child_link_confidence_and_nonterminal_text() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = spawn("work", "task");
+        descriptor.child_turn_id = Some("actual".into());
+        linker.register_spawns(&[descriptor]);
+        let actual = turn("actual");
+        let link = linker.resolve_work(&meta(), &actual, &[], false).unwrap();
+        linker.register_completed_work_result(
+            &link,
+            &actual,
+            &[completion("other-turn", Some("wrong turn"), false)],
+        );
+        let mut other_child = actual.clone();
+        other_child.session_id = "other-child".into();
+        linker.register_completed_work_result(
+            &link,
+            &other_child,
+            &[completion("actual", Some("wrong child"), false)],
+        );
+        let mut other_link = link.clone();
+        other_link.child_turn_id = Some("wrong".into());
+        linker.register_completed_work_result(
+            &other_link,
+            &actual,
+            &[completion("actual", Some("wrong link"), false)],
+        );
+        let mut guessed = link.clone();
+        guessed.confidence = CodexSubagentLinkConfidence::TimeOrder;
+        linker.register_completed_work_result(
+            &guessed,
+            &actual,
+            &[completion("actual", Some("time guess"), false)],
+        );
+        let assistant = source(
+            json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":"unconfirmed"}]}),
+        );
+        linker.register_completed_work_result(&link, &actual, &[assistant]);
+        let mut interrupted = actual.clone();
+        interrupted.status = CodexTerminalStatus::Interrupted;
+        linker.register_completed_work_result(
+            &link,
+            &interrupted,
+            &[completion("actual", Some("wrong status"), false)],
+        );
+        linker.restore(&json!({"version":1,"completedWorkResults":[{"invocationId":link.invocation_id,"childThreadId":"child","childTurnId":"actual","fingerprint":"invalid raw text"}]}));
+        assert!(linker.serialize()["completedWorkResults"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(linker.get_delegations_for_parent("parent")[0]
+            .result_fingerprints
+            .is_empty());
+    }
+
+    #[test]
+    fn evicted_terminal_and_result_facts_do_not_leave_phantom_invocation_lookup_results() {
+        for terminal in [false, true] {
+            let mut linker = CodexSubagentLinker::new();
+            let mut descriptor = spawn("retained", "task");
+            descriptor.invocation_id = Some("retained-invocation".into());
+            linker.register_spawns(&[descriptor]);
+            let mut facts = Vec::new();
+            for i in 0..=MAX_LINK_DESCRIPTORS {
+                let invocation = if i == 0 {
+                    "retained-invocation".to_owned()
+                } else {
+                    format!("other-{i}")
+                };
+                let mut fact = json!({"invocationId":invocation,"childThreadId":"child","childTurnId":format!("turn-{i}")});
+                if terminal {
+                    fact["terminalType"] = json!("interrupted");
+                } else {
+                    fact["fingerprint"] = json!(digest("result", 64));
+                }
+                facts.push(fact);
+            }
+            let field = if terminal {
+                "workTerminals"
+            } else {
+                "completedWorkResults"
+            };
+            let mut state = json!({"version":1});
+            state[field] = json!(facts);
+            linker.restore(&state);
+            assert_eq!(
+                linker.serialize()[field].as_array().unwrap().len(),
+                MAX_LINK_DESCRIPTORS
+            );
+            let projection = linker.get_delegations_for_parent("parent").pop().unwrap();
+            assert!(!projection.result_terminal_observed && !projection.result_outcome_known);
+            assert!(
+                projection.result_fingerprints.is_empty()
+                    && projection.result_child_turn_ids.is_empty()
+            );
+        }
+    }
+
+    fn parent_tool(input: Value, output: Option<Value>) -> CodexExtractedTranscriptTurn {
+        let mut parent = turn("parent-turn");
+        parent.session_id = "parent".into();
+        parent.steps = vec![CodexTranscriptStep {
+            started_at_ms: 1.0,
+            response_at_ms: 2.0,
+            has_response_evidence: true,
+            completed_at_ms: 3.0,
+            response_id: None,
+            input_messages: None,
+            reasoning: Vec::new(),
+            token_usage: None,
+            final_text: None,
+            tools: vec![super::super::super::types::CodexTranscriptTool {
+                call_id: "call".into(),
+                name: "spawn_agent".into(),
+                input: Some(input),
+                started_at_ms: 1.0,
+                output,
+                completed_at_ms: Some(3.0),
+            }],
+        }];
+        parent
+    }
+    fn creation(
+        call: &str,
+        at: f64,
+        path: Option<&str>,
+        child: Option<&str>,
+    ) -> CodexSpawnDescriptor {
+        CodexSpawnDescriptor {
+            parent_thread_id: "parent".into(),
+            parent_turn_id: "parent-turn".into(),
+            parent_trace_id: "trace".into(),
+            parent_tool_call_id: call.into(),
+            spawned_at_ms: at,
+            task_name: path.map(str::to_owned),
+            child_thread_id: child.map(str::to_owned),
+            dispatch_kind: Some("spawn".into()),
+            ..Default::default()
+        }
+    }
+    fn child_meta(id: &str, at: f64, path: Option<&str>) -> CodexTranscriptMeta {
+        let mut child = meta();
+        child.thread_id = id.into();
+        child.created_at_ms = Some(at);
+        child.agent_path = path.map(str::to_owned);
+        child
+    }
+    #[test]
+    fn extracts_native_parent_delegation_as_child_prompt_without_opaque_body() {
+        use super::super::super::extractor::{extract_codex_partial_turn, ExtractOptions};
+        let values = [
+            json!({"timestamp":"2026-08-07T09:20:31.534Z","type":"turn_context","payload":{"turn_id":"owned","model":"gpt-test"}}),
+            json!({"timestamp":"2026-08-07T09:20:31.538Z","type":"response_item","payload":{"type":"agent_message","author":"/root","recipient":"/root/worker",
+                "content":[{"type":"input_text","text":"inspect the delegated file"},{"type":"encrypted_content","encrypted_content":"redacted"}],
+                "internal_chat_message_metadata_passthrough":{"turn_id":"owned"}}}),
+            json!({"timestamp":"2026-08-07T09:20:42.113Z","type":"response_item","payload":{"type":"message","id":"response-child","role":"assistant","content":[{"type":"output_text","text":"done"}]}}),
+            json!({"timestamp":"2026-08-07T09:20:42.255Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}}),
+            json!({"timestamp":"2026-08-07T09:20:42.270Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"owned","last_agent_message":"done"}}),
+        ];
+        let records: Vec<_> = values
+            .into_iter()
+            .map(|v| v.as_object().unwrap().clone())
+            .collect();
+        let result = extract_codex_partial_turn(
+            &records,
+            Some(&meta()),
+            "child",
+            "owned",
+            &ExtractOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result.prompt.as_deref(), Some("inspect the delegated file"));
+        assert!(result.prompt_ready);
+        assert_eq!(
+            serde_json::to_value(&result.input_messages).unwrap(),
+            json!([{"role":"user","parts":[{"type":"text","content":"inspect the delegated file"}]}])
+        );
+    }
+
+    #[test]
+    fn four_historical_fixture_children_link_by_path_when_children_arrive_first() {
+        use super::super::super::extractor::{
+            extract_codex_partial_turn, extract_codex_transcript_meta, ExtractOptions,
+        };
+        let parent=include_str!("../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-00-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl");
+        let children=[
+            include_str!("../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-04-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl"),
+            include_str!("../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-05-cccccccc-cccc-4ccc-8ccc-cccccccccccc.jsonl"),
+            include_str!("../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-06-dddddddd-dddd-4ddd-8ddd-dddddddddddd.jsonl"),
+            include_str!("../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-07-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.jsonl"),
+        ];
+        let parse = |text: &str| {
+            text.lines()
+                .filter(|s| !s.is_empty())
+                .map(|line| serde_json::from_str::<serde_json::Map<String, Value>>(line).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let mut linker = CodexSubagentLinker::new();
+        for child in children {
+            let records = parse(child);
+            linker.register_child(&extract_codex_transcript_meta(&records[0]).unwrap());
+        }
+        let before = linker.snapshot();
+        assert_eq!(
+            (
+                before.detected_children,
+                before.detected_spawns,
+                before.linked_children,
+                before.orphan_children
+            ),
+            (4, 0, 0, 4)
+        );
+        let records = parse(parent);
+        let meta = extract_codex_transcript_meta(&records[0]).unwrap();
+        let parent = extract_codex_partial_turn(
+            &records,
+            Some(&meta),
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "parent-turn-1",
+            &ExtractOptions::default(),
+        )
+        .unwrap();
+        let sources: Vec<_> = records
+            .into_iter()
+            .enumerate()
+            .map(|(i, record)| CodexTranscriptSourceRecord {
+                start_offset: i as i64,
+                end_offset: i as i64 + 1,
+                record,
+            })
+            .collect();
+        linker.register_spawns(&extract_dispatches(&parent, &sources, "parent-trace-id"));
+        let after = linker.snapshot();
+        assert_eq!(
+            (
+                after.detected_children,
+                after.detected_spawns,
+                after.linked_children,
+                after.orphan_children
+            ),
+            (4, 4, 4, 0)
+        );
+        assert_eq!(
+            after
+                .links
+                .iter()
+                .map(|link| link.child_thread_id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+                "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+            ]
+        );
+        for (link, call) in after.links.iter().zip([
+            "call-subagent-1",
+            "call-subagent-2",
+            "call-subagent-3",
+            "call-subagent-4",
+        ]) {
+            assert_eq!(link.parent_tool_call_id.as_deref(), Some(call));
+            assert_eq!(link.confidence, CodexSubagentLinkConfidence::AgentPath);
+        }
+    }
+
+    #[test]
+    fn creation_snapshot_prioritizes_explicit_id_then_exact_path_before_time_fallback() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[
+            creation(
+                "explicit",
+                10.0,
+                Some("/root/wrong"),
+                Some("explicit-child"),
+            ),
+            creation("fallback", 10.0, None, None),
+            creation("exact", 20.0, Some("/root/exact"), None),
+        ]);
+        linker.register_child(&child_meta("explicit-child", 15.0, Some("/root/actual")));
+        linker.register_child(&child_meta("without-path", 25.0, None));
+        linker.register_child(&child_meta("exact-child", 30.0, Some("/root/exact")));
+        let snapshot = linker.snapshot();
+        assert_eq!(snapshot.linked_children, 3);
+        let by_id = |id: &str| {
+            snapshot
+                .links
+                .iter()
+                .find(|l| l.child_thread_id == id)
+                .unwrap()
+        };
+        assert_eq!(
+            by_id("explicit-child").parent_tool_call_id.as_deref(),
+            Some("explicit")
+        );
+        assert_eq!(
+            by_id("explicit-child").confidence,
+            CodexSubagentLinkConfidence::ExplicitId
+        );
+        assert_eq!(
+            by_id("without-path").parent_tool_call_id.as_deref(),
+            Some("fallback")
+        );
+        assert_eq!(
+            by_id("without-path").confidence,
+            CodexSubagentLinkConfidence::TimeOrder
+        );
+        assert_eq!(
+            by_id("exact-child").parent_tool_call_id.as_deref(),
+            Some("exact")
+        );
+        assert_eq!(
+            by_id("exact-child").confidence,
+            CodexSubagentLinkConfidence::AgentPath
+        );
+        let mut nearest = CodexSubagentLinker::new();
+        nearest.register_spawns(&[
+            creation("first", 10.0, None, None),
+            creation("second", 20.0, None, None),
+        ]);
+        nearest.register_child(&child_meta("a", 15.0, None));
+        nearest.register_child(&child_meta("b", 25.0, None));
+        assert_eq!(
+            nearest
+                .snapshot()
+                .links
+                .iter()
+                .map(|l| l.parent_tool_call_id.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+    }
+
+    #[test]
+    fn creation_snapshot_duplicate_exact_paths_and_equal_time_ties_remain_orphaned() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[
+            creation("one", 10.0, Some("/root/reused"), None),
+            creation("two", 20.0, Some("/root/reused"), None),
+        ]);
+        linker.register_child(&child_meta("ambiguous", 30.0, Some("/root/reused")));
+        assert_eq!(
+            linker.snapshot().links[0].confidence,
+            CodexSubagentLinkConfidence::Orphan
+        );
+        assert_eq!(
+            linker.snapshot().links[0].orphan_reason,
+            Some(OrphanReason::AmbiguousAgentPath)
+        );
+        let mut ties = CodexSubagentLinker::new();
+        ties.register_spawns(&[
+            creation("one", 10.0, None, None),
+            creation("two", 10.0, None, None),
+        ]);
+        ties.register_child(&child_meta("ambiguous", 30.0, None));
+        assert_eq!(
+            ties.snapshot().links[0].confidence,
+            CodexSubagentLinkConfidence::Orphan
+        );
+    }
+
+    #[test]
+    fn nested_creation_keeps_immediate_parent_at_arbitrary_depth() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[creation("nested", 1.0, None, Some("child"))]);
+        let mut nested = meta();
+        nested.depth = 20;
+        linker.register_child(&nested);
+        let link = linker.snapshot().links.pop().unwrap();
+        assert_eq!(link.parent_thread_id, "parent");
+        assert_eq!(link.child_thread_id, "child");
+        assert_eq!(link.confidence, CodexSubagentLinkConfidence::ExplicitId);
+    }
+
+    #[test]
+    fn rejected_spawn_keeps_audit_intent_without_creation_and_activity_extracts_native_facts() {
+        let rejected = parent_tool(
+            json!({"task_name":"worker"}),
+            Some(json!("collab spawn failed: agent thread limit reached")),
+        );
+        let rejected = extract_dispatches(&rejected, &[], "trace");
+        assert_eq!(rejected.len(), 1);
+        assert!(rejected[0].child_thread_id.is_none());
+        assert!(rejected[0].dispatch_failed);
+        assert_eq!(rejected[0].invocation_id.as_ref().unwrap().len(), 32);
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&rejected);
+        assert!(linker
+            .resolve_work(&meta(), &turn("owned"), &[], true)
+            .is_none());
+        let parent = parent_tool(json!({"task_name":"worker"}), None);
+        let activity=CodexTranscriptSourceRecord {start_offset:0,end_offset:1,record:json!({"type":"event_msg","payload":{
+            "type":"sub_agent_activity","kind":"started","event_id":"call","occurred_at_ms":1234,"agent_thread_id":"native-child","agent_path":"/root/worker"
+        }}).as_object().unwrap().clone()};
+        let extracted = extract_dispatches(&parent, &[activity], "trace");
+        assert_eq!(
+            extracted[0].child_thread_id.as_deref(),
+            Some("native-child")
+        );
+        assert_eq!(extracted[0].agent_path.as_deref(), Some("/root/worker"));
+        assert_eq!(extracted[0].spawned_at_ms, 1234.0);
+        assert_eq!(extracted[0].parent_thread_id, "parent");
+        assert_eq!(extracted[0].parent_turn_id, "parent-turn");
+        assert_eq!(extracted[0].parent_trace_id, "trace");
+        assert_eq!(extracted[0].parent_tool_call_id, "call");
+    }
+    fn started_activity(child: &str, turn: Option<&str>) -> CodexTranscriptSourceRecord {
+        let mut payload = json!({"type":"sub_agent_activity","kind":"started","event_id":"call","agent_thread_id":child});
+        if let Some(turn) = turn {
+            payload["turn_id"] = json!(turn);
+        }
+        CodexTranscriptSourceRecord {
+            start_offset: 0,
+            end_offset: 1,
+            record: json!({"type":"event_msg","payload":payload})
+                .as_object()
+                .unwrap()
+                .clone(),
+        }
+    }
+    fn plain_work(turn: &str, text: &str) -> CodexTranscriptSourceRecord {
+        source(
+            json!({"type":"agent_message","author":"/root","recipient":"/root/worker",
+            "internal_chat_message_metadata_passthrough":{"turn_id":turn},"content":[{"type":"input_text","text":text}]}),
+        )
+    }
+    #[test]
+    fn native_agent_id_result_reserves_tool_and_invocation_before_acceptance_and_projects_nickname()
+    {
+        let mut parent = parent_tool(json!({"message":"work"}), None);
+        let pending = extract_dispatches(&parent, &[], "trace").pop().unwrap();
+        parent.steps[0].tools[0].output = Some(json!({"agent_id":"child","nickname":"Ada"}));
+        let accepted = extract_dispatches(&parent, &[], "trace").pop().unwrap();
+        assert_eq!(pending.invocation_id, accepted.invocation_id);
+        assert_eq!(pending.parent_tool_span_id, accepted.parent_tool_span_id);
+        assert_eq!(accepted.agent_nickname.as_deref(), Some("Ada"));
+        assert!(accepted.agent_path.is_none());
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[pending, accepted.clone()]);
+        linker.register_child(&child_meta("child", 30.0, None));
+        assert_eq!(linker.serialize()["spawns"].as_array().unwrap().len(), 1);
+        let snapshot = linker.snapshot();
+        assert_eq!(
+            snapshot.links[0].confidence,
+            CodexSubagentLinkConfidence::ExplicitId
+        );
+        assert_eq!(
+            snapshot.links[0].parent_tool_span_id,
+            accepted.parent_tool_span_id
+        );
+        assert_eq!(
+            linker.get_delegations_for_parent("parent")[0]
+                .agent_nickname
+                .as_deref(),
+            Some("Ada")
+        );
+    }
+    #[test]
+    fn native_child_nickname_projection_supports_explicit_path_and_bound_lookup_across_restore() {
+        for kind in ["explicit", "path", "bound"] {
+            let mut descriptor = creation("named", 1.0, Some("named"), None);
+            if kind == "explicit" {
+                descriptor.child_thread_id = Some("child".into());
+            }
+            if kind == "bound" {
+                descriptor.resolved_child_thread_id = Some("child".into());
+            }
+            let mut linker = CodexSubagentLinker::new();
+            linker.register_spawns(&[descriptor]);
+            let mut child = child_meta("child", 30.0, Some("/root/named"));
+            child.agent_nickname = Some("Newton".into());
+            linker.register_child(&child);
+            let projection = linker.get_delegations_for_parent("parent").pop().unwrap();
+            assert_eq!(
+                projection.child_thread_id.as_deref(),
+                Some("child"),
+                "{kind}"
+            );
+            assert_eq!(
+                projection.agent_nickname.as_deref(),
+                Some("Newton"),
+                "{kind}"
+            );
+            assert!(
+                linker.serialize()["spawns"][0]["agentNickname"].is_null(),
+                "{kind} mutated native lineage"
+            );
+            let mut restored = CodexSubagentLinker::new();
+            restored.restore(&linker.serialize());
+            let recovered = restored.get_delegations_for_parent("parent").pop().unwrap();
+            assert_eq!(recovered.child_thread_id, projection.child_thread_id);
+            assert_eq!(recovered.agent_nickname, projection.agent_nickname);
+            assert_eq!(recovered.invocation_id, projection.invocation_id);
+        }
+    }
+    #[test]
+    fn duplicate_child_paths_do_not_guess_a_peer_nickname() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[creation("ambiguous", 1.0, Some("named"), None)]);
+        for (id, name) in [("first", "Newton"), ("second", "Curie")] {
+            let mut child = child_meta(id, 30.0, Some("/root/named"));
+            child.agent_nickname = Some(name.into());
+            linker.register_child(&child);
+        }
+        let projection = linker.get_delegations_for_parent("parent").pop().unwrap();
+        assert!(projection.child_thread_id.is_none());
+        assert!(projection.agent_nickname.is_none());
+    }
+    #[test]
+    fn batch_work_ids_are_stable_per_position_and_share_the_actual_dispatch_tool() {
+        let mut parent = parent_tool(
+            json!({"agents":[{"task_name":"one","message":"private one"},{"task_name":"two","message":"private two"}]}),
+            None,
+        );
+        let pending = extract_dispatches(&parent, &[], "trace");
+        parent.steps[0].tools[0].output =
+            Some(json!({"agents":[{"agent_id":"one"},{"agent_id":"two"}]}));
+        let accepted = extract_dispatches(&parent, &[], "trace");
+        assert_eq!(pending.len(), 2);
+        assert_eq!(accepted.len(), 2);
+        assert_ne!(accepted[0].invocation_id, accepted[1].invocation_id);
+        assert_eq!(
+            accepted[0].parent_tool_span_id,
+            accepted[1].parent_tool_span_id
+        );
+        assert!(accepted[0].parent_tool_span_id.is_some());
+        for i in 0..2 {
+            assert_eq!(accepted[i].work_index, i);
+            assert_eq!(pending[i].invocation_id, accepted[i].invocation_id);
+            assert_eq!(
+                pending[i].parent_tool_span_id,
+                accepted[i].parent_tool_span_id
+            );
+        }
+        assert_eq!(accepted[0].child_thread_id.as_deref(), Some("one"));
+        assert_eq!(accepted[1].child_thread_id.as_deref(), Some("two"));
+        assert!(!serde_json::to_string(&accepted)
+            .unwrap()
+            .contains("private"));
+    }
+    #[test]
+    fn task_path_multiple_activities_and_repeated_activity_keep_native_work_cardinality() {
+        let parent = parent_tool(
+            json!({"message":"work"}),
+            Some(json!({"task_path":"/root/worker"})),
+        );
+        assert_eq!(
+            extract_dispatches(&parent, &[], "trace")[0]
+                .agent_path
+                .as_deref(),
+            Some("/root/worker")
+        );
+        let activities = [
+            started_activity("child-a", None),
+            started_activity("child-b", None),
+        ];
+        let descriptors = extract_dispatches(&parent, &activities, "trace");
+        assert_eq!(
+            descriptors
+                .iter()
+                .map(|d| d.child_thread_id.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("child-a"), Some("child-b")]
+        );
+        let parent = parent_tool(json!({"message":"work"}), None);
+        let repeated = started_activity("child", None);
+        let descriptors = extract_dispatches(&parent, &[repeated.clone(), repeated], "trace");
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(descriptors[0].child_thread_id.as_deref(), Some("child"));
+    }
+    #[test]
+    fn real_followup_and_input_get_new_invocations_while_queries_notifications_and_cancel_are_excluded(
+    ) {
+        let mut parent = parent_tool(json!({"target":"/root/reused","message":"new work"}), None);
+        parent.steps[0].tools[0].name = "followup_task".into();
+        let followup = extract_dispatches(&parent, &[], "trace").pop().unwrap();
+        assert_eq!(followup.dispatch_kind.as_deref(), Some("followup"));
+        assert_eq!(followup.agent_path.as_deref(), Some("/root/reused"));
+        assert_eq!(followup.work_fingerprint.as_ref().unwrap().len(), 64);
+        parent.steps[0].tools[0].name = "send_input".into();
+        parent.steps[0].tools[0].input = Some(json!({"id":"reused","message":"next work"}));
+        let input = extract_dispatches(&parent, &[], "trace").pop().unwrap();
+        assert_eq!(input.dispatch_kind.as_deref(), Some("input"));
+        assert_eq!(input.child_thread_id.as_deref(), Some("reused"));
+        for flag in ["cancel", "notification", "notify_only", "notification_only"] {
+            let mut args = json!({"id":"reused","message":"notice"});
+            args[flag] = json!(true);
+            parent.steps[0].tools[0].input = Some(args);
+            assert!(
+                extract_dispatches(&parent, &[], "trace").is_empty(),
+                "{flag}"
+            );
+        }
+        for name in ["wait", "send_message", "send_message_to_thread"] {
+            parent.steps[0].tools[0].name = name.into();
+            parent.steps[0].tools[0].input = Some(json!({"id":"reused","message":"notice"}));
+            assert!(
+                extract_dispatches(&parent, &[], "trace").is_empty(),
+                "{name}"
+            );
+        }
+        parent.steps[0].tools[0].name = "followup_task".into();
+        parent.steps[0].tools[0].input = Some(json!({"target":"/root/reused"}));
+        assert!(extract_dispatches(&parent, &[], "trace").is_empty());
+        parent.steps[0].tools[0].call_id = "new-call".into();
+        parent.steps[0].tools[0].input =
+            Some(json!({"target":"/root/reused","message":"new work"}));
+        assert_ne!(
+            extract_dispatches(&parent, &[], "trace")[0].invocation_id,
+            followup.invocation_id
+        );
+    }
+    #[test]
+    fn reused_plain_work_binds_by_received_input_and_continues_without_new_input_after_restore() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut first = spawn("first", "first work");
+        first.dispatch_kind = Some("spawn".into());
+        linker.register_spawns(&[first, spawn("second", "second work")]);
+        let original = linker
+            .resolve_work(
+                &meta(),
+                &turn("first-turn"),
+                &[plain_work("first-turn", "first work")],
+                false,
+            )
+            .unwrap();
+        assert_eq!(original.parent_tool_call_id.as_deref(), Some("first"));
+        let second = linker
+            .resolve_work(
+                &meta(),
+                &turn("second-turn"),
+                &[plain_work("second-turn", "second work")],
+                false,
+            )
+            .unwrap();
+        assert_eq!(second.parent_tool_call_id.as_deref(), Some("second"));
+        assert_ne!(original.invocation_id, second.invocation_id);
+        let mut bare = turn("bare");
+        bare.prompt = Some("first work".into());
+        assert!(linker.resolve_work(&meta(), &bare, &[], false).is_none());
+        // One uniquely established invocation can continue on its next native
+        // turn; two prior works in the same session cannot establish that.
+        let mut single = CodexSubagentLinker::new();
+        single.register_spawns(&[spawn("only", "work")]);
+        let owned = single
+            .resolve_work(
+                &meta(),
+                &turn("owned"),
+                &[plain_work("owned", "work")],
+                false,
+            )
+            .unwrap();
+        let mut restored = CodexSubagentLinker::new();
+        restored.restore(&single.serialize());
+        restored.restore(&Value::Null);
+        assert_eq!(
+            restored.resolve_work(&meta(), &turn("owned"), &[], false),
+            Some(owned.clone())
+        );
+        let continuation = restored
+            .resolve_work(&meta(), &turn("continuation"), &[], false)
+            .unwrap();
+        assert_eq!(continuation.invocation_id, owned.invocation_id);
+        assert_eq!(continuation.parent_tool_call_id, owned.parent_tool_call_id);
+        assert!(linker
+            .resolve_work(&meta(), &turn("ambiguous-continuation"), &[], false)
+            .is_none());
+    }
+    #[test]
+    fn explicit_child_turn_evidence_selects_unique_work_without_guessing_from_bare_prompt() {
+        let mut linker = CodexSubagentLinker::new();
+        let first = spawn("first", "same");
+        let mut second = spawn("second", "same");
+        second.child_turn_id = Some("explicit".into());
+        linker.register_spawns(&[first, second]);
+        let mut bare = turn("bare");
+        bare.prompt = Some("same".into());
+        assert!(linker.resolve_work(&meta(), &bare, &[], false).is_none());
+        let mut explicit = turn("explicit");
+        explicit.prompt = Some("same".into());
+        assert_eq!(
+            linker
+                .resolve_work(&meta(), &explicit, &[], false)
+                .unwrap()
+                .parent_tool_call_id
+                .as_deref(),
+            Some("second")
+        );
+    }
+    #[test]
+    fn simultaneous_new_task_and_opaque_final_answer_share_one_native_work_fingerprint() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[spawn("incoming", "opaque-incoming")]);
+        let work = encrypted("owned", "opaque-incoming", false);
+        let result = encrypted("owned", "different-result", true);
+        assert!(is_codex_work_input(&work, "owned"));
+        assert!(!is_codex_work_input(&result, "owned"));
+        assert_eq!(
+            linker
+                .resolve_work(&meta(), &turn("owned"), &[work, result], false)
+                .unwrap()
+                .parent_tool_call_id
+                .as_deref(),
+            Some("incoming")
+        );
+        let state = linker.serialize();
+        assert_eq!(state["spawns"].as_array().unwrap().len(), 1);
+        assert_eq!(state["bindings"].as_array().unwrap().len(), 1);
+    }
+    #[test]
+    fn injected_context_is_distinct_from_work_but_unclosed_mixed_and_unwrapped_user_text_are_not() {
+        for header in [
+            "# AGENTS.md instructions for /workspace",
+            "# AGENTS.md instructions",
+        ] {
+            let mut linker = CodexSubagentLinker::new();
+            linker.register_spawns(&[spawn("isolated", "opaque-work")]);
+            let injected = |turn: &str| {
+                source(json!({"type":"message","role":"user",
+                "internal_chat_message_metadata_passthrough":{"turn_id":turn},
+                "content":[{"type":"input_text","text":format!("{header}\n<INSTRUCTIONS>\nFollow conventions.\n</INSTRUCTIONS>")},
+                    {"type":"input_text","text":"<environment_context>\n<cwd>/workspace</cwd>\n</environment_context>"}]}))
+            };
+            assert_eq!(
+                linker
+                    .resolve_work(
+                        &meta(),
+                        &turn("initial"),
+                        &[
+                            injected("initial"),
+                            encrypted("initial", "opaque-work", false)
+                        ],
+                        false
+                    )
+                    .unwrap()
+                    .parent_tool_call_id
+                    .as_deref(),
+                Some("isolated")
+            );
+            let direct = source(
+                json!({"type":"message","role":"user","content":[{"type":"input_text","text":"opaque-work"}]}),
+            );
+            assert!(linker
+                .resolve_work(&meta(), &turn("direct"), &[direct], false)
+                .is_none());
+            let mut unclosed = injected("unclosed");
+            unclosed.record.get_mut("payload").unwrap()["content"][0]["text"] =
+                json!(format!("{header}\n<INSTRUCTIONS>not closed"));
+            assert!(linker
+                .resolve_work(
+                    &meta(),
+                    &turn("unclosed"),
+                    &[unclosed, encrypted("unclosed", "opaque-work", false)],
+                    false
+                )
+                .is_none());
+            let mut mixed = injected("mixed");
+            mixed.record.get_mut("payload").unwrap()["content"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"type":"input_text","text":"opaque-work"}));
+            assert!(linker
+                .resolve_work(
+                    &meta(),
+                    &turn("mixed"),
+                    &[mixed, encrypted("mixed", "opaque-work", false)],
+                    true
+                )
+                .is_none());
+            let unwrapped = source(
+                json!({"type":"message","role":"user","content":[{"type":"input_text","text":format!("{header}\nopaque-work")}]}),
+            );
+            assert!(linker
+                .resolve_work(
+                    &meta(),
+                    &turn("unwrapped"),
+                    &[unwrapped, encrypted("unwrapped", "opaque-work", false)],
+                    false
+                )
+                .is_none());
+        }
+    }
+    #[test]
+    fn batch_activity_correlates_by_child_identity_when_native_records_arrive_out_of_order() {
+        let parent = parent_tool(
+            json!({"agents":[{"message":"work A"},{"message":"work B"}]}),
+            Some(json!({"agents":[{"agent_id":"A"},{"agent_id":"B"}]})),
+        );
+        let descriptors = extract_dispatches(
+            &parent,
+            &[
+                started_activity("B", Some("Bt")),
+                started_activity("A", Some("At")),
+            ],
+            "trace",
+        );
+        assert_eq!(
+            descriptors
+                .iter()
+                .map(|d| (
+                    d.work_index,
+                    d.child_thread_id.as_deref(),
+                    d.child_turn_id.as_deref()
+                ))
+                .collect::<Vec<_>>(),
+            [(0, Some("A"), Some("At")), (1, Some("B"), Some("Bt"))]
+        );
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&descriptors);
+        let meta = child_meta("A", 30.0, None);
+        let mut owned = turn("At");
+        owned.session_id = "A".into();
+        owned.prompt = Some("work A".into());
+        assert_eq!(
+            linker
+                .resolve_work(&meta, &owned, &[], false)
+                .unwrap()
+                .invocation_id,
+            descriptors[0].invocation_id
+        );
+    }
+    #[test]
+    fn uncorrelated_batch_activity_does_not_guess_and_contradictory_single_child_is_rejected() {
+        let parent = parent_tool(
+            json!({"agents":[{"message":"work A"},{"message":"work B"}]}),
+            None,
+        );
+        let sources = [started_activity("B", None), started_activity("A", None)];
+        let descriptors = extract_dispatches(&parent, &sources, "trace");
+        assert_eq!(descriptors.len(), 2);
+        assert!(descriptors.iter().all(|d| d.child_thread_id.is_none()));
+        let parent = parent_tool(json!({"message":"work A"}), Some(json!({"agent_id":"A"})));
+        let conflicted = extract_dispatches(&parent, &sources[..1], "trace");
+        assert!(conflicted[0].association_conflict);
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&conflicted);
+        let meta = child_meta("A", 30.0, None);
+        let mut owned = turn("owned");
+        owned.session_id = "A".into();
+        assert!(linker.resolve_work(&meta, &owned, &[], true).is_none());
+    }
+
+    #[test]
+    fn parent_scoped_projection_enriches_only_unique_path_and_does_not_mutate_lineage() {
+        let mut linker = CodexSubagentLinker::new();
+        let named = creation("path", 1.0, Some("known"), None);
+        let mut other = creation("other", 1.0, None, Some("other-child"));
+        other.parent_thread_id = "other-parent".into();
+        linker.register_spawns(&[named, other]);
+        linker.register_child(&child_meta("known-child", 30.0, Some("/root/known")));
+        let mut projection = linker.get_delegations_for_parent("parent");
+        assert_eq!(projection.len(), 1);
+        assert_eq!(projection[0].parent_tool_call_id, "path");
+        assert_eq!(
+            projection[0].child_thread_id.as_deref(),
+            Some("known-child")
+        );
+        projection[0].child_thread_id = Some("caller-mutation".into());
+        assert_eq!(
+            linker.get_delegations_for_parent("parent")[0]
+                .child_thread_id
+                .as_deref(),
+            Some("known-child")
+        );
+        let stored = linker.serialize()["spawns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["parentToolCallId"] == "path")
+            .unwrap()
+            .clone();
+        assert!(stored["childThreadId"].is_null());
+        assert!(stored["resolvedChildThreadId"].is_null());
+        linker.register_child(&child_meta("duplicate-child", 31.0, Some("/root/known")));
+        assert!(linker.get_delegations_for_parent("parent")[0]
+            .child_thread_id
+            .is_none());
+    }
+    #[test]
+    fn repeated_creation_paths_do_not_infer_a_result_peer_from_one_observed_child() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[
+            creation("one", 1.0, Some("same"), None),
+            creation("two", 2.0, Some("/root/same"), None),
+        ]);
+        linker.register_child(&child_meta("only-child", 30.0, Some("/root/same")));
+        let projection = linker.get_delegations_for_parent("parent");
+        assert_eq!(projection.len(), 2);
+        assert!(projection.iter().all(|s| s.child_thread_id.is_none()));
+    }
+    #[test]
+    fn path_reuse_never_guesses_followup_or_input_peer_before_or_after_restore() {
+        for kind in ["followup", "input"] {
+            let mut linker = CodexSubagentLinker::new();
+            let old = creation("old-creation", 1.0, Some("same"), Some("old-child"));
+            let new = creation("new-creation", 2.0, Some("/root/same"), None);
+            let mut pending = creation("new-work", 3.0, None, None);
+            pending.agent_path = Some("/root/same".into());
+            pending.dispatch_kind = Some(kind.into());
+            let mut explicit = pending.clone();
+            explicit.parent_tool_call_id = "explicit-work".into();
+            explicit.child_thread_id = Some("new-child".into());
+            linker.register_spawns(&[old, new, pending, explicit]);
+            linker.register_child(&child_meta("old-child", 30.0, Some("/root/same")));
+            let saved = linker.serialize();
+            let mut restored = CodexSubagentLinker::new();
+            restored.restore(&saved);
+            for candidate in [&mut linker, &mut restored] {
+                let lookup = candidate.get_delegations_for_parent("parent");
+                let pending = lookup
+                    .iter()
+                    .find(|d| d.parent_tool_call_id == "new-work")
+                    .unwrap();
+                let invocation = pending.invocation_id.clone();
+                assert!(pending.child_thread_id.is_none(), "{kind}");
+                assert_eq!(
+                    lookup
+                        .iter()
+                        .find(|d| d.parent_tool_call_id == "explicit-work")
+                        .unwrap()
+                        .child_thread_id
+                        .as_deref(),
+                    Some("new-child")
+                );
+                candidate.register_child(&child_meta("new-child", 31.0, Some("/root/same")));
+                let lookup = candidate.get_delegations_for_parent("parent");
+                let pending = lookup
+                    .iter()
+                    .find(|d| d.parent_tool_call_id == "new-work")
+                    .unwrap();
+                assert_eq!(pending.invocation_id, invocation);
+                assert!(
+                    pending.child_thread_id.is_none(),
+                    "{kind} guessed after path reuse"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unique_path_followup_resolves_with_zero_or_one_creation_records() {
+        for creations in [0, 1] {
+            let mut linker = CodexSubagentLinker::new();
+            if creations == 1 {
+                linker.register_spawns(&[creation("creation", 1.0, Some("same"), None)]);
+            }
+            let mut descriptor = creation("work", 2.0, None, None);
+            descriptor.agent_path = Some("/root/same".into());
+            descriptor.dispatch_kind = Some("followup".into());
+            linker.register_spawns(&[descriptor]);
+            linker.register_child(&child_meta("known-child", 30.0, Some("/root/same")));
+            assert_eq!(
+                linker
+                    .get_delegations_for_parent("parent")
+                    .iter()
+                    .find(|d| d.parent_tool_call_id == "work")
+                    .unwrap()
+                    .child_thread_id
+                    .as_deref(),
+                Some("known-child"),
+                "{creations}"
+            );
+        }
+    }
+    #[test]
+    fn unrelated_global_state_does_not_affect_owned_work_and_peer_lookup() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[spawn("mine", "work")]);
+        for i in 0..50 {
+            let mut unrelated = creation(
+                &format!("other-call-{i}"),
+                1.0,
+                None,
+                Some(&format!("other-child-{i}")),
+            );
+            unrelated.parent_thread_id = format!("other-parent-{i}");
+            linker.register_spawns(&[unrelated]);
+        }
+        let projection = linker.get_delegations_for_parent("parent");
+        assert_eq!(projection.len(), 1);
+        assert_eq!(projection[0].parent_tool_call_id, "mine");
+        let work = linker
+            .resolve_work(
+                &meta(),
+                &turn("owned"),
+                &[plain_work("owned", "work")],
+                false,
+            )
+            .unwrap();
+        assert_eq!(work.parent_tool_call_id.as_deref(), Some("mine"));
+        // This verifies isolation, not the absence of global enumeration. The
+        // latter requires an index/counter implementation and remains pending.
+    }
+    #[test]
+    fn repeated_native_facts_and_restore_preserve_semantic_snapshots_until_new_evidence() {
+        let mut linker = CodexSubagentLinker::new();
+        let descriptor = creation("mine", 1.0, None, Some("child"));
+        let child = meta();
+        linker.register_spawns(std::slice::from_ref(&descriptor));
+        linker.register_child(&child);
+        let snapshot = linker.snapshot();
+        let state = linker.serialize();
+        linker.register_spawns(std::slice::from_ref(&descriptor));
+        linker.register_child(&child);
+        linker.restore(&state);
+        assert_eq!(linker.snapshot(), snapshot);
+        assert_eq!(linker.serialize(), state);
+        let mut changed = descriptor;
+        changed.child_turn_id = Some("new-evidence".into());
+        linker.register_spawns(&[changed]);
+        assert_ne!(linker.serialize(), state);
+        assert!(linker
+            .resolve_work(&child, &turn("new-evidence"), &[], false)
+            .is_some());
+        // Rust returns owned values. These assertions do not claim that JS
+        // reference-identity cache performance has been validated.
+    }
+    #[test]
+    fn restored_path_binding_survives_until_native_spawn_eviction_removes_its_peer() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = creation("path", 1.0, Some("restored"), None);
+        descriptor.work_fingerprint = Some(work_fingerprint("work"));
+        linker.register_spawns(&[descriptor]);
+        let child = child_meta("owned", 30.0, Some("/root/restored"));
+        let mut owned = turn("owned-turn");
+        owned.session_id = "owned".into();
+        owned.prompt = Some("work".into());
+        let first = linker
+            .resolve_work(&child, &owned, &[plain_work("owned-turn", "work")], false)
+            .unwrap();
+        let mut restored = CodexSubagentLinker::new();
+        restored.restore(&linker.serialize());
+        assert_eq!(
+            restored.get_delegations_for_parent("parent")[0]
+                .child_thread_id
+                .as_deref(),
+            Some("owned")
+        );
+        owned.prompt = None;
+        assert_eq!(
+            restored.resolve_work(&child, &owned, &[], false),
+            Some(first)
+        );
+        let fillers: Vec<_> = (0..MAX_LINK_DESCRIPTORS)
+            .map(|i| {
+                let mut filler = creation(
+                    &format!("fill-{i}"),
+                    1.0,
+                    None,
+                    Some(&format!("filler-{i}")),
+                );
+                filler.parent_thread_id = "filler".into();
+                filler
+            })
+            .collect();
+        restored.register_spawns(&fillers);
+        assert!(restored.get_delegations_for_parent("parent").is_empty());
+        assert!(restored
+            .resolve_work(&child, &owned, &[plain_work("owned-turn", "work")], false)
+            .is_none());
+    }
+    #[test]
+    fn resolved_path_work_preserves_native_confidence_when_later_creation_makes_path_ambiguous() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = creation("first", 1.0, Some("same"), None);
+        descriptor.work_fingerprint = Some(work_fingerprint("first work"));
+        linker.register_spawns(&[descriptor]);
+        let child = child_meta("child", 30.0, Some("/root/same"));
+        let initial = linker
+            .resolve_work(
+                &child,
+                &turn("owned"),
+                &[plain_work("owned", "first work")],
+                false,
+            )
+            .unwrap();
+        assert_eq!(initial.confidence, CodexSubagentLinkConfidence::AgentPath);
+        let stored = linker.serialize()["spawns"][0].clone();
+        assert_eq!(stored["resolvedChildThreadId"], "child");
+        assert!(stored["childThreadId"].is_null());
+        assert_eq!(
+            linker.get_delegations_for_parent("parent")[0]
+                .child_thread_id
+                .as_deref(),
+            Some("child")
+        );
+        assert_eq!(
+            linker.snapshot().links[0].confidence,
+            CodexSubagentLinkConfidence::AgentPath
+        );
+        let mut later = creation("second", 2.0, Some("same"), None);
+        later.work_fingerprint = Some(work_fingerprint("second work"));
+        linker.register_spawns(&[later]);
+        assert_eq!(
+            linker.snapshot().links[0].confidence,
+            CodexSubagentLinkConfidence::Orphan
+        );
+        assert_eq!(
+            linker.snapshot().links[0].orphan_reason,
+            Some(OrphanReason::AmbiguousAgentPath)
+        );
+        assert_eq!(
+            linker.resolve_work(&child, &turn("owned"), &[], false),
+            Some(initial)
+        );
+    }
+    #[test]
+    fn agent_id_result_peer_uses_its_exact_child_metadata_even_when_paths_are_duplicated() {
+        let parent = parent_tool(
+            json!({"message":"work","task_name":"relative-name"}),
+            Some(json!({"agent_id":"native-child","nickname":"Beta"})),
+        );
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&extract_dispatches(&parent, &[], "trace"));
+        let child = child_meta("native-child", 30.0, Some("/root/child"));
+        linker.register_child(&child);
+        linker.register_child(&child_meta("another-child", 31.0, Some("/root/child")));
+        let mut owned = turn("owned");
+        owned.session_id = "native-child".into();
+        let link = linker
+            .resolve_work(&child, &owned, &[plain_work("owned", "work")], false)
+            .unwrap();
+        linker.register_completed_work_result(
+            &link,
+            &owned,
+            &[completion("owned", Some("delivered"), false)],
+        );
+        let projection = linker.get_delegations_for_parent("parent").pop().unwrap();
+        assert_eq!(projection.child_thread_id.as_deref(), Some("native-child"));
+        assert_eq!(projection.agent_path.as_deref(), Some("/root/child"));
+        assert_eq!(projection.result_fingerprints, [digest("delivered", 64)]);
+        assert!(linker.serialize()["spawns"][0]["agentPath"].is_null());
+    }
+    #[test]
+    fn interrupted_initial_work_does_not_claim_exact_completed_followup_result() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut initial = spawn("initial", "task1");
+        initial.dispatch_kind = Some("spawn".into());
+        initial.child_turn_id = Some("initial-turn".into());
+        let mut followup = spawn("followup", "task2");
+        followup.child_turn_id = Some("followup-turn".into());
+        linker.register_spawns(&[initial, followup]);
+        let mut initial = turn("initial-turn");
+        initial.status = CodexTerminalStatus::Interrupted;
+        let first = linker.resolve_work(&meta(), &initial, &[], false).unwrap();
+        linker.register_completed_work_result(
+            &first,
+            &initial,
+            &[completion("initial-turn", None, true)],
+        );
+        let followup = turn("followup-turn");
+        let second = linker.resolve_work(&meta(), &followup, &[], false).unwrap();
+        linker.register_completed_work_result(
+            &second,
+            &followup,
+            &[completion(
+                "followup-turn",
+                Some("Exact delivered result\n"),
+                false,
+            )],
+        );
+        let projection = linker.get_delegations_for_parent("parent");
+        assert!(projection[0].result_fingerprints.is_empty());
+        assert!(projection[0].result_terminal_observed && projection[0].result_outcome_known);
+        assert_eq!(projection[0].result_child_turn_ids, ["initial-turn"]);
+        assert_eq!(
+            projection[1].result_fingerprints,
+            [digest("Exact delivered result\n", 64)]
+        );
+        assert!(projection[1].result_terminal_observed && projection[1].result_outcome_known);
+        assert_eq!(projection[1].result_child_turn_ids, ["followup-turn"]);
+        assert_ne!(
+            digest("Exact delivered result\n", 64),
+            digest("Exact delivered result", 64)
+        );
+        let terminals = linker.serialize()["workTerminals"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(terminals.len(), 2);
+        assert_eq!(terminals[0]["invocationId"], json!(first.invocation_id));
+        assert_eq!(terminals[0]["terminalType"], "interrupted");
+        assert_eq!(terminals[1]["invocationId"], json!(second.invocation_id));
+        assert_eq!(terminals[1]["terminalType"], "completed");
+    }
+    #[test]
+    fn real_completion_without_final_text_records_terminal_but_keeps_outcome_unknown() {
+        let mut linker = CodexSubagentLinker::new();
+        let mut descriptor = spawn("work", "task");
+        descriptor.child_turn_id = Some("actual".into());
+        linker.register_spawns(&[descriptor]);
+        let actual = turn("actual");
+        let link = linker.resolve_work(&meta(), &actual, &[], false).unwrap();
+        let before = linker.snapshot();
+        linker.register_completed_work_result(&link, &actual, &[completion("actual", None, false)]);
+        assert_eq!(linker.snapshot(), before);
+        let projection = linker.get_delegations_for_parent("parent").pop().unwrap();
+        assert!(projection.result_terminal_observed);
+        assert!(!projection.result_outcome_known);
+        assert_eq!(projection.result_child_turn_ids, ["actual"]);
+        assert!(projection.result_fingerprints.is_empty());
+        let state = linker.serialize();
+        assert!(state["completedWorkResults"].as_array().unwrap().is_empty());
+        assert_eq!(state["workTerminals"][0]["childTurnId"], "actual");
+        assert_eq!(state["workTerminals"][0]["terminalType"], "completed");
+    }
+    #[test]
+    fn time_tie_stays_ambiguous_after_unique_preceding_candidate_is_consumed() {
+        let mut linker = CodexSubagentLinker::new();
+        linker.register_spawns(&[
+            creation("old", 10.0, None, None),
+            creation("tie-a", 20.0, None, None),
+            creation("tie-b", 20.0, None, None),
+        ]);
+        linker.register_child(&child_meta("earlier", 15.0, None));
+        linker.register_child(&child_meta("tied", 25.0, None));
+        let links = linker.snapshot().links;
+        assert_eq!(links[0].child_thread_id, "earlier");
+        assert_eq!(links[0].parent_tool_call_id.as_deref(), Some("old"));
+        assert_eq!(links[0].confidence, CodexSubagentLinkConfidence::TimeOrder);
+        assert_eq!(links[1].child_thread_id, "tied");
+        assert_eq!(links[1].confidence, CodexSubagentLinkConfidence::Orphan);
+        assert_eq!(links[1].orphan_reason, Some(OrphanReason::NoCandidate));
+    }
 }

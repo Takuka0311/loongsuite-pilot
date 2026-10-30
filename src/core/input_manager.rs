@@ -883,3 +883,658 @@ mod tests {
         assert_eq!(manager.get_input_counters()["qoder"].out_events, 0);
     }
 }
+
+#[cfg(test)]
+mod migration_pipeline_tests {
+    use super::*;
+    use crate::flushers::{FlushError, MultiFlusher};
+    use crate::normalization::{
+        derive_agent_input_event_id, INVOCATION_SESSION_ID_FIELD, INVOCATION_USER_ID_FIELD,
+    };
+    use crate::types::{AgentEventName, GuardrailAction};
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
+    use tokio::sync::{Notify, Semaphore};
+
+    #[derive(Clone)]
+    pub(super) struct Batch {
+        entries: Vec<AgentActivityEntry>,
+        bytes: Option<Vec<f64>>,
+    }
+    pub(super) struct Sink {
+        batches: Mutex<Vec<Batch>>,
+        fail: AtomicBool,
+        gate: Option<Arc<Semaphore>>,
+        entered: Notify,
+    }
+    impl Sink {
+        pub(super) fn new() -> Arc<Self> {
+            Arc::new(Self {
+                batches: Mutex::new(Vec::new()),
+                fail: AtomicBool::new(false),
+                gate: None,
+                entered: Notify::new(),
+            })
+        }
+    }
+    #[async_trait]
+    impl BaseFlusher for Sink {
+        fn name(&self) -> &str {
+            "captured"
+        }
+        async fn send(
+            &self,
+            entry: AgentActivityEntry,
+            bytes: Option<f64>,
+        ) -> Result<(), FlushError> {
+            self.send_batch(vec![entry], bytes.map(|b| vec![b])).await
+        }
+        async fn send_batch(
+            &self,
+            entries: Vec<AgentActivityEntry>,
+            bytes: Option<Vec<f64>>,
+        ) -> Result<(), FlushError> {
+            self.entered.notify_one();
+            if let Some(gate) = &self.gate {
+                gate.acquire().await.unwrap().forget();
+            }
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(FlushError::new("synthetic rejection"));
+            }
+            self.batches.lock().unwrap().push(Batch { entries, bytes });
+            Ok(())
+        }
+        async fn flush(&self) -> Result<(), FlushError> {
+            Ok(())
+        }
+        async fn shutdown(&self) -> Result<(), FlushError> {
+            Ok(())
+        }
+    }
+    pub(super) struct Control {
+        running: AtomicBool,
+        starts: AtomicUsize,
+        stops: AtomicUsize,
+    }
+    pub(super) fn register(manager: &InputManager, id: &str, agent: &str) -> Arc<Control> {
+        let state = Arc::new(Control {
+            running: AtomicBool::new(false),
+            starts: AtomicUsize::new(0),
+            stops: AtomicUsize::new(0),
+        });
+        let (running, start, stop) = (state.clone(), state.clone(), state.clone());
+        manager.register_input(LiveInput::new(
+            id,
+            agent,
+            "hook-jsonl",
+            move || running.running.load(Ordering::SeqCst),
+            move || {
+                let state = start.clone();
+                Box::pin(async move {
+                    state.starts.fetch_add(1, Ordering::SeqCst);
+                    state.running.store(true, Ordering::SeqCst);
+                    Ok(())
+                })
+            },
+            move || {
+                let state = stop.clone();
+                Box::pin(async move {
+                    state.stops.fetch_add(1, Ordering::SeqCst);
+                    state.running.store(false, Ordering::SeqCst);
+                })
+            },
+        ));
+        state
+    }
+    pub(super) fn entry(id: &str, event: AgentEventName) -> AgentActivityEntry {
+        AgentActivityEntry {
+            time_unix_nano: "1700000000000000000".into(),
+            event_id: id.into(),
+            event_name: Some(event),
+            agent_type: "cursor".into(),
+            session_id: "native-session".into(),
+            turn_id: Some("turn".into()),
+            step_id: Some("step".into()),
+            ..AgentActivityEntry::default()
+        }
+    }
+    pub(super) fn all_mask() -> MaskConfig {
+        MaskConfig {
+            mode: MaskMode::All,
+            types: Vec::new(),
+            replacement_mode: Some(MaskReplacementMode::Placeholder),
+        }
+    }
+    pub(super) fn flattened(sink: &Sink) -> Vec<AgentActivityEntry> {
+        sink.batches
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|b| b.entries.clone())
+            .collect()
+    }
+
+    #[test]
+    fn raw_runtime_counters_sum_independently_and_reset_only_window_maxima() {
+        let manager = InputManager::new();
+        register(&manager, "raw", "qoder");
+        for delta in [
+            InputRuntimeDelta {
+                source_kind: "primary",
+                raw_read_calls: 2,
+                raw_read_bytes: 180,
+                raw_in_records: 3,
+                raw_in_bytes: 120,
+                raw_in_max_batch_bytes: 80,
+                raw_in_max_record_bytes: 50,
+                raw_backlog_bytes_max: 120,
+                parse_success_records: 2,
+                parse_failed_records: 1,
+                read_duration_ms: 1.5,
+                process_duration_ms: 2.5,
+            },
+            InputRuntimeDelta {
+                source_kind: "primary",
+                raw_read_calls: 1,
+                raw_read_bytes: 40,
+                raw_in_records: 2,
+                raw_in_bytes: 40,
+                raw_in_max_batch_bytes: 40,
+                raw_in_max_record_bytes: 20,
+                raw_backlog_bytes_max: 40,
+                parse_success_records: 2,
+                parse_failed_records: 0,
+                read_duration_ms: 0.5,
+                process_duration_ms: 1.5,
+            },
+        ] {
+            manager.record_runtime_delta("raw", &delta);
+        }
+        let counter = manager.get_input_counters()["raw"].clone();
+        assert_eq!(
+            (
+                counter.raw_read_calls,
+                counter.raw_read_bytes,
+                counter.raw_in_records,
+                counter.raw_in_bytes
+            ),
+            (3, 220, 5, 160)
+        );
+        assert_eq!(
+            (
+                counter.raw_in_max_batch_bytes,
+                counter.raw_in_max_record_bytes,
+                counter.raw_backlog_bytes_max
+            ),
+            (80, 50, 120)
+        );
+        assert_eq!(
+            (counter.parse_success_records, counter.parse_failed_records),
+            (4, 1)
+        );
+        assert_eq!(
+            (counter.read_duration_ms, counter.process_duration_ms),
+            (2.0, 4.0)
+        );
+        assert_eq!((counter.in_events, counter.in_bytes), (0, 0));
+        let first = manager.take_input_counter_snapshot();
+        let second = manager.take_input_counter_snapshot();
+        assert_eq!(
+            (
+                first["raw"].raw_in_max_batch_bytes,
+                first["raw"].raw_backlog_bytes_max
+            ),
+            (80, 120)
+        );
+        assert_eq!(
+            (
+                second["raw"].raw_in_max_batch_bytes,
+                second["raw"].raw_in_max_record_bytes,
+                second["raw"].raw_backlog_bytes_max
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(second["raw"].raw_in_bytes, 160);
+        assert_eq!(counter.collection_method, "hook-jsonl");
+        assert_eq!(counter.agent_type, "qoder");
+    }
+
+    #[tokio::test]
+    async fn identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides() {
+        for (native, configured, fallback, expected) in [
+            ("", "", "fallback", "fallback"),
+            ("native", "", "fallback", "native"),
+            ("", "configured", "fallback", "configured"),
+            ("native", "configured", "fallback", "configured"),
+        ] {
+            let manager = InputManager::new();
+            register(&manager, "identity", "cursor");
+            let sink = Sink::new();
+            manager.set_flusher(sink.clone());
+            manager.set_user_id(fallback);
+            manager.set_configured_user_id(configured);
+            let mut record = entry("identity", AgentEventName::Other);
+            record.user_id = native.into();
+            manager
+                .accept_entries("identity", vec![record])
+                .await
+                .unwrap();
+            let received = flattened(&sink);
+            assert_eq!(received.len(), 1);
+            assert_eq!(received[0].user_id, expected);
+            assert!(
+                serde_json::to_value(&received[0]).unwrap()["attributes"]["identity"].is_null()
+            );
+        }
+        let manager = InputManager::new();
+        register(&manager, "identity", "cursor");
+        let sink = Sink::new();
+        manager.set_flusher(sink.clone());
+        manager.set_user_id("fallback");
+        manager.set_configured_user_id("configured");
+        let mut record = entry("override", AgentEventName::Other);
+        record.user_id = "native".into();
+        record.extra.insert(
+            INVOCATION_SESSION_ID_FIELD.into(),
+            json!("customer-session"),
+        );
+        record
+            .extra
+            .insert(INVOCATION_USER_ID_FIELD.into(), json!("customer-user"));
+        manager
+            .accept_entries("identity", vec![record])
+            .await
+            .unwrap();
+        let received = flattened(&sink);
+        assert_eq!(received[0].session_id, "customer-session");
+        assert_eq!(received[0].user_id, "customer-user");
+        assert!(!received[0].extra.contains_key(INVOCATION_SESSION_ID_FIELD));
+        assert!(!received[0].extra.contains_key(INVOCATION_USER_ID_FIELD));
+    }
+
+    #[tokio::test]
+    async fn queued_batches_stay_ordered_and_shutdown_waits_for_non_codex_acceptance() {
+        let manager = Arc::new(InputManager::new());
+        let control = register(&manager, "ordered", "cursor");
+        let gate = Arc::new(Semaphore::new(0));
+        let sink = Arc::new(Sink {
+            batches: Mutex::new(Vec::new()),
+            fail: AtomicBool::new(false),
+            gate: Some(gate.clone()),
+            entered: Notify::new(),
+        });
+        manager.set_flusher(sink.clone());
+        manager.start_input("ordered").await;
+        manager.bind_entries("ordered", vec![entry("first", AgentEventName::Other)]);
+        tokio::time::timeout(Duration::from_secs(1), sink.entered.notified())
+            .await
+            .unwrap();
+        manager.bind_entries("ordered", vec![entry("second", AgentEventName::Other)]);
+        let stopping = {
+            let manager = manager.clone();
+            tokio::spawn(async move { manager.stop_all().await })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!stopping.is_finished());
+        assert_eq!(control.stops.load(Ordering::SeqCst), 1);
+        gate.add_permits(2);
+        tokio::time::timeout(Duration::from_secs(1), stopping)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            flattened(&sink)
+                .iter()
+                .map(|e| e.event_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second"]
+        );
+        assert_eq!(sink.batches.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn whole_batch_privacy_preflight_precedes_identity_and_fanout() {
+        let directory = tempfile::tempdir().unwrap();
+        let private = directory.path().join("private");
+        let manager = InputManager::new();
+        register(&manager, "privacy", "cursor");
+        manager.set_workspace_policy(
+            WorkspacePolicy::new(&[private.to_string_lossy().into_owned()], None).unwrap(),
+        );
+        let sinks = [Sink::new(), Sink::new(), Sink::new()];
+        manager.set_flusher(Arc::new(MultiFlusher::new(
+            sinks
+                .iter()
+                .map(|s| s.clone() as Arc<dyn BaseFlusher>)
+                .collect(),
+        )));
+        let mut early = entry("early-private", AgentEventName::Other);
+        early.session_id = "denied".into();
+        early
+            .extra
+            .insert(INVOCATION_SESSION_ID_FIELD.into(), json!("customer"));
+        let mut denied = early.clone();
+        denied.event_id = "late-private".into();
+        denied
+            .extra
+            .insert("workspace.path".into(), json!(private.join("app")));
+        let mut public = entry("public", AgentEventName::Other);
+        public.session_id = "allowed".into();
+        public
+            .extra
+            .insert(INVOCATION_SESSION_ID_FIELD.into(), json!("customer"));
+        manager
+            .accept_entries("privacy", vec![early, public, denied])
+            .await
+            .unwrap();
+        for sink in sinks {
+            let rows = flattened(&sink);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].event_id, "public");
+            assert_eq!(rows[0].session_id, "customer");
+        }
+    }
+
+    #[tokio::test]
+    async fn dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes(
+    ) {
+        let manager = InputManager::new();
+        register(&manager, "dual", "cursor");
+        manager.set_mask_config(all_mask());
+        let agents: AgentsConfig =
+            serde_json::from_value(json!({"cursor":{"captureMessageContent":false}})).unwrap();
+        manager.set_agents_config(&agents);
+        let sinks = [Sink::new(), Sink::new(), Sink::new()];
+        manager.set_flusher(Arc::new(MultiFlusher::new(
+            sinks
+                .iter()
+                .map(|s| s.clone() as Arc<dyn BaseFlusher>)
+                .collect(),
+        )));
+        let flushed = Arc::new(Mutex::new(Vec::new()));
+        let slot = flushed.clone();
+        manager.on_flushed(move |count, bytes| slot.lock().unwrap().push((count, bytes)));
+        let key = format!("AKIA{}", "IOSFODNN7EXAMPLE");
+        let mut source = entry("input-other", AgentEventName::Other);
+        source.input_messages_delta = Some(json!([{"role":"user","content":format!("use {key}")}]));
+        let original = source.clone();
+        manager.accept_entries("dual", vec![source]).await.unwrap();
+        let expected_ids = vec![
+            "input-other".to_owned(),
+            derive_agent_input_event_id("input-other"),
+        ];
+        let mut baseline = None;
+        for sink in sinks {
+            let batches = sink.batches.lock().unwrap();
+            assert_eq!(batches.len(), 1);
+            let batch = &batches[0];
+            assert_eq!(
+                batch
+                    .entries
+                    .iter()
+                    .map(|e| e.event_id.clone())
+                    .collect::<Vec<_>>(),
+                expected_ids
+            );
+            assert_eq!(batch.entries[0].event_name, Some(AgentEventName::Other));
+            assert_eq!(
+                batch.entries[1].event_name,
+                Some(AgentEventName::AgentInput)
+            );
+            assert_eq!(batch.entries[0].turn_start, Some(true));
+            assert_eq!(batch.entries[1].turn_start, None);
+            assert_eq!(batch.entries[1].turn_end, None);
+            let encoded = serde_json::to_string(&batch.entries).unwrap();
+            assert!(encoded.contains("[ACCESSKEY_MASKED]"));
+            assert!(!encoded.contains(&key));
+            let mut comparable: Vec<_> = batch
+                .entries
+                .iter()
+                .map(|e| serde_json::to_value(e).unwrap())
+                .collect();
+            for value in &mut comparable {
+                for field in [
+                    "event.id",
+                    "event.name",
+                    "gen_ai.turn.start",
+                    "gen_ai.turn.end",
+                ] {
+                    value.as_object_mut().unwrap().remove(field);
+                }
+            }
+            assert_eq!(comparable[0], comparable[1]);
+            let expected_sizes: Vec<_> = batch
+                .entries
+                .iter()
+                .map(|e| serde_json::to_vec(e).unwrap().len() as f64)
+                .collect();
+            assert_eq!(batch.bytes.as_ref().unwrap(), &expected_sizes);
+            if let Some(expected) = &baseline {
+                assert_eq!(&encoded, expected);
+            } else {
+                baseline = Some(encoded);
+            }
+        }
+        assert_eq!(original.event_name, Some(AgentEventName::Other));
+        assert_eq!(original.event_id, "input-other");
+        assert!(serde_json::to_string(&original).unwrap().contains(&key));
+        let counters = manager.get_input_counters();
+        assert_eq!(
+            (
+                counters["dual"].in_events,
+                counters["dual"].out_events,
+                counters["dual"].out_failed
+            ),
+            (1, 2, 0)
+        );
+        let first = sink_from_encoded(baseline.as_ref().unwrap());
+        let bytes = first
+            .iter()
+            .map(|e| serde_json::to_vec(e).unwrap().len() as u64)
+            .sum::<u64>();
+        assert_eq!(*flushed.lock().unwrap(), vec![(2, bytes)]);
+    }
+    fn sink_from_encoded(text: &str) -> Vec<AgentActivityEntry> {
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[tokio::test]
+    async fn non_input_metadata_is_not_copied_and_failed_expanded_batch_counts_both_records() {
+        let manager = InputManager::new();
+        register(&manager, "metadata", "cursor");
+        let sink = Sink::new();
+        manager.set_flusher(sink.clone());
+        manager
+            .accept_entries("metadata", vec![entry("metadata", AgentEventName::Other)])
+            .await
+            .unwrap();
+        assert_eq!(flattened(&sink).len(), 1);
+        assert_eq!(flattened(&sink)[0].event_id, "metadata");
+        let manager = InputManager::new();
+        register(&manager, "failure", "cursor");
+        let sink = Sink::new();
+        sink.fail.store(true, Ordering::SeqCst);
+        manager.set_flusher(sink.clone());
+        let mut source = entry("failure", AgentEventName::Other);
+        source.input_messages_delta = Some(json!([{"role":"user","content":"hello"}]));
+        assert!(manager
+            .accept_entries("failure", vec![source])
+            .await
+            .is_err());
+        let counter = &manager.get_input_counters()["failure"];
+        assert_eq!(
+            (counter.in_events, counter.out_events, counter.out_failed),
+            (1, 0, 2)
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_verdicts_join_native_identity_before_invocation_rewrite() {
+        use crate::interceptor::{
+            ToolInterceptPhase, ToolVerdictAction, ToolVerdictKey, ToolVerdictStore,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(ToolVerdictStore::new(
+            directory.path().join("verdicts.json"),
+        ));
+        for (phase, action) in [
+            (ToolInterceptPhase::PreToolUse, ToolVerdictAction::Allow),
+            (ToolInterceptPhase::PostToolUse, ToolVerdictAction::Block),
+        ] {
+            store.put(
+                &ToolVerdictKey {
+                    session_id: Some("native-session".into()),
+                    tool_use_id: "call-1".into(),
+                    phase,
+                },
+                action,
+                chrono::Utc::now().timestamp_millis(),
+            );
+        }
+        let manager = InputManager::new();
+        register(&manager, "tools", "qoder");
+        manager.set_intercept_result_linker(Arc::new(InterceptResultLinker::new(store, true)));
+        manager.set_configured_user_id("installer");
+        let sink = Sink::new();
+        manager.set_flusher(sink.clone());
+        let mut entries = vec![
+            entry("call", AgentEventName::ToolCall),
+            entry("result", AgentEventName::ToolResult),
+            entry("missing", AgentEventName::ToolCall),
+        ];
+        for (index, entry) in entries.iter_mut().enumerate() {
+            entry.agent_type = "qoder".into();
+            entry
+                .extra
+                .insert(INVOCATION_SESSION_ID_FIELD.into(), json!("customer"));
+            if index < 2 {
+                entry.tool_call_id = Some("call-1".into());
+            }
+        }
+        manager.accept_entries("tools", entries).await.unwrap();
+        let rows = flattened(&sink);
+        assert_eq!(rows[0].guardrail_action, Some(GuardrailAction::Allow));
+        assert_eq!(rows[0].guardrail_triggered, Some(true));
+        assert_eq!(rows[1].guardrail_action, Some(GuardrailAction::Block));
+        assert_eq!(rows[1].guardrail_triggered, Some(true));
+        assert_eq!(rows[2].guardrail_action, None);
+        assert_eq!(rows[2].guardrail_triggered, None);
+        assert!(rows
+            .iter()
+            .all(|e| e.session_id == "customer" && e.user_id == "installer"));
+    }
+
+    #[tokio::test]
+    async fn lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input() {
+        let manager = InputManager::new();
+        let first = register(&manager, "first", "cursor");
+        let second = register(&manager, "second", "qoder");
+        manager.start_input("unknown").await;
+        manager.stop_input("unknown").await;
+        assert_eq!(
+            (
+                first.starts.load(Ordering::SeqCst),
+                first.stops.load(Ordering::SeqCst)
+            ),
+            (0, 0)
+        );
+        manager.start_input("first").await;
+        manager.start_input("second").await;
+        assert_eq!(
+            (
+                first.starts.load(Ordering::SeqCst),
+                second.starts.load(Ordering::SeqCst)
+            ),
+            (1, 1)
+        );
+        manager.stop_input("first").await;
+        assert_eq!(first.stops.load(Ordering::SeqCst), 1);
+        manager.stop_all().await;
+        assert_eq!(first.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(second.stops.load(Ordering::SeqCst), 1);
+        assert!(manager.get_active_input_ids().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod migration_content_mask_tests {
+    use super::migration_pipeline_tests::{all_mask, entry, flattened, register, Sink};
+    use super::*;
+    use crate::flushers::MultiFlusher;
+    use crate::types::AgentEventName;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn legacy_and_canonical_content_masking_preserves_non_content_fields_across_every_sink() {
+        let key = format!("AKIA{}", "IOSFODNN7EXAMPLE");
+        let api = format!("sk-{}", "1234567890abcdefghijklmnop");
+        let phone = "13800138000";
+        for variant in ["native-input", "legacy-input", "native-output"] {
+            let manager = InputManager::new();
+            register(&manager, "mask", "cursor");
+            manager.set_mask_config(all_mask());
+            let agents: AgentsConfig =
+                serde_json::from_value(json!({"cursor":{"captureMessageContent":false}})).unwrap();
+            manager.set_agents_config(&agents);
+            let sinks = [Sink::new(), Sink::new(), Sink::new()];
+            manager.set_flusher(Arc::new(MultiFlusher::new(
+                sinks
+                    .iter()
+                    .map(|s| s.clone() as Arc<dyn BaseFlusher>)
+                    .collect(),
+            )));
+            let mut source = entry(variant, AgentEventName::Other);
+            match variant {
+                "native-input" => {
+                    source.input_messages =
+                        Some(json!([{"role":"user","content":format!("use {key}")}]));
+                    source.extra.insert(
+                        "workspace.current_root".into(),
+                        json!(format!("/tmp/{key}")),
+                    );
+                }
+                "legacy-input" => {
+                    source.extra.insert(
+                        "input.messages".into(),
+                        json!([{"role":"user","content":api}]),
+                    );
+                }
+                _ => {
+                    source.output_messages = Some(
+                        json!([{"role":"assistant","content":format!("apiKey={api} phone={phone}")}]),
+                    );
+                }
+            }
+            manager.accept_entries("mask", vec![source]).await.unwrap();
+            for sink in sinks {
+                let rows = flattened(&sink);
+                let row = serde_json::to_value(&rows[0]).unwrap();
+                match variant {
+                    "native-input" => {
+                        assert_eq!(
+                            row["gen_ai.input.messages"],
+                            json!([{"role":"user","content":"use [ACCESSKEY_MASKED]"}])
+                        );
+                        assert_eq!(row["workspace.current_root"], format!("/tmp/{key}"));
+                    }
+                    "legacy-input" => {
+                        assert_eq!(
+                            row["input.messages"],
+                            json!([{"role":"user","content":"[APIKEY_MASKED]"}])
+                        );
+                        assert!(!row.to_string().contains(&api));
+                    }
+                    _ => {
+                        let text = row.to_string();
+                        assert!(text.contains("[APIKEY_MASKED]"));
+                        assert!(text.contains("[PHONE_MASKED]"));
+                        assert!(!text.contains(&api));
+                        assert!(!text.contains(phone));
+                    }
+                }
+            }
+        }
+    }
+}

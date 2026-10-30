@@ -120,3 +120,89 @@ mod tests {
         assert_eq!(again.get_mode("qoder"), AgentControlMode::Off);
     }
 }
+
+#[cfg(test)]
+mod migration_contract_tests {
+    use super::*;
+
+    #[test]
+    fn forced_on_overrides_both_auto_defaults() {
+        let mut manager = AgentControlManager::new(None);
+        manager.set_mode("agent-x", AgentControlMode::On);
+        for default in [false, true] {
+            assert!(manager.resolve_enabled("agent-x", default));
+        }
+    }
+    #[test]
+    fn forced_off_overrides_both_auto_defaults() {
+        let mut manager = AgentControlManager::new(None);
+        manager.set_mode("agent-x", AgentControlMode::Off);
+        for default in [false, true] {
+            assert!(!manager.resolve_enabled("agent-x", default));
+        }
+    }
+    #[test]
+    fn explicit_auto_uses_both_defaults() {
+        let mut manager = AgentControlManager::new(None);
+        manager.set_mode("agent-x", AgentControlMode::Auto);
+        for default in [false, true] {
+            assert_eq!(manager.resolve_enabled("agent-x", default), default);
+        }
+    }
+    #[test]
+    fn unset_agent_uses_both_defaults() {
+        let manager = AgentControlManager::new(None);
+        for default in [false, true] {
+            assert_eq!(manager.resolve_enabled("unknown", default), default);
+        }
+    }
+    #[test]
+    fn unset_mode_is_auto() {
+        assert_eq!(
+            AgentControlManager::new(None).get_mode("unknown"),
+            AgentControlMode::Auto
+        );
+    }
+    #[test]
+    fn mode_snapshot_contains_every_configured_mode() {
+        let mut manager = AgentControlManager::new(None);
+        manager.set_mode("a", AgentControlMode::On);
+        manager.set_mode("b", AgentControlMode::Off);
+        let modes = manager.get_all_modes();
+        assert_eq!(modes.len(), 2);
+        assert_eq!(modes["a"], AgentControlMode::On);
+        assert_eq!(modes["b"], AgentControlMode::Off);
+    }
+    #[tokio::test]
+    async fn persistence_restores_both_modes_and_their_resolution() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join("agent-control.json")
+            .to_string_lossy()
+            .into_owned();
+        let mut manager = AgentControlManager::new(Some(path.clone()));
+        manager.load().await;
+        manager.set_mode("a", AgentControlMode::On);
+        manager.set_mode("b", AgentControlMode::Off);
+        manager.save().await.unwrap();
+        let mut restored = AgentControlManager::new(Some(path));
+        restored.load().await;
+        assert_eq!(restored.get_mode("a"), AgentControlMode::On);
+        assert_eq!(restored.get_mode("b"), AgentControlMode::Off);
+        assert!(restored.resolve_enabled("a", false));
+        assert!(!restored.resolve_enabled("b", true));
+    }
+    #[tokio::test]
+    async fn missing_control_file_loads_an_empty_mode_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = AgentControlManager::new(Some(
+            root.path()
+                .join("missing.json")
+                .to_string_lossy()
+                .into_owned(),
+        ));
+        manager.load().await;
+        assert!(manager.get_all_modes().is_empty());
+    }
+}

@@ -2303,3 +2303,436 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod privacy_migration_contract_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn malformed_workspace_privacy_config_is_rejected_instead_of_disabling_exclusions() {
+        let env = HashMap::new();
+        let sources = ConfigSources {
+            env: &env,
+            platform: Platform::current(),
+            hostname: "synthetic",
+            config_path: "not-read.json",
+            global_poll_ms: None,
+        };
+        for invalid in [
+            json!("private"),
+            json!([null]),
+            json!([12]),
+            json!(true),
+            json!({"path":"private"}),
+            json!(["relative"]),
+        ] {
+            let file = json!({"privacy":{"excludeWorkspaces":invalid}});
+            assert!(
+                assemble_config(Some(&file), None, &sources).is_err(),
+                "malformed exclusion list silently disabled filtering"
+            );
+        }
+        for file in [
+            json!({}),
+            json!({"privacy":{}}),
+            json!({"privacy":{"excludeWorkspaces":[]}}),
+        ] {
+            assert!(assemble_config(Some(&file), None, &sources)
+                .unwrap()
+                .privacy
+                .unwrap()
+                .exclude_workspaces
+                .is_empty());
+        }
+    }
+}
+
+#[cfg(test)]
+mod migration_sls_resolution_tests {
+    use super::*;
+    use serde_json::{json, Value};
+    fn assert_subset(actual: &Value, expected: &Value, id: &str, path: &str) {
+        match expected {
+            Value::Object(fields) => {
+                for (key, value) in fields {
+                    assert_subset(&actual[key], value, id, &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(items) => {
+                let actual = actual
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{id}: {path} must be an array"));
+                assert_eq!(actual.len(), items.len(), "{id}: {path} endpoint count");
+                for (index, (actual, expected)) in actual.iter().zip(items).enumerate() {
+                    assert_subset(actual, expected, id, &format!("{path}[{index}]"));
+                }
+            }
+            _ => assert_eq!(actual, expected, "{id}: {path}"),
+        }
+    }
+    fn run(group: &str) {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/config-sls-resolution-cases.json"
+        ))
+        .unwrap();
+        let mut executed = 0;
+        for case in cases
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|case| case["group"] == group)
+        {
+            executed += 1;
+            let id = case["id"].as_str().unwrap();
+            let env: HashMap<String, String> = serde_json::from_value(case["env"].clone()).unwrap();
+            let sources = ConfigSources {
+                env: &env,
+                platform: Platform::current(),
+                hostname: "synthetic",
+                config_path: "not-read.json",
+                global_poll_ms: None,
+            };
+            let file = case["user"].clone();
+            let inner = case["inner"].clone();
+            let before = json!([file.clone(), inner.clone()]);
+            let config = assemble_config(
+                (!file.is_null()).then_some(&file),
+                (!inner.is_null()).then_some(&inner),
+                &sources,
+            )
+            .unwrap();
+            let actual = serde_json::to_value(config.flushers.sls.as_ref().unwrap()).unwrap();
+            assert_subset(&actual, &case["expected"], id, "sls");
+            if let Some(expected) = case.get("multimodal") {
+                assert_subset(
+                    &serde_json::to_value(config.multimodal).unwrap(),
+                    expected,
+                    id,
+                    "multimodal",
+                );
+            }
+            assert_eq!(
+                json!([file, inner]),
+                before,
+                "{id}: resolver mutated its input"
+            );
+        }
+        assert!(executed > 0, "unknown SLS case group");
+    }
+    #[test]
+    fn empty_and_incomplete_sls_destinations_stay_disabled() {
+        run("empty");
+    }
+    #[test]
+    fn user_sls_destinations_modes_credentials_and_legacy_controls_are_preserved() {
+        run("user");
+    }
+    #[test]
+    fn environment_destination_precedence_preserves_missing_endpoint_behavior() {
+        run("env");
+    }
+    #[test]
+    fn explicit_enabled_and_auth_completeness_keep_every_mode_boundary() {
+        run("enabled");
+    }
+    #[test]
+    fn arrays_keep_order_modes_names_and_every_endpoint() {
+        run("array");
+    }
+    #[test]
+    fn managed_union_dedup_prefers_user_and_discards_incomplete_inner_targets() {
+        run("managed");
+    }
+}
+
+#[cfg(test)]
+mod migration_config_basics_tests {
+    use super::*;
+    use serde_json::Value;
+    fn assert_subset(actual: &Value, expected: &Value, id: &str, path: &str) {
+        match expected {
+            Value::Object(fields) => {
+                for (key, value) in fields {
+                    assert_subset(&actual[key], value, id, &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(values) => {
+                assert_eq!(actual, &Value::Array(values.clone()), "{id}: {path}")
+            }
+            _ => assert_eq!(actual, expected, "{id}: {path}"),
+        }
+    }
+    fn run(group: &str) {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/config-basics-cases.json"
+        ))
+        .unwrap();
+        let mut executed = 0;
+        for case in cases
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["group"] == group)
+        {
+            executed += 1;
+            let id = case["id"].as_str().unwrap();
+            let env: HashMap<String, String> = serde_json::from_value(case["env"].clone()).unwrap();
+            let sources = ConfigSources {
+                env: &env,
+                platform: Platform::current(),
+                hostname: "synthetic",
+                config_path: "not-read.json",
+                global_poll_ms: case.get("globalPollMs").and_then(Value::as_u64),
+            };
+            let file = &case["user"];
+            let config =
+                assemble_config((!file.is_null()).then_some(file), None, &sources).unwrap();
+            let actual = serde_json::to_value(&config).unwrap();
+            assert_subset(&actual, &case["expected"], id, "config");
+            if let Some(expected) = case.get("exactGlobal") {
+                assert_eq!(
+                    &actual["globalSpanAttributes"], expected,
+                    "{id}: exact global attribute keys"
+                );
+            }
+            if let Some(interval) = case.get("allPoll").and_then(Value::as_u64) {
+                assert!(
+                    config
+                        .listeners
+                        .values()
+                        .all(|listener| listener.poll_interval == interval),
+                    "{id}: not every listener uses unified interval"
+                );
+            }
+        }
+        assert!(executed > 0);
+    }
+    #[test]
+    fn file_environment_and_default_priority_keep_user_identity() {
+        run("priority");
+    }
+    #[test]
+    fn output_destination_and_batch_controls_keep_their_environment_contract() {
+        run("outputs");
+    }
+    #[test]
+    fn listener_defaults_legacy_codex_and_poll_interval_validation_are_preserved() {
+        run("listeners");
+    }
+    #[test]
+    fn retention_defaults_per_field_precedence_and_environment_controls_are_preserved() {
+        run("retention");
+    }
+    #[test]
+    fn watchdog_defaults_and_environment_controls_are_preserved() {
+        run("watchdog");
+    }
+    #[test]
+    fn mask_modes_types_and_replacement_policy_keep_exact_legacy_contracts() {
+        run("mask");
+    }
+    #[test]
+    fn file_collection_legacy_gate_still_resolves_environment_overrides() {
+        run("pipeline");
+    }
+    #[test]
+    fn collection_cms_and_service_names_keep_default_file_environment_priority() {
+        run("trace");
+    }
+    #[test]
+    fn global_attributes_keep_reserved_key_filtering_numeric_values_and_env_priority() {
+        run("attributes");
+    }
+    #[test]
+    fn upstream_flags_and_ttl_safety_keep_file_and_environment_contracts() {
+        run("upstream");
+    }
+}
+
+#[cfg(test)]
+mod migration_managed_multimodal_tests {
+    use super::*;
+    use serde_json::Value;
+    fn subset(actual: &Value, expected: &Value, id: &str) {
+        if let Value::Object(fields) = expected {
+            for (key, value) in fields {
+                subset(&actual[key], value, id);
+            }
+        } else {
+            assert_eq!(actual, expected, "{id}");
+        }
+    }
+    async fn run(group: &str) {
+        // File logging is process-global. Run this exact test in its own child.
+        if !crate::utils::isolated_env_test() {
+            return;
+        }
+        unsafe {
+            std::env::set_var("LOG_LEVEL", "trace");
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let logdir = directory.path().join("logs");
+        crate::utils::init_file_logging(logdir.join("config.log").to_str().unwrap())
+            .await
+            .unwrap();
+        let rows: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/config-managed-multimodal-cases.json"
+        ))
+        .unwrap();
+        let mut executed = 0;
+        let mut previous_lines = 0;
+        for row in rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["group"] == group)
+        {
+            executed += 1;
+            let id = row["id"].as_str().unwrap();
+            let user = row["user"].clone();
+            let inner = row["inner"].clone();
+            let user_path = directory.path().join("user.json");
+            let inner_path = directory.path().join("inner.json");
+            let mut inner_loaded = inner.clone();
+            if row["readBom"] == true || row["readFiles"] == true {
+                if !user.is_null() {
+                    std::fs::write(&user_path, user.to_string()).unwrap();
+                }
+                let text = if row["readBom"] == true {
+                    format!("\u{feff}{inner}")
+                } else {
+                    inner.to_string()
+                };
+                std::fs::write(&inner_path, text).unwrap();
+                inner_loaded = read_checked_config(inner_path.to_str().unwrap(), true)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            }
+            let before_user = std::fs::read(&user_path).ok();
+            let before_inner = std::fs::read(&inner_path).ok();
+            let env = HashMap::new();
+            let config = assemble_config(
+                (!user.is_null()).then_some(&user),
+                (!inner.is_null()).then_some(&inner_loaded),
+                &ConfigSources {
+                    env: &env,
+                    platform: Platform::current(),
+                    hostname: "synthetic",
+                    config_path: user_path.to_str().unwrap(),
+                    global_poll_ms: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(&config.multimodal).unwrap(),
+                row["expectedMultimodal"],
+                "{id}: resolved storage"
+            );
+            if let Some(expected) = row.get("expectedAgents") {
+                assert_eq!(
+                    serde_json::to_value(&config.agents).unwrap(),
+                    *expected,
+                    "{id}: agent policies"
+                );
+            }
+            for (name, key) in [("collectionGates", "collection"), ("uploadGates", "upload")] {
+                if let Some(expected) = row[name].as_object() {
+                    for (agent, allowed) in expected {
+                        let actual = if key == "collection" {
+                            crate::deployment::is_agent_gated_enabled(&config, agent)
+                        } else {
+                            config.agents.get(agent).is_some_and(|policy| {
+                                crate::multimodal::is_agent_multimodal_enabled(Some(agent), policy)
+                            })
+                        };
+                        assert_eq!(
+                            actual,
+                            allowed.as_bool().unwrap(),
+                            "{id}: {key} gate {agent}"
+                        );
+                    }
+                }
+            }
+            if let Some(expected) = row["anyUpload"].as_bool() {
+                assert_eq!(
+                    crate::multimodal::any_agent_multimodal_enabled(&config.agents),
+                    expected,
+                    "{id}: any upload"
+                );
+            }
+            if let Some(expected) = row.get("slsExpected") {
+                subset(
+                    &serde_json::to_value(&config.flushers.sls.as_ref().unwrap().endpoints[0])
+                        .unwrap(),
+                    expected,
+                    id,
+                );
+            }
+            if row["otlpCaptureAbsent"] == true {
+                let built =
+                    build_otlp_trace_config_with(&config, &env, Platform::current()).unwrap();
+                assert_eq!(
+                    built.capture_message_content, None,
+                    "{id}: old content flag leaked"
+                );
+            }
+            assert_eq!(
+                std::fs::read(&user_path).ok(),
+                before_user,
+                "{id}: user file modified"
+            );
+            assert_eq!(
+                std::fs::read(&inner_path).ok(),
+                before_inner,
+                "{id}: managed file modified"
+            );
+            crate::utils::flush_logs_sync();
+            let events: Vec<Value> = std::fs::read_dir(&logdir)
+                .unwrap()
+                .flat_map(|entry| {
+                    std::fs::read_to_string(entry.unwrap().path())
+                        .unwrap()
+                        .lines()
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|line| !line.is_empty())
+                .map(|line| serde_json::from_str(&line).unwrap())
+                .collect();
+            if let Some(warnings) = row["warnings"].as_array() {
+                for expected in warnings {
+                    assert!(
+                        events[previous_lines..].iter().any(|event| {
+                            event["level"] == "WARN"
+                                && expected
+                                    .as_object()
+                                    .unwrap()
+                                    .iter()
+                                    .all(|(key, value)| event[key] == *value)
+                        }),
+                        "{id}: exact managed warning missing"
+                    );
+                }
+            }
+            previous_lines = events.len();
+        }
+        assert!(executed > 0);
+    }
+    #[tokio::test]
+    async fn managed_storage_parser_supports_bom_missing_user_and_file_immutability() {
+        run("storage").await;
+    }
+    #[tokio::test]
+    async fn user_storage_block_is_authoritative_and_never_borrows_managed_credentials() {
+        run("isolation").await;
+    }
+    #[tokio::test]
+    async fn managed_upload_policies_merge_per_field_without_changing_collection_gates() {
+        run("agents").await;
+    }
+    #[tokio::test]
+    async fn managed_invalid_policy_diagnostics_keep_exact_messages_fields_and_safe_defaults() {
+        run("warnings").await;
+    }
+}

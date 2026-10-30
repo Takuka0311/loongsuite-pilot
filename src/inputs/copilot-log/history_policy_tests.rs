@@ -280,6 +280,14 @@ async fn explicit_replay_includes_the_exact_activation_boundary_and_persists_it(
 async fn default_history_floor_is_captured_on_activation_after_input_construction() {
     let x = Fixture::new().await;
     let input = x.input(None);
+    let constructed = chrono::Utc::now().timestamp_millis();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while chrono::Utc::now().timestamp_millis() <= constructed {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     x.sources(&conversation("interaction-a", 0)).await;
     let before = chrono::Utc::now().timestamp_millis();
     assert!(collect(&input).await.is_empty());

@@ -131,3 +131,168 @@ mod tests {
         assert!(entries[0].guardrail_triggered.is_none());
     }
 }
+
+#[cfg(test)]
+mod migration_contract_tests {
+    use super::*;
+    use crate::interceptor::ToolVerdictAction;
+
+    fn entry(
+        event: AgentEventName,
+        agent: &str,
+        session: &str,
+        call: Option<&str>,
+    ) -> AgentActivityEntry {
+        AgentActivityEntry {
+            event_name: Some(event),
+            agent_type: agent.into(),
+            session_id: session.into(),
+            tool_call_id: call.map(str::to_owned),
+            ..AgentActivityEntry::default()
+        }
+    }
+    fn store(
+        root: &std::path::Path,
+        facts: &[(&str, &str, ToolInterceptPhase, ToolVerdictAction)],
+    ) -> Arc<ToolVerdictStore> {
+        let store = Arc::new(ToolVerdictStore::new(root.join("verdicts.json")));
+        for (session, call, phase, action) in facts {
+            store.put(
+                &ToolVerdictKey {
+                    session_id: Some((*session).into()),
+                    tool_use_id: (*call).into(),
+                    phase: *phase,
+                },
+                *action,
+                chrono::Utc::now().timestamp_millis(),
+            );
+        }
+        store
+    }
+    #[test]
+    fn call_and_result_resolve_independent_pre_and_post_verdicts() {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(
+            root.path(),
+            &[
+                (
+                    "s1",
+                    "call-1",
+                    ToolInterceptPhase::PreToolUse,
+                    ToolVerdictAction::Allow,
+                ),
+                (
+                    "s1",
+                    "call-1",
+                    ToolInterceptPhase::PostToolUse,
+                    ToolVerdictAction::Block,
+                ),
+            ],
+        );
+        let mut entries = [
+            entry(AgentEventName::ToolCall, "qoder", "s1", Some("call-1")),
+            entry(AgentEventName::ToolResult, "qoder", "s1", Some("call-1")),
+        ];
+        InterceptResultLinker::new(store, true).enrich(&mut entries);
+        assert_eq!(entries[0].guardrail_triggered, Some(true));
+        assert_eq!(entries[0].guardrail_action, Some(GuardrailAction::Allow));
+        assert_eq!(entries[1].guardrail_triggered, Some(true));
+        assert_eq!(entries[1].guardrail_action, Some(GuardrailAction::Block));
+    }
+    #[test]
+    fn verdict_matching_keeps_session_and_agent_allowlist_boundaries() {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(
+            root.path(),
+            &[(
+                "open-session",
+                "call-2",
+                ToolInterceptPhase::PreToolUse,
+                ToolVerdictAction::Block,
+            )],
+        );
+        let mut entries = [
+            entry(
+                AgentEventName::ToolCall,
+                "openclaw",
+                "open-session",
+                Some("call-2"),
+            ),
+            entry(
+                AgentEventName::ToolCall,
+                "openclaw",
+                "other",
+                Some("call-2"),
+            ),
+            entry(AgentEventName::ToolCall, "codex", "s1", Some("call-2")),
+            entry(
+                AgentEventName::ToolCall,
+                "qoder-work",
+                "open-session",
+                Some("call-2"),
+            ),
+        ];
+        InterceptResultLinker::new(store, true).enrich(&mut entries);
+        assert_eq!(entries[0].guardrail_action, Some(GuardrailAction::Block));
+        for entry in &entries[1..] {
+            assert_eq!(entry.guardrail_triggered, None);
+            assert_eq!(entry.guardrail_action, None);
+        }
+    }
+    #[test]
+    fn missing_tool_or_verdict_omits_fields_and_qoder_idea_is_supported() {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(
+            root.path(),
+            &[(
+                "s1",
+                "present",
+                ToolInterceptPhase::PreToolUse,
+                ToolVerdictAction::Block,
+            )],
+        );
+        let mut entries = [
+            entry(AgentEventName::ToolCall, "qwen-work-cn", "s1", None),
+            entry(
+                AgentEventName::ToolCall,
+                "qwen-work-cn",
+                "s1",
+                Some("absent"),
+            ),
+            entry(
+                AgentEventName::ToolCall,
+                "qoder-idea",
+                "s1",
+                Some("present"),
+            ),
+        ];
+        InterceptResultLinker::new(store, true).enrich(&mut entries);
+        for entry in &entries[..2] {
+            assert_eq!(entry.guardrail_triggered, None);
+            assert_eq!(entry.guardrail_action, None);
+        }
+        assert_eq!(entries[2].guardrail_action, Some(GuardrailAction::Block));
+    }
+    #[test]
+    fn disabled_linker_omits_both_fields_even_for_a_matching_stored_verdict() {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(
+            root.path(),
+            &[(
+                "s1",
+                "call-1",
+                ToolInterceptPhase::PreToolUse,
+                ToolVerdictAction::Block,
+            )],
+        );
+        let mut entries = [entry(
+            AgentEventName::ToolCall,
+            "qoder",
+            "s1",
+            Some("call-1"),
+        )];
+        InterceptResultLinker::new(store, false).enrich(&mut entries);
+        assert_eq!(entries[0].guardrail_triggered, None);
+        assert_eq!(entries[0].guardrail_action, None);
+    }
+}

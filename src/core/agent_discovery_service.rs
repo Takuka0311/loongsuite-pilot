@@ -623,3 +623,415 @@ mod tests {
         assert_eq!(service.get_states().get("qoder"), Some(&EntryState::Idle));
     }
 }
+
+#[cfg(test)]
+mod migration_lifecycle_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::sync::{Notify, Semaphore};
+
+    struct Detection {
+        id: String,
+        enabled: AtomicBool,
+        available: AtomicBool,
+        starts: AtomicUsize,
+        stops: AtomicUsize,
+        threshold: u32,
+        watch: Vec<String>,
+        interval: u64,
+        start_gate: Option<Arc<Semaphore>>,
+        availability_gate: Option<Arc<Semaphore>>,
+        entered: Notify,
+        completed: AtomicBool,
+    }
+    impl Detection {
+        fn new(id: &str) -> Self {
+            Self {
+                id: id.into(),
+                enabled: AtomicBool::new(true),
+                available: AtomicBool::new(true),
+                starts: AtomicUsize::new(0),
+                stops: AtomicUsize::new(0),
+                threshold: 1,
+                watch: Vec::new(),
+                interval: 25,
+                start_gate: None,
+                availability_gate: None,
+                entered: Notify::new(),
+                completed: AtomicBool::new(false),
+            }
+        }
+    }
+    #[async_trait]
+    impl AgentDetection for Detection {
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn type_name(&self) -> &str {
+            "migration-fixture"
+        }
+        fn enabled(&self) -> bool {
+            self.enabled.load(Ordering::SeqCst)
+        }
+        async fn is_available(&self) -> bool {
+            if let Some(gate) = &self.availability_gate {
+                self.entered.notify_one();
+                gate.acquire().await.unwrap().forget();
+            }
+            self.available.load(Ordering::SeqCst)
+        }
+        fn watch_paths(&self) -> &[String] {
+            &self.watch
+        }
+        async fn start(&self) -> anyhow::Result<()> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            if let Some(gate) = &self.start_gate {
+                self.entered.notify_one();
+                gate.acquire().await.unwrap().forget();
+            }
+            self.completed.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        async fn stop(&self) -> anyhow::Result<()> {
+            assert!(
+                self.completed.load(Ordering::SeqCst),
+                "stop raced unfinished startup"
+            );
+            self.stops.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn poll_interval_ms(&self) -> u64 {
+            self.interval
+        }
+        fn unavailable_threshold(&self) -> u32 {
+            self.threshold
+        }
+    }
+    fn service(entries: Vec<Arc<Detection>>) -> Arc<AgentDiscoveryService> {
+        Arc::new(AgentDiscoveryService::new(
+            entries
+                .into_iter()
+                .map(|e| e as Arc<dyn AgentDetection>)
+                .collect(),
+        ))
+    }
+    fn record_events(service: &AgentDiscoveryService) -> Arc<Mutex<Vec<AgentDiscoveryEvent>>> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let slot = events.clone();
+        service.on_event(move |event| slot.lock().unwrap().push(event));
+        events
+    }
+    fn no_timers(service: &AgentDiscoveryService) {
+        assert!(service.global_poll.lock().unwrap().is_none());
+        for runtime in service.runtimes.lock().unwrap().values() {
+            assert!(runtime.poll.is_none());
+            assert!(runtime.watch.is_none());
+        }
+    }
+    async fn ready(signal: &Notify) {
+        tokio::time::timeout(Duration::from_secs(1), signal.notified())
+            .await
+            .expect("lifecycle fixture was not entered");
+    }
+
+    #[tokio::test]
+    async fn availability_transitions_emit_started_and_unavailable_without_redundant_starts() {
+        let agent = Arc::new(Detection::new("claude-code-log"));
+        agent.available.store(false, Ordering::SeqCst);
+        let service = service(vec![agent.clone()]);
+        let events = record_events(&service);
+        service.start().await;
+        assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 0);
+        agent.available.store(true, Ordering::SeqCst);
+        service.refresh("installed").await;
+        assert_eq!(service.get_states()[agent.id()], EntryState::Running);
+        service.refresh("still-installed").await;
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 1);
+        agent.available.store(false, Ordering::SeqCst);
+        service.refresh("removed").await;
+        assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec![
+                AgentDiscoveryEvent::Started(agent.id.clone()),
+                AgentDiscoveryEvent::Stopped(agent.id.clone(), AgentStopReason::Unavailable)
+            ]
+        );
+        service.stop().await;
+        no_timers(&service);
+    }
+    #[tokio::test]
+    async fn enabled_available_matrix_and_stop_return_to_idle() {
+        for (enabled, available, starts) in [
+            (false, true, 0),
+            (true, false, 0),
+            (true, true, 1),
+            (false, false, 0),
+        ] {
+            let agent = Arc::new(Detection::new("matrix"));
+            agent.enabled.store(enabled, Ordering::SeqCst);
+            agent.available.store(available, Ordering::SeqCst);
+            let service = service(vec![agent.clone()]);
+            assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
+            service.start().await;
+            assert_eq!(agent.starts.load(Ordering::SeqCst), starts);
+            assert_eq!(
+                service.get_states()[agent.id()],
+                if starts == 1 {
+                    EntryState::Running
+                } else {
+                    EntryState::Idle
+                }
+            );
+            service.stop().await;
+            assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
+            assert_eq!(agent.stops.load(Ordering::SeqCst), starts);
+            no_timers(&service);
+        }
+    }
+    #[tokio::test]
+    async fn disable_refresh_and_shutdown_emit_the_exact_independent_reasons_once() {
+        let disabled = Arc::new(Detection::new("disabled"));
+        let shutdown = Arc::new(Detection::new("shutdown"));
+        let service = service(vec![disabled.clone(), shutdown.clone()]);
+        let events = record_events(&service);
+        service.start().await;
+        assert_eq!(service.get_states()[disabled.id()], EntryState::Running);
+        assert_eq!(service.get_states()[shutdown.id()], EntryState::Running);
+        disabled.enabled.store(false, Ordering::SeqCst);
+        service.refresh("disable").await;
+        assert_eq!(disabled.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(service.get_states()[disabled.id()], EntryState::Idle);
+        service.stop().await;
+        service.stop().await;
+        assert_eq!(shutdown.stops.load(Ordering::SeqCst), 1);
+        let events = events.lock().unwrap();
+        for agent in [&disabled, &shutdown] {
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|e| **e == AgentDiscoveryEvent::Started(agent.id.clone()))
+                    .count(),
+                1
+            );
+        }
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| **e
+                    == AgentDiscoveryEvent::Stopped(disabled.id.clone(), AgentStopReason::Disabled))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| **e
+                    == AgentDiscoveryEvent::Stopped(shutdown.id.clone(), AgentStopReason::Shutdown))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, AgentDiscoveryEvent::Stopped(..)))
+                .count(),
+            2
+        );
+        no_timers(&service);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn missing_watch_path_uses_polling_and_shutdown_cancels_every_timer() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut definition = Detection::new("poll");
+        definition.watch = vec![directory
+            .path()
+            .join("not-created")
+            .to_string_lossy()
+            .into_owned()];
+        let agent = Arc::new(definition);
+        agent.available.store(false, Ordering::SeqCst);
+        let service = service(vec![agent.clone()]);
+        service.start().await;
+        tokio::task::yield_now().await;
+        {
+            let runtimes = service.runtimes.lock().unwrap();
+            let rt = &runtimes[agent.id()];
+            assert!(rt.poll.is_some());
+            assert!(rt.watch.is_none());
+        }
+        agent.available.store(true, Ordering::SeqCst);
+        tokio::time::advance(Duration::from_millis(26)).await;
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(service.get_states()[agent.id()], EntryState::Running);
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 1);
+        service.stop().await;
+        no_timers(&service);
+        tokio::time::advance(Duration::from_secs(600)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 1);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn unavailable_threshold_requires_consecutive_failures_and_recovers_its_counter() {
+        let mut definition = Detection::new("debounce");
+        definition.threshold = 3;
+        let agent = Arc::new(definition);
+        let service = service(vec![agent.clone()]);
+        let events = record_events(&service);
+        service.start().await;
+        agent.available.store(false, Ordering::SeqCst);
+        for reason in ["first", "second"] {
+            service.refresh(reason).await;
+            assert_eq!(service.get_states()[agent.id()], EntryState::Running);
+        }
+        assert!(!events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, AgentDiscoveryEvent::Stopped(..))));
+        agent.available.store(true, Ordering::SeqCst);
+        service.refresh("recovered").await;
+        agent.available.store(false, Ordering::SeqCst);
+        for reason in ["new-first", "new-second"] {
+            service.refresh(reason).await;
+            assert_eq!(service.get_states()[agent.id()], EntryState::Running);
+        }
+        assert!(!events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, AgentDiscoveryEvent::Stopped(..))));
+        service.refresh("new-third").await;
+        assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| **e
+                    == AgentDiscoveryEvent::Stopped(agent.id.clone(), AgentStopReason::Unavailable))
+                .count(),
+            1
+        );
+        service.stop().await;
+        no_timers(&service);
+    }
+    #[tokio::test]
+    async fn concurrent_refresh_bursts_wait_for_startup_before_stopping_and_do_not_duplicate_start()
+    {
+        let gate = Arc::new(Semaphore::new(0));
+        let mut definition = Detection::new("burst");
+        definition.start_gate = Some(gate.clone());
+        let agent = Arc::new(definition);
+        let service = service(vec![agent.clone()]);
+        let starting = {
+            let service = service.clone();
+            tokio::spawn(async move { service.start().await })
+        };
+        ready(&agent.entered).await;
+        assert_eq!(service.get_states()[agent.id()], EntryState::Starting);
+        let mut refreshes = Vec::new();
+        for _ in 0..10 {
+            let service = service.clone();
+            refreshes.push(tokio::spawn(async move { service.refresh("burst").await }));
+        }
+        tokio::task::yield_now().await;
+        agent.available.store(false, Ordering::SeqCst);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 0);
+        gate.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), starting)
+            .await
+            .unwrap()
+            .unwrap();
+        for refresh in refreshes {
+            tokio::time::timeout(Duration::from_secs(1), refresh)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 1);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
+        service.stop().await;
+        no_timers(&service);
+    }
+    #[tokio::test]
+    async fn shutdown_drains_pending_start_without_republishing_running_events_or_timers() {
+        let gate = Arc::new(Semaphore::new(0));
+        let mut definition = Detection::new("shutdown-start");
+        definition.start_gate = Some(gate.clone());
+        let agent = Arc::new(definition);
+        let service = service(vec![agent.clone()]);
+        let events = record_events(&service);
+        let starting = {
+            let service = service.clone();
+            tokio::spawn(async move { service.start().await })
+        };
+        ready(&agent.entered).await;
+        let stopping = {
+            let service = service.clone();
+            tokio::spawn(async move { service.stop().await })
+        };
+        tokio::task::yield_now().await;
+        assert!(service.stopping.load(Ordering::SeqCst));
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 0);
+        gate.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), starting)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), stopping)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 1);
+        assert!(!events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, AgentDiscoveryEvent::Started(_))));
+        no_timers(&service);
+        service.refresh("late-watch").await;
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn shutdown_during_availability_lookup_prevents_late_start_and_timer_recreation() {
+        let gate = Arc::new(Semaphore::new(0));
+        let mut definition = Detection::new("shutdown-lookup");
+        definition.availability_gate = Some(gate.clone());
+        let agent = Arc::new(definition);
+        let service = service(vec![agent.clone()]);
+        let starting = {
+            let service = service.clone();
+            tokio::spawn(async move { service.start().await })
+        };
+        ready(&agent.entered).await;
+        let stopping = {
+            let service = service.clone();
+            tokio::spawn(async move { service.stop().await })
+        };
+        tokio::task::yield_now().await;
+        assert!(service.stopping.load(Ordering::SeqCst));
+        gate.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), starting)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), stopping)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(agent.starts.load(Ordering::SeqCst), 0);
+        assert_eq!(agent.stops.load(Ordering::SeqCst), 0);
+        assert_eq!(service.get_states()[agent.id()], EntryState::Idle);
+        no_timers(&service);
+    }
+}

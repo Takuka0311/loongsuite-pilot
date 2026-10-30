@@ -1,5 +1,9 @@
 //! Copilot CLI transcript/native OTel collection with a durable source index.
 #[cfg(test)]
+mod disk_governance_tests;
+#[cfg(test)]
+mod disk_pressure_tests;
+#[cfg(test)]
 mod history_policy_tests;
 mod interaction_parser;
 mod source_index;

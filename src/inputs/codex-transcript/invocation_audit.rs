@@ -843,4 +843,167 @@ mod tests {
         assert!(!serialized.to_string().contains("private completion body"));
         assert!(!serialized.to_string().contains("unrelated original prompt"));
     }
+    #[test]
+    fn late_result_keeps_receiving_turn_and_original_invocation_after_identity_restore() {
+        let mut received = entry("other");
+        received.turn_id = Some("parent:later-turn".into());
+        received.event_id = "late-receipt".into();
+        let mut descriptor = work(0);
+        descriptor.parent_turn_id = "original-dispatch-turn".into();
+        descriptor.result_fingerprints = vec![hash("real result\n", 64)];
+        descriptor.result_outcome_known = true;
+        let mut delivered = BTreeSet::new();
+        let mut pending = IndexMap::new();
+        let mut output = Vec::new();
+        let mut context = ResultContext {
+            receiving_session: "parent",
+            delivered: &mut delivered,
+            fallback: &received,
+            pending: &mut pending,
+            file_path: "/synthetic/native.jsonl",
+            inode: 1,
+        };
+        let receipt = || Receipt {
+            source: received.clone(),
+            key: "late-native-range".into(),
+            peer: Some("child".into()),
+            value: json!("real result\n"),
+            call_id: None,
+            child_turn: None,
+            invocation: None,
+            terminal: true,
+        };
+        assert!(
+            append_receipt(&mut output, receipt(), &[descriptor.clone()], &mut context)
+                == ReceiptOutcome::Emitted
+        );
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].turn_id.as_deref(), Some("parent:later-turn"));
+        assert_eq!(
+            output[0].get("gen_ai.agent.invocation.id"),
+            Some(&json!("invocation-0"))
+        );
+        assert_eq!(output[0].get("gen_ai.agent.peer.id"), Some(&json!("child")));
+        assert!(output[0].input_messages.is_none() && output[0].tool_call_arguments.is_none());
+        let serialized = serde_json::to_string(&delivered).unwrap();
+        assert!(!serialized.contains("real result"));
+        let mut restored: BTreeSet<String> = serde_json::from_str(&serialized).unwrap();
+        let mut context = ResultContext {
+            receiving_session: "parent",
+            delivered: &mut restored,
+            fallback: &received,
+            pending: &mut pending,
+            file_path: "/synthetic/native.jsonl",
+            inode: 1,
+        };
+        assert!(
+            append_receipt(&mut output, receipt(), &[descriptor], &mut context)
+                == ReceiptOutcome::Duplicate
+        );
+        assert_eq!(output.len(), 1);
+    }
+
+    #[test]
+    fn identical_completed_results_remain_ambiguous_and_explicit_invocation_disambiguates() {
+        let fallback = entry("other");
+        let mut delivered = BTreeSet::new();
+        let mut pending = IndexMap::new();
+        let mut output = Vec::new();
+        let mut descriptors = vec![work(0), work(1)];
+        for descriptor in &mut descriptors {
+            descriptor.result_outcome_known = true;
+            descriptor.result_fingerprints = vec![hash("same result", 64)];
+        }
+        let mut context = ResultContext {
+            receiving_session: "parent",
+            delivered: &mut delivered,
+            fallback: &fallback,
+            pending: &mut pending,
+            file_path: "/synthetic/native.jsonl",
+            inode: 1,
+        };
+        let receipt = |invocation| Receipt {
+            source: fallback.clone(),
+            key: "native-range".into(),
+            peer: Some("child".into()),
+            value: json!("same result"),
+            call_id: None,
+            child_turn: None,
+            invocation,
+            terminal: true,
+        };
+        assert!(
+            append_receipt(&mut output, receipt(None), &descriptors, &mut context)
+                == ReceiptOutcome::Unresolved
+        );
+        assert!(output.is_empty());
+        assert!(
+            append_receipt(
+                &mut output,
+                receipt(Some("invocation-1".into())),
+                &descriptors,
+                &mut context
+            ) == ReceiptOutcome::Emitted
+        );
+        assert_eq!(
+            output[0].get("gen_ai.agent.invocation.id"),
+            Some(&json!("invocation-1"))
+        );
+    }
+
+    #[test]
+    fn exact_receipt_hash_keeps_trailing_newlines_distinct_across_reused_child_work() {
+        let fallback = entry("other");
+        let mut delivered = BTreeSet::new();
+        let mut pending = IndexMap::new();
+        let mut output = Vec::new();
+        let mut first = work(0);
+        first.result_outcome_known = true;
+        first.result_fingerprints = vec![hash("result\n", 64)];
+        let mut second = work(1);
+        second.result_outcome_known = true;
+        second.result_fingerprints = vec![hash("result", 64)];
+        let mut context = ResultContext {
+            receiving_session: "parent",
+            delivered: &mut delivered,
+            fallback: &fallback,
+            pending: &mut pending,
+            file_path: "/synthetic/native.jsonl",
+            inode: 1,
+        };
+        let receipt = |value| Receipt {
+            source: fallback.clone(),
+            key: "native-range".into(),
+            peer: Some("child".into()),
+            value,
+            call_id: None,
+            child_turn: None,
+            invocation: None,
+            terminal: true,
+        };
+        assert!(
+            append_receipt(
+                &mut output,
+                receipt(json!("Message Type: FINAL_ANSWER\nPayload:\nresult\n")),
+                &[first.clone(), second.clone()],
+                &mut context
+            ) == ReceiptOutcome::Emitted
+        );
+        assert_eq!(
+            output[0].get("gen_ai.agent.invocation.id"),
+            Some(&json!("invocation-0"))
+        );
+        assert!(
+            append_receipt(
+                &mut output,
+                receipt(json!("result")),
+                &[first, second],
+                &mut context
+            ) == ReceiptOutcome::Emitted
+        );
+        assert_eq!(
+            output[1].get("gen_ai.agent.invocation.id"),
+            Some(&json!("invocation-1"))
+        );
+    }
 }

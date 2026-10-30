@@ -3,6 +3,2639 @@
   "baselineCommit": "ef8953de1b5d2aa6d719cb0409cb5f48f2b99b42",
   "mappings": [
     {
+      "legacy": "tests/unit/core/config-loader.sls-resolution.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "30项历史SLS解析断言逐项核对并写入独立参数夹具，新增6组原生测试草案；草案尚未执行，必须根应用并通过后才登记complete。read adapter缺失文件的行为另外引用已存在只读read_checked_config测试。 Linux all-features全库实际通过本项对应专项；目标平台标签不是Windows/macOS实跑证明。",
+      "source_hash": "b05cd928a1355e9f88cf6608eeb5b8286d0f910cbe2f0c8eb5c2f85dc8399c87",
+      "cases": [
+        {
+          "source": {
+            "id": "L45:C5",
+            "title": "returns empty endpoints when no sls fields are present",
+            "suites": [
+              "SLS resolver — config-driven",
+              "No user destination → SLS disabled (empty endpoints)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns empty endpoints when no sls fields are present；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::empty_and_incomplete_sls_destinations_stay_disabled"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L53:C5",
+            "title": "treats project-only as incomplete → disabled",
+            "suites": [
+              "SLS resolver — config-driven",
+              "No user destination → SLS disabled (empty endpoints)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "treats project-only as incomplete → disabled；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::empty_and_incomplete_sls_destinations_stay_disabled"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L65:C5",
+            "title": "returns user endpoint when sls fields are configured",
+            "suites": [
+              "SLS resolver — config-driven",
+              "User destination present → [USER] endpoint"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns user endpoint when sls fields are configured；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::user_sls_destinations_modes_credentials_and_legacy_controls_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L86:C5",
+            "title": "infers AK mode when access keys are present",
+            "suites": [
+              "SLS resolver — config-driven",
+              "User destination present → [USER] endpoint"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "infers AK mode when access keys are present；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::user_sls_destinations_modes_credentials_and_legacy_controls_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L106:C5",
+            "title": "infers API Key mode when apiKey is present",
+            "suites": [
+              "SLS resolver — config-driven",
+              "User destination present → [USER] endpoint"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "infers API Key mode when apiKey is present；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::user_sls_destinations_modes_credentials_and_legacy_controls_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L125:C5",
+            "title": "uses the file API Key when an env value is present",
+            "suites": [
+              "SLS resolver — config-driven",
+              "User destination present → [USER] endpoint"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses the file API Key when an env value is present；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::user_sls_destinations_modes_credentials_and_legacy_controls_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L154:C5",
+            "title": "reads user fields from env over file",
+            "suites": [
+              "SLS resolver — config-driven",
+              "User destination present → [USER] endpoint"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reads user fields from env over file；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::environment_destination_precedence_preserves_missing_endpoint_behavior"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L169:C5",
+            "title": "produces empty endpoint URL when user omits endpoint",
+            "suites": [
+              "SLS resolver — config-driven",
+              "User destination present → [USER] endpoint"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "produces empty endpoint URL when user omits endpoint；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::environment_destination_precedence_preserves_missing_endpoint_behavior"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L183:C5",
+            "title": "ignores legacy destinationOverride",
+            "suites": [
+              "SLS resolver — config-driven",
+              "User destination present → [USER] endpoint"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "ignores legacy destinationOverride；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::user_sls_destinations_modes_credentials_and_legacy_controls_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L200:C5",
+            "title": "normalizes trailing slash and missing scheme for dedup",
+            "suites": [
+              "SLS resolver — config-driven",
+              "Dedup: collapses identical normalized triples"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "normalizes trailing slash and missing scheme for dedup；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::user_sls_destinations_modes_credentials_and_legacy_controls_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L216:C5",
+            "title": "disabled when AK mode is missing credentials",
+            "suites": [
+              "SLS resolver — config-driven",
+              "enabled derivation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "disabled when AK mode is missing credentials；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::explicit_enabled_and_auth_completeness_keep_every_mode_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L230:C5",
+            "title": "disabled when API Key mode is missing apiKey",
+            "suites": [
+              "SLS resolver — config-driven",
+              "enabled derivation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "disabled when API Key mode is missing apiKey；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::explicit_enabled_and_auth_completeness_keep_every_mode_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L244:C5",
+            "title": "disabled when endpoint has both AK/SK and API Key credentials",
+            "suites": [
+              "SLS resolver — config-driven",
+              "enabled derivation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "disabled when endpoint has both AK/SK and API Key credentials；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::explicit_enabled_and_auth_completeness_keep_every_mode_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L265:C5",
+            "title": "respects explicit enabled=false",
+            "suites": [
+              "SLS resolver — config-driven",
+              "enabled derivation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "respects explicit enabled=false；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::explicit_enabled_and_auth_completeness_keep_every_mode_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L279:C5",
+            "title": "respects explicit enabled=true even without complete config",
+            "suites": [
+              "SLS resolver — config-driven",
+              "enabled derivation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "respects explicit enabled=true even without complete config；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::explicit_enabled_and_auth_completeness_keep_every_mode_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L292:C5",
+            "title": "parses sls array with multiple endpoints",
+            "suites": [
+              "SLS resolver — config-driven",
+              "sls array (multi-endpoint) from config.json"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "parses sls array with multiple endpoints；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::arrays_keep_order_modes_names_and_every_endpoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L324:C5",
+            "title": "supports AK mode in sls array",
+            "suites": [
+              "SLS resolver — config-driven",
+              "sls array (multi-endpoint) from config.json"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "supports AK mode in sls array；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::arrays_keep_order_modes_names_and_every_endpoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L346:C5",
+            "title": "supports mixed API Key, AK, and webtracking endpoints in sls array",
+            "suites": [
+              "SLS resolver — config-driven",
+              "sls array (multi-endpoint) from config.json"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "supports mixed API Key, AK, and webtracking endpoints in sls array；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::arrays_keep_order_modes_names_and_every_endpoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L392:C5",
+            "title": "produces no endpoints from empty sls array",
+            "suites": [
+              "SLS resolver — config-driven",
+              "sls array (multi-endpoint) from config.json"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "produces no endpoints from empty sls array；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::empty_and_incomplete_sls_destinations_stay_disabled"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L400:C5",
+            "title": "assigns default names when name is omitted",
+            "suites": [
+              "SLS resolver — config-driven",
+              "sls array (multi-endpoint) from config.json"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "assigns default names when name is omitted；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::arrays_keep_order_modes_names_and_every_endpoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L423:C5",
+            "title": "merges inner data_config.json endpoints with config.json endpoints",
+            "suites": [
+              "SLS resolver — config-driven",
+              "inner data_config.json merging"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "merges inner data_config.json endpoints with config.json endpoints；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::managed_union_dedup_prefers_user_and_discards_incomplete_inner_targets"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L457:C5",
+            "title": "uses only inner endpoints when config.json has no sls",
+            "suites": [
+              "SLS resolver — config-driven",
+              "inner data_config.json merging"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses only inner endpoints when config.json has no sls；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::managed_union_dedup_prefers_user_and_discards_incomplete_inner_targets"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L481:C5",
+            "title": "deduplicates when both files have the same endpoint",
+            "suites": [
+              "SLS resolver — config-driven",
+              "inner data_config.json merging"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "deduplicates when both files have the same endpoint；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::managed_union_dedup_prefers_user_and_discards_incomplete_inner_targets"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L512:C5",
+            "title": "proceeds normally when data_config.json does not exist",
+            "suites": [
+              "SLS resolver — config-driven",
+              "inner data_config.json merging"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "proceeds normally when data_config.json does not exist；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::managed_union_dedup_prefers_user_and_discards_incomplete_inner_targets"
+              },
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "tests::reads_inner_config_from_canonical_data_dir"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L531:C5",
+            "title": "skips inner entries with missing required fields",
+            "suites": [
+              "SLS resolver — config-driven",
+              "inner data_config.json merging"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "skips inner entries with missing required fields；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::managed_union_dedup_prefers_user_and_discards_incomplete_inner_targets"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L554:C5",
+            "title": "returns empty endpoints when neither file has SLS",
+            "suites": [
+              "SLS resolver — config-driven",
+              "inner data_config.json merging"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns empty endpoints when neither file has SLS；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::empty_and_incomplete_sls_destinations_stay_disabled"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L564:C5",
+            "title": "config.json endpoints take priority during dedup",
+            "suites": [
+              "SLS resolver — config-driven",
+              "inner data_config.json merging"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "config.json endpoints take priority during dedup；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::managed_union_dedup_prefers_user_and_discards_incomplete_inner_targets"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L601:C5",
+            "title": "allows empty project for webtracking mode (enabled=true)",
+            "suites": [
+              "SLS resolver — config-driven",
+              "webtracking with empty project"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "allows empty project for webtracking mode (enabled=true)；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::explicit_enabled_and_auth_completeness_keep_every_mode_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L625:C5",
+            "title": "rejects empty project for AK mode (enabled=false)",
+            "suites": [
+              "SLS resolver — config-driven",
+              "webtracking with empty project"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rejects empty project for AK mode (enabled=false)；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::explicit_enabled_and_auth_completeness_keep_every_mode_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L644:C5",
+            "title": "mixed endpoints: empty-project webtracking + valid AK both pass",
+            "suites": [
+              "SLS resolver — config-driven",
+              "webtracking with empty project"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "mixed endpoints: empty-project webtracking + valid AK both pass；保留独立fixture期望值，精确端点数量及字段，真实assemble_config，不访问网络/私有配置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "migration_sls_resolution_tests::explicit_enabled_and_auth_completeness_keep_every_mode_boundary"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/core/input-manager.test.ts",
+      "coverage": "partial",
+      "rust": [],
+      "note": "新增9个真实pipeline组合测试草案，26/44逐声明；需根应用、lint及实际测试后登记。未映射项包括git异常/fail-open钩子、多模态processor shutdown/替换、content各字段白名单和Trace上下文；不把单个mask子集或单个legacy config断言冒充覆盖全部字段。 Linux all-features全库实际通过本项对应专项；目标平台标签不是Windows/macOS实跑证明。",
+      "source_hash": "a4931e80856bcf8a0aec4f4a22582dd6665bcb64e2d04a76ab716aea38086ca3",
+      "cases": [
+        {
+          "source": {
+            "id": "L72:C3",
+            "title": "filters excluded sessions before identity rewriting and every output destination",
+            "suites": [
+              "InputManager"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "filters excluded sessions before identity rewriting and every output destination；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::whole_batch_privacy_preflight_precedes_identity_and_fanout"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L86:C5",
+            "title": "counts raw input independently from normalized entry emission",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "counts raw input independently from normalized entry emission；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::raw_runtime_counters_sum_independently_and_reset_only_window_maxima"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L157:C5",
+            "title": "passes the existing serialized sizes aligned with final dispatched events",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "passes the existing serialized sizes aligned with final dispatched events；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L225:C5",
+            "title": "serializes multiple entry batches from the same input",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "serializes multiple entry batches from the same input；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::queued_batches_stay_ordered_and_shutdown_waits_for_non_codex_acceptance"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L252:C5",
+            "title": "fills userId for entries missing it",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "fills userId for entries missing it；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L266:C5",
+            "title": "does not overwrite existing userId",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not overwrite existing userId；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L279:C5",
+            "title": "uses configured user.id before userId fallback",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses configured user.id before userId fallback；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L294:C5",
+            "title": "configured user.id overwrites an existing user.id",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "configured user.id overwrites an existing user.id；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L307:C5",
+            "title": "invocation env identity overrides configured/native identity and is consumed",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "invocation env identity overrides configured/native identity and is consumed；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L581:C5",
+            "title": "masks whitelisted content fields before dispatching to the flusher",
+            "suites": [
+              "InputManager",
+              "collector mask"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "masks whitelisted content fields before dispatching to the flusher；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_content_mask_tests::legacy_and_canonical_content_masking_preserves_non_content_fields_across_every_sink"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L603:C5",
+            "title": "still masks content when legacy captureMessageContent is false",
+            "suites": [
+              "InputManager",
+              "collector mask"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "still masks content when legacy captureMessageContent is false；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_content_mask_tests::legacy_and_canonical_content_masking_preserves_non_content_fields_across_every_sink"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L628:C5",
+            "title": "dispatches masked entries consistently to all child flushers",
+            "suites": [
+              "InputManager",
+              "collector mask"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "dispatches masked entries consistently to all child flushers；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_content_mask_tests::legacy_and_canonical_content_masking_preserves_non_content_fields_across_every_sink"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L661:C5",
+            "title": "dual-writes masked input other after shared enrichment",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "dual-writes masked input other after shared enrichment；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L706:C5",
+            "title": "generates agent.input despite legacy captureMessageContent=false",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "generates agent.input despite legacy captureMessageContent=false；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L731:C5",
+            "title": "does not copy a non-input other event",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not copy a non-input other event；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::non_input_metadata_is_not_copied_and_failed_expanded_batch_counts_both_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L744:C5",
+            "title": "dispatches the same expanded pair to every child flusher",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "dispatches the same expanded pair to every child flusher；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L766:C5",
+            "title": "counts ingress before expansion and successful egress after expansion",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "counts ingress before expansion and successful egress after expansion；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L793:C5",
+            "title": "counts the full expanded batch when dispatch fails",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "counts the full expanded batch when dispatch fails；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::non_input_metadata_is_not_copied_and_failed_expanded_batch_counts_both_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L813:C5",
+            "title": "records the collection method and the owning agent separately",
+            "suites": [
+              "InputManager",
+              "counter identity"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "records the collection method and the owning agent separately；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::raw_runtime_counters_sum_independently_and_reset_only_window_maxima"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L837:C5",
+            "title": "proxies start to the registered input",
+            "suites": [
+              "InputManager",
+              "startInput / stopInput (T033)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "proxies start to the registered input；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L844:C5",
+            "title": "proxies stop to the registered input",
+            "suites": [
+              "InputManager",
+              "startInput / stopInput (T033)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "proxies stop to the registered input；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L852:C5",
+            "title": "startInput is a no-op for unknown id",
+            "suites": [
+              "InputManager",
+              "startInput / stopInput (T033)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "startInput is a no-op for unknown id；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L856:C5",
+            "title": "stopInput is a no-op for unknown id",
+            "suites": [
+              "InputManager",
+              "startInput / stopInput (T033)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stopInput is a no-op for unknown id；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L862:C5",
+            "title": "stops all running inputs",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stops all running inputs；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L875:C5",
+            "title": "waits for queued entries before completing shutdown",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "waits for queued entries before completing shutdown；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::queued_batches_stay_ordered_and_shutdown_waits_for_non_codex_acceptance"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L947:C5",
+            "title": "joins tool.call and tool.result before invocation identity rewrite",
+            "suites": [
+              "InputManager",
+              "interceptor result linking"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "joins tool.call and tool.result before invocation identity rewrite；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::tool_verdicts_join_native_identity_before_invocation_rewrite"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/core/agent-discovery-service.test.ts",
+      "coverage": "partial",
+      "rust": [],
+      "note": "Linux all-features实际状态机专项12项通过（含8项新增组合），逐声明承接18/20；lookup错误通道两项保持待迁移，目标平台标签不是Windows/macOS实跑证据。",
+      "source_hash": "6d7ebe016ec20c9dc6e71fac8d35085a820c6c7c462ade3c19e89598ff792720",
+      "cases": [
+        {
+          "source": {
+            "id": "L30:C3",
+            "title": "detects Claude Code availability transitions at runtime",
+            "suites": [
+              "AgentDiscoveryService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "detects Claude Code availability transitions at runtime；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::availability_transitions_emit_started_and_unavailable_without_redundant_starts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L118:C5",
+            "title": "transitions idle → starting → running when enabled+available",
+            "suites": [
+              "AgentDiscoveryService",
+              "state machine transitions (T034)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "transitions idle → starting → running when enabled+available；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::concurrent_refresh_bursts_wait_for_startup_before_stopping_and_do_not_duplicate_start"
+              },
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::enabled_available_matrix_and_stop_return_to_idle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L134:C5",
+            "title": "transitions running → stopping → idle on stop",
+            "suites": [
+              "AgentDiscoveryService",
+              "state machine transitions (T034)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "transitions running → stopping → idle on stop；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::enabled_available_matrix_and_stop_return_to_idle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L147:C5",
+            "title": "does not start when enabled=false even if available=true",
+            "suites": [
+              "AgentDiscoveryService",
+              "enabled+available combinations (T035)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not start when enabled=false even if available=true；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::enabled_available_matrix_and_stop_return_to_idle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L160:C5",
+            "title": "does not start when enabled=true but available=false",
+            "suites": [
+              "AgentDiscoveryService",
+              "enabled+available combinations (T035)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not start when enabled=true but available=false；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::enabled_available_matrix_and_stop_return_to_idle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L173:C5",
+            "title": "starts when both enabled=true and available=true",
+            "suites": [
+              "AgentDiscoveryService",
+              "enabled+available combinations (T035)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "starts when both enabled=true and available=true；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::enabled_available_matrix_and_stop_return_to_idle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L183:C5",
+            "title": "stops running agent when enabled becomes false on refresh",
+            "suites": [
+              "AgentDiscoveryService",
+              "enabled+available combinations (T035)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stops running agent when enabled becomes false on refresh；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::disable_refresh_and_shutdown_emit_the_exact_independent_reasons_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L200:C5",
+            "title": "falls back to setInterval when fs.watch throws",
+            "suites": [
+              "AgentDiscoveryService",
+              "fs.watch fallback to polling (T036)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "falls back to setInterval when fs.watch throws；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::missing_watch_path_uses_polling_and_shutdown_cancels_every_timer"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L219:C5",
+            "title": "stops all timers and running entries",
+            "suites": [
+              "AgentDiscoveryService",
+              "stop cleanup (T037)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stops all timers and running entries；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::disable_refresh_and_shutdown_emit_the_exact_independent_reasons_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L238:C5",
+            "title": "emits agent:started and agent:stopped events",
+            "suites": [
+              "AgentDiscoveryService",
+              "events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "emits agent:started and agent:stopped events；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::disable_refresh_and_shutdown_emit_the_exact_independent_reasons_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L268:C5",
+            "title": "emits disabled reason when enabled becomes false",
+            "suites": [
+              "AgentDiscoveryService",
+              "stop reason classification"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "emits disabled reason when enabled becomes false；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::disable_refresh_and_shutdown_emit_the_exact_independent_reasons_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L285:C5",
+            "title": "emits unavailable reason when available becomes false",
+            "suites": [
+              "AgentDiscoveryService",
+              "stop reason classification"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "emits unavailable reason when available becomes false；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::availability_transitions_emit_started_and_unavailable_without_redundant_starts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L302:C5",
+            "title": "emits shutdown reason on service stop",
+            "suites": [
+              "AgentDiscoveryService",
+              "stop reason classification"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "emits shutdown reason on service stop；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::disable_refresh_and_shutdown_emit_the_exact_independent_reasons_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L334:C5",
+            "title": "does not stop on single unavailable when threshold is 3",
+            "suites": [
+              "AgentDiscoveryService",
+              "unavailable debounce"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not stop on single unavailable when threshold is 3；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::unavailable_threshold_requires_consecutive_failures_and_recovers_its_counter"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L360:C5",
+            "title": "resets counter when availability recovers",
+            "suites": [
+              "AgentDiscoveryService",
+              "unavailable debounce"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resets counter when availability recovers；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::unavailable_threshold_requires_consecutive_failures_and_recovers_its_counter"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L389:C3",
+            "title": "coalesces concurrent refreshes and stops only after pending startup completes",
+            "suites": [
+              "AgentDiscoveryService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "coalesces concurrent refreshes and stops only after pending startup completes；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::concurrent_refresh_bursts_wait_for_startup_before_stopping_and_do_not_duplicate_start"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L416:C3",
+            "title": "shutdown drains in-flight startup without restoring running or poll timers",
+            "suites": [
+              "AgentDiscoveryService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "shutdown drains in-flight startup without restoring running or poll timers；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::shutdown_drains_pending_start_without_republishing_running_events_or_timers"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L438:C3",
+            "title": "shutdown during availability lookup prevents a late start",
+            "suites": [
+              "AgentDiscoveryService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "shutdown during availability lookup prevents a late start；实际原生生命周期执行；无模拟成功报告。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_discovery_service.rs",
+                "test": "migration_lifecycle_tests::shutdown_during_availability_lookup_prevents_late_start_and_timer_recreation"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/core/agent-control-manager.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "逐项核对历史断言，原生22项专项在Linux all-features通过；平台标签是覆盖目标，非Windows/macOS实跑证明。",
+      "source_hash": "429fc7e84cb86d3a9bf73bcceab8ebd394a50f0fb8772959455bf551b808f7a6",
+      "cases": [
+        {
+          "source": {
+            "id": "L21:C5",
+            "title": "mode=on returns true regardless of defaultWhenAuto",
+            "suites": [
+              "AgentControlManager",
+              "resolveEnabled three-tier mode (T028)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "on 强制覆盖 true/false 两种默认值",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_control_manager.rs",
+                "test": "migration_contract_tests::forced_on_overrides_both_auto_defaults"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L27:C5",
+            "title": "mode=off returns false regardless of defaultWhenAuto",
+            "suites": [
+              "AgentControlManager",
+              "resolveEnabled three-tier mode (T028)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "off 强制覆盖 true/false 两种默认值",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_control_manager.rs",
+                "test": "migration_contract_tests::forced_off_overrides_both_auto_defaults"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L33:C5",
+            "title": "mode=auto returns defaultWhenAuto",
+            "suites": [
+              "AgentControlManager",
+              "resolveEnabled three-tier mode (T028)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "显式 auto 分别返回 true/false 默认值",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_control_manager.rs",
+                "test": "migration_contract_tests::explicit_auto_uses_both_defaults"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L39:C5",
+            "title": "unset mode defaults to auto (returns defaultWhenAuto)",
+            "suites": [
+              "AgentControlManager",
+              "resolveEnabled three-tier mode (T028)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "未设置 agent 分别返回 true/false 默认值",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_control_manager.rs",
+                "test": "migration_contract_tests::unset_agent_uses_both_defaults"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L44:C5",
+            "title": "getMode returns auto for unset agents",
+            "suites": [
+              "AgentControlManager",
+              "resolveEnabled three-tier mode (T028)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "未设置 get_mode 精确为 Auto",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_control_manager.rs",
+                "test": "migration_contract_tests::unset_mode_is_auto"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L48:C5",
+            "title": "getAllModes returns all set modes",
+            "suites": [
+              "AgentControlManager",
+              "resolveEnabled three-tier mode (T028)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "get_all_modes 精确保留两个模式和数量",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_control_manager.rs",
+                "test": "migration_contract_tests::mode_snapshot_contains_every_configured_mode"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L70:C5",
+            "title": "persists mode changes through save/reload cycle",
+            "suites": [
+              "AgentControlManager",
+              "load/save persistence (T029)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实文件保存/加载后恢复 on/off 及其 enabled 结果",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_control_manager.rs",
+                "test": "migration_contract_tests::persistence_restores_both_modes_and_their_resolution"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L85:C5",
+            "title": "loads empty config when file does not exist",
+            "suites": [
+              "AgentControlManager",
+              "load/save persistence (T029)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实缺失文件 load 后模式快照为空",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/agent_control_manager.rs",
+                "test": "migration_contract_tests::missing_control_file_loads_an_empty_mode_snapshot"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/core/intercept-result-linker.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "逐项核对历史断言，原生22项专项在Linux all-features通过；平台标签是覆盖目标，非Windows/macOS实跑证明。",
+      "source_hash": "7c5cb9d16136aa6f129f6201b01bb24a9b9dffafc4581ac28992897cd6f093ea",
+      "cases": [
+        {
+          "source": {
+            "id": "L23:C3",
+            "title": "maps tool.call to PreToolUse and tool.result to PostToolUse",
+            "suites": [
+              "InterceptResultLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "同一 tool call 的 PreToolUse=allow/PostToolUse=block 分别落字段",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/intercept_result_linker.rs",
+                "test": "migration_contract_tests::call_and_result_resolve_independent_pre_and_post_verdicts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L38:C3",
+            "title": "omits guardrail fields when the record is missing and skips other agents",
+            "suites": [
+              "InterceptResultLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "OpenClaw 命中，错误 session/Codex/QoderWork 不落两个字段",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/intercept_result_linker.rs",
+                "test": "migration_contract_tests::verdict_matching_keeps_session_and_agent_allowlist_boundaries"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L73:C3",
+            "title": "omits guardrail fields when the tool call id or record is missing",
+            "suites": [
+              "InterceptResultLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺 ID/无 verdict 不落字段，Qoder IDEA 精确命中",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/intercept_result_linker.rs",
+                "test": "migration_contract_tests::missing_tool_or_verdict_omits_fields_and_qoder_idea_is_supported"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L99:C3",
+            "title": "writes nothing when interceptor is disabled",
+            "suites": [
+              "InterceptResultLinker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "即使存储匹配 verdict，disabled 仍不落两个字段",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/intercept_result_linker.rs",
+                "test": "migration_contract_tests::disabled_linker_omits_both_fields_even_for_a_matching_stored_verdict"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/core/workspace-policy.test.ts",
+      "coverage": "partial",
+      "rust": [],
+      "note": "逐项核对历史断言，原生22项专项在Linux all-features通过；平台标签是覆盖目标，非Windows/macOS实跑证明。Workspace 第 7 项等待隐私 JSON 拒绝修复，第 8 项缺精确 stderr 警告捕获，保持 partial。",
+      "source_hash": "1f372152204eadd6f45df00f2bfeeb9c10bd25aef94ccdcb3f6f091fc236c0f2",
+      "cases": [
+        {
+          "source": {
+            "id": "L13:C3",
+            "title": "matches directories and descendants but not sibling prefixes or relative paths",
+            "suites": [
+              "workspace exclusions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "目录及词法归一化后代命中，兄弟前缀和相对路径不命中",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::matches_directory_and_descendants_without_sibling_or_relative_prefixes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L21:C3",
+            "title": "resolves symlinks including non-existing descendants",
+            "suites": [
+              "workspace exclusions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Unix 符号链接 / Windows junction 两向命中并识别尚不存在的后代",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::resolves_directory_links_including_not_yet_created_descendants"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L27:C3",
+            "title": "allows unknown workspace and never scans prompt, tool paths, or inferred git root",
+            "suites": [
+              "workspace exclusions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "未知工作区不从正文、工具参数或推断 git root 猜路径",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::unknown_workspace_does_not_scan_prompt_tool_arguments_or_inferred_git_roots"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L32:C3",
+            "title": "blocks any explicit workspace root including JSON-encoded arrays",
+            "suites": [
+              "workspace exclusions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "数组与 JSON 编码多根列表任一私有根阻断",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::explicit_workspace_arrays_and_json_encoded_roots_block_the_event"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L37:C3",
+            "title": "remembers blocked sessions across records, restarts and concurrent hook processes",
+            "suites": [
+              "workspace exclusions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "跨独立实例、重启的 marker 保留拒绝；其他 agent/新 session/空规则不串扰，文件名不含明文身份和私有根",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::session_markers_are_shared_across_instances_and_restart_without_cross_agent_or_plaintext_leaks"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L50:C3",
+            "title": "preflights batches before letting earlier content from a blocked session escape",
+            "suites": [
+              "workspace exclusions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "整批预检，晚出现的私有根不能让同 session 早期正文逃逸",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::whole_batch_preflight_blocks_early_unknown_records_for_a_later_denied_session"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L55:C3",
+            "title": "rejects malformed rules instead of silently disabling privacy",
+            "suites": [
+              "workspace exclusions"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "相对/空列表原生断言已备；坏 JSON 配置仍有生产差异，独立失败回归草案待集中修复",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::relative_rules_are_rejected_and_absent_rule_list_is_empty"
+              },
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "privacy_migration_contract_tests::malformed_workspace_privacy_config_is_rejected_instead_of_disabling_exclusions"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L63:C1",
+            "title": "isolates marker write failures, retries after recovery, and does not drop public events",
+            "suites": [],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "保留进程内拒绝，标记写失败后重试恢复且不丢公开事件；警告精确 stderr 捕获仍缺",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::marker_failures_keep_private_sessions_blocked_and_retry_without_dropping_public_events"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L80:C1",
+            "title": "shares identified sessions across file pipelines while isolating other agents and anonymous sources",
+            "suites": [],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "明确 Agent/session 跨 file pipeline fallback 共享，其他 Agent 和匿名源隔离",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::identified_sessions_cross_pipeline_fallbacks_but_other_agents_and_anonymous_sources_are_isolated"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L89:C1",
+            "title": "applies an edited rule list when the collector policy is recreated on restart",
+            "suites": [],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "配置根列表复制为启动快照，重建实例后才采用编辑列表",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/pipeline/workspace_policy.rs",
+                "test": "migration_contract_tests::rule_changes_take_effect_when_policy_is_recreated_on_restart"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
       "legacy":"tests/unit/mask/string-masker.test.ts", "coverage":"complete", "rust":[],
       "note":"二十四处历史声明逐行对应既有 string_masker 测试，入口统一使用真实 mask_string/apply_mask_ranges；AccessKey ID 后候选、20–60 长度、字符集、分隔符/基64、行首特殊字符、下一个 AccessKey 截断、扫描窗口 1024、大文本窗口外命中、preview 格式与幂等、GitHub 预域、边界与长度拒绝、非对称前缀拒绝、私钥块、密码 URL、JDBC 自然语后维、无密码 URL、公/证书/不完整/超长拒接、UTF-8 长度、已标 token 不重复遮、多个范围应用、链式重叠 union 覆盖及大字符串关键字窗口全部保留。",
       "source_hash":"b81790f97e6cc87ae4bb8cd6382f278db136a0fa791ecae3e8904cd3eac88116",
