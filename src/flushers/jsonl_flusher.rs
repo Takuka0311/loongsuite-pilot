@@ -9,7 +9,9 @@ use serde_json::{Map, Value};
 use super::base_flusher::{BaseFlusher, FlushError};
 use crate::normalization::{project_log_entry, SerialiseLogEntryOptions};
 use crate::types::{AgentActivityEntry, JsonlFlusherConfig};
-use crate::utils::{append_line, ensure_dir, get_today_date_string};
+use crate::utils::{
+    append_segmented_jsonl, ensure_dir, get_today_date_string, DEFAULT_JSONL_SEGMENT_BYTES,
+};
 
 pub struct JsonlFlusher {
     config: JsonlFlusherConfig,
@@ -78,8 +80,15 @@ impl BaseFlusher for JsonlFlusher {
         );
         let line =
             serde_json::to_string(&Value::Object(projected)).unwrap_or_else(|_| "{}".to_string());
-        append_line(&path, &line).await;
-        Ok(())
+        let limit = self
+            .config
+            .max_file_size_mb
+            .checked_mul(1024 * 1024)
+            .filter(|limit| *limit > 0)
+            .unwrap_or(DEFAULT_JSONL_SEGMENT_BYTES);
+        append_segmented_jsonl(Path::new(&path), &line, limit, false)
+            .await
+            .map_err(|error| FlushError::new(error.to_string()))
     }
 
     async fn send_batch(
@@ -116,8 +125,15 @@ impl BaseFlusher for JsonlFlusher {
             body.insert(key.clone(), value.clone());
         }
         let line = serde_json::to_string(&Value::Object(body)).unwrap_or_else(|_| "{}".to_string());
-        append_line(&path, &line).await;
-        Ok(())
+        let limit = self
+            .config
+            .max_file_size_mb
+            .checked_mul(1024 * 1024)
+            .filter(|limit| *limit > 0)
+            .unwrap_or(DEFAULT_JSONL_SEGMENT_BYTES);
+        append_segmented_jsonl(Path::new(&path), &line, limit, false)
+            .await
+            .map_err(|error| FlushError::new(error.to_string()))
     }
 }
 

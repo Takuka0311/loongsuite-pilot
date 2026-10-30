@@ -22,7 +22,7 @@ use super::super::checkpoint::{
     parse_checkpoint, update_active_turn_from_extracted, update_active_turn_metadata,
 };
 use super::super::discovery::{
-    canonical_directory_path, collect_recent_rollout_files, collect_rollout_files,
+    canonical_directory_path, collect_recent_rollout_files, collect_rollout_files, directory_mtime,
     read_codex_wakeup_roots, safe_wakeup_session_part, span_context_marker_name,
     DiscoveredSessionFile, WalkBudget, DYNAMIC_SESSION_FILE_MAX_IDLE_MS,
     MAX_DYNAMIC_DIRECTORIES_PER_ROOT, MAX_DYNAMIC_ROLLOUT_FILES_PER_ROOT, MAX_DYNAMIC_SESSION_DIRS,
@@ -237,9 +237,16 @@ impl<'a> CodexTranscriptEngine<'a> {
         }
         let mut files = Vec::new();
         let mut dir_mtimes = Vec::new();
-        collect_rollout_files(&self.body.session_dir, &mut files, &mut dir_mtimes).await;
+        let complete =
+            collect_rollout_files(&self.body.session_dir, &mut files, &mut dir_mtimes).await;
+        if !complete {
+            crate::utils::create_logger("CodexTranscriptInput").warn(
+                "Codex rollout directory scan failed; retrying next poll",
+                None,
+            );
+        }
         self.body.with_shared(|shared| {
-            shared.cached_default = if dir_mtimes.is_empty() {
+            shared.cached_default = if !complete || dir_mtimes.is_empty() {
                 None
             } else {
                 Some(super::CachedDefault {
@@ -746,7 +753,7 @@ async fn rollout_dirs_unchanged(dir_mtimes: &[(String, i64)]) -> bool {
     for (dir, mtime) in dir_mtimes {
         match tokio::fs::metadata(dir).await {
             Ok(meta) => {
-                if file_meta_snapshot(&meta).2 != *mtime {
+                if directory_mtime(&meta) != Some(*mtime) {
                     return false;
                 }
             }

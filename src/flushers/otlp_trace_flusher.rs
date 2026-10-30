@@ -29,8 +29,8 @@ use crate::normalization::{
 };
 use crate::types::{AgentActivityEntry, OtlpCompression, OtlpTraceFlusherConfig};
 use crate::utils::{
-    append_line, create_logger, ensure_dir, format_time, get_today_date_string,
-    normalize_agent_type, read_installed_version,
+    append_segmented_jsonl, create_logger, ensure_dir, format_time, get_today_date_string,
+    normalize_agent_type, read_installed_version, DEFAULT_JSONL_SEGMENT_BYTES,
 };
 
 struct ConvertScope<'a> {
@@ -1442,7 +1442,13 @@ impl OtlpInner {
             get_today_date_string()
         ));
         for line in create_readable_span_to_otlp_span_json_array(spans) {
-            append_line(&path.to_string_lossy(), &line).await;
+            if append_segmented_jsonl(&path, &line, DEFAULT_JSONL_SEGMENT_BYTES, false)
+                .await
+                .is_err()
+            {
+                create_logger("otlp-trace-flusher")
+                    .warn("OTLP debug mirror could not be persisted", None);
+            }
         }
     }
 
@@ -1479,7 +1485,13 @@ impl OtlpInner {
                 );
             }
             if let Ok(text) = serde_json::to_string(&obj) {
-                append_line(&path.to_string_lossy(), &text).await;
+                if append_segmented_jsonl(&path, &text, DEFAULT_JSONL_SEGMENT_BYTES, true)
+                    .await
+                    .is_err()
+                {
+                    create_logger("otlp-trace-flusher")
+                        .warn("OTLP failed evidence could not be persisted", None);
+                }
             }
         }
     }

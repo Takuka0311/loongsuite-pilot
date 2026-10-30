@@ -9,6 +9,7 @@ use tokio::task::JoinHandle;
 
 use crate::flushers::SLS_FAILURE_LOG_MAX_TOTAL_BYTES;
 use crate::types::LogRetentionConfig;
+use crate::utils::{parse_output_segment, with_jsonl_file_lock, LOCAL_LOG_EMERGENCY_FILE_BYTES};
 
 use super::{fields, logger};
 
@@ -60,6 +61,8 @@ pub struct LogRetentionService {
     config: LogRetentionConfig,
     startup: std::sync::Mutex<Option<JoinHandle<()>>>,
     interval: std::sync::Mutex<Option<JoinHandle<()>>>,
+    pressure: std::sync::Mutex<Option<JoinHandle<()>>>,
+    cleanup_gate: tokio::sync::Mutex<()>,
 }
 
 impl LogRetentionService {
@@ -69,6 +72,8 @@ impl LogRetentionService {
             config,
             startup: std::sync::Mutex::new(None),
             interval: std::sync::Mutex::new(None),
+            pressure: std::sync::Mutex::new(None),
+            cleanup_gate: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -86,6 +91,15 @@ impl LogRetentionService {
                 "outputMaxTotalBytes": OUTPUT_RETENTION_MAX_TOTAL_BYTES,
             }))),
         );
+        let pressure_service = std::sync::Arc::clone(self);
+        *self.pressure.lock().expect("pressure") = Some(tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(60));
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                pressure_service.run_pressure_cleanup().await;
+            }
+        }));
         let this = std::sync::Arc::clone(self);
         *self.startup.lock().expect("startup") = Some(tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(STARTUP_DELAY_MS)).await;
@@ -104,6 +118,9 @@ impl LogRetentionService {
     }
 
     pub fn stop(&self) {
+        if let Some(task) = self.pressure.lock().expect("pressure").take() {
+            task.abort();
+        }
         if let Some(task) = self.startup.lock().expect("startup").take() {
             task.abort();
         }
@@ -113,16 +130,34 @@ impl LogRetentionService {
     }
 
     pub async fn run_cleanup(&self) -> (u64, u64) {
+        self.cleanup(false).await
+    }
+    pub async fn run_pressure_cleanup(&self) -> (u64, u64) {
+        self.cleanup(true).await
+    }
+    async fn cleanup(&self, pressure_only: bool) -> (u64, u64) {
+        let _guard = self.cleanup_gate.lock().await;
         let today = local_date_string(Local::now());
         let mut deleted = 0;
         let mut errors = 0;
         let entries = read_dir(&self.logs_dir);
         for entry in entries {
             let path = self.logs_dir.join(&entry);
-            if !path.is_dir() {
+            if !ordinary_directory(&path) {
                 continue;
             }
             if let Some(category) = category_of(&entry) {
+                if pressure_only
+                    && !matches!(
+                        category,
+                        Category::Output
+                            | Category::SlsFailed
+                            | Category::OtlpFailed
+                            | Category::MetricAlarm
+                    )
+                {
+                    continue;
+                }
                 let (d, e) = self.clean_directory(&path, category, &today).await;
                 deleted += d;
                 errors += e;
@@ -131,8 +166,19 @@ impl LogRetentionService {
                     let Some(category) = category_of(&sub) else {
                         continue;
                     };
+                    if pressure_only
+                        && !matches!(
+                            category,
+                            Category::Output
+                                | Category::SlsFailed
+                                | Category::OtlpFailed
+                                | Category::MetricAlarm
+                        )
+                    {
+                        continue;
+                    }
                     let sub_path = path.join(&sub);
-                    if !sub_path.is_dir() {
+                    if !ordinary_directory(&sub_path) {
                         continue;
                     }
                     let (d, e) = self.clean_directory(&sub_path, category, &today).await;
@@ -171,7 +217,7 @@ impl LogRetentionService {
                     if date == today || date >= cutoff {
                         continue;
                     }
-                    if delete_file(&dir.join(&file)) {
+                    if delete_file(&dir.join(&file)).await {
                         deleted += 1;
                     } else {
                         errors += 1;
@@ -185,11 +231,16 @@ impl LogRetentionService {
     async fn clean_output(&self, dir: &Path, files: &[String], today: &str) -> (u64, u64) {
         let mut deleted = 0;
         let mut errors = 0;
-        let mut remaining = collect_dated(dir, files);
+        let mut remaining = collect_output_dated(dir, files);
+        let (d, e) = reclaim_oversized_files(&remaining, false).await;
+        deleted += d;
+        errors += e;
+        remaining = collect_output_dated(dir, &read_dir(dir));
         let regular = date_cutoff(self.config.output_days);
         let (d, e, attempted) = delete_matching(&remaining, |file| {
             file.date_str != today && file.date_str < regular
-        });
+        })
+        .await;
         deleted += d;
         errors += e;
         remaining.retain(|file| !attempted.contains(&file.full_path));
@@ -198,11 +249,12 @@ impl LogRetentionService {
             file.date_str != today
                 && file.date_str < large_cutoff
                 && file.size > OUTPUT_RETENTION_LARGE_FILE_THRESHOLD_BYTES
-        });
+        })
+        .await;
         deleted += d;
         errors += e;
         remaining.retain(|file| !attempted.contains(&file.full_path));
-        let (d, e) = enforce_output_limit(&remaining, today);
+        let (d, e) = enforce_output_limit(&remaining, today).await;
         (deleted + d, errors + e)
     }
 
@@ -210,10 +262,15 @@ impl LogRetentionService {
         let mut deleted = 0;
         let mut errors = 0;
         let mut remaining = collect_dated(dir, files);
+        let (d, e) = reclaim_oversized_files(&remaining, true).await;
+        deleted += d;
+        errors += e;
+        remaining = collect_dated(dir, &read_dir(dir));
         let cutoff = date_cutoff(self.config.sls_failed_days);
         let (d, e, _) = delete_matching(&remaining, |file| {
             file.date_str != today && file.date_str < cutoff
-        });
+        })
+        .await;
         deleted += d;
         errors += e;
         remaining = collect_dated(dir, &read_dir(dir));
@@ -235,7 +292,7 @@ impl LogRetentionService {
             if total <= SLS_FAILURE_RETENTION_MAX_TOTAL_BYTES {
                 break;
             }
-            if delete_file(&file.full_path) {
+            if delete_file(&file.full_path).await {
                 deleted += 1;
                 total = total.saturating_sub(file.size);
             } else {
@@ -254,11 +311,16 @@ impl LogRetentionService {
         let mut deleted = 0;
         let mut errors = 0;
         let mut remaining = collect_observability(dir, files, category);
+        let (d, e) = reclaim_oversized_files(&remaining, category == Category::OtlpFailed).await;
+        deleted += d;
+        errors += e;
+        remaining = collect_observability(dir, &read_dir(dir), category);
         let retention_cutoff = date_cutoff(self.retention_days(category));
         let protected_from = date_cutoff(LOCAL_OBSERVABILITY_PRESSURE_MIN_KEEP_DAYS);
         let (d, e, _) = delete_matching(&remaining, |file| {
             file.date_str < protected_from && file.date_str < retention_cutoff
-        });
+        })
+        .await;
         deleted += d;
         errors += e;
         remaining = collect_observability(dir, &read_dir(dir), category);
@@ -273,7 +335,9 @@ impl LogRetentionService {
         }
         let mut candidates: Vec<&DatedLogFile> = remaining
             .iter()
-            .filter(|file| file.date_str < protected_from)
+            .filter(|file| {
+                parse_output_segment(&file.file).is_some() || file.date_str < protected_from
+            })
             .collect();
         candidates.sort_by(|left, right| {
             left.date_str
@@ -285,7 +349,7 @@ impl LogRetentionService {
             if total <= max_total {
                 break;
             }
-            if delete_file(&file.full_path) {
+            if delete_file(&file.full_path).await {
                 deleted += 1;
                 total = total.saturating_sub(file.size);
             } else {
@@ -327,7 +391,7 @@ fn category_of(name: &str) -> Option<Category> {
         "history" => Some(Category::History),
         "errors" => Some(Category::Errors),
         "debug" => Some(Category::Debug),
-        "output" => Some(Category::Output),
+        "output" | "otlp-debug" => Some(Category::Output),
         "sls-failed-logs" => Some(Category::SlsFailed),
         "otlp-failed" => Some(Category::OtlpFailed),
         "metric_alarm" => Some(Category::MetricAlarm),
@@ -358,13 +422,91 @@ fn read_dir(dir: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn ordinary_directory(path: &Path) -> bool {
+    crate::utils::runtime_paths::runtime_metadata(path).is_ok_and(|meta| meta.is_dir())
+}
+
+fn collect_output_dated(dir: &Path, files: &[String]) -> Vec<DatedLogFile> {
+    files
+        .iter()
+        .filter_map(|file| {
+            let full_path = dir.join(file);
+            let metadata = crate::utils::runtime_paths::runtime_metadata(&full_path).ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            let date = extract_date(file).or_else(|| {
+                if parse_output_segment(file).is_some_and(|segment| segment.date == "all") {
+                    metadata
+                        .modified()
+                        .ok()
+                        .map(|time| local_date_string(chrono::DateTime::<Local>::from(time)))
+                } else if file.ends_with("-all.jsonl") {
+                    Some(local_date_string(Local::now()))
+                } else {
+                    None
+                }
+            })?;
+            Some(DatedLogFile {
+                file: file.clone(),
+                full_path,
+                date_str: date,
+                size: metadata.len(),
+                mtime_ms: mtime_ms(&metadata),
+            })
+        })
+        .collect()
+}
+
+async fn reclaim_oversized_files(files: &[DatedLogFile], failed_data: bool) -> (u64, u64) {
+    let mut deleted = 0;
+    let mut errors = 0;
+    for file in files {
+        if file.size <= LOCAL_LOG_EMERGENCY_FILE_BYTES {
+            continue;
+        }
+        let outcome = with_jsonl_file_lock(&file.full_path, || async {
+            let metadata = match tokio::fs::symlink_metadata(&file.full_path).await {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => return Err(error),
+            };
+            if !metadata.is_file() || metadata.len() <= LOCAL_LOG_EMERGENCY_FILE_BYTES {
+                return Ok(false);
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                if metadata.file_attributes() & 0x400 != 0 {
+                    return Ok(false);
+                }
+            }
+            tokio::fs::remove_file(&file.full_path).await?;
+            logger("LogRetention").warn(
+                "Deleted oversized local JSONL file",
+                Some(&fields(
+                    serde_json::json!({"bytes":metadata.len(),"discardedFailedData":failed_data}),
+                )),
+            );
+            Ok::<_, std::io::Error>(true)
+        })
+        .await;
+        match outcome {
+            Ok(true) => deleted += 1,
+            Ok(false) => {}
+            Err(_) => errors += 1,
+        }
+    }
+    (deleted, errors)
+}
+
 fn collect_dated(dir: &Path, files: &[String]) -> Vec<DatedLogFile> {
     files
         .iter()
         .filter_map(|file| {
             let date = extract_date(file)?;
             let full_path = dir.join(file);
-            let meta = std::fs::metadata(&full_path).ok()?;
+            let meta = std::fs::symlink_metadata(&full_path).ok()?;
             if !meta.is_file() {
                 return None;
             }
@@ -428,7 +570,7 @@ fn managed_legacy(file: &str, category: Category) -> bool {
         .is_some_and(|name| METRIC_ALARM_STREAMS.contains(&name))
 }
 
-fn delete_matching(
+async fn delete_matching(
     files: &[DatedLogFile],
     mut should: impl FnMut(&DatedLogFile) -> bool,
 ) -> (u64, u64, HashSet<PathBuf>) {
@@ -440,7 +582,7 @@ fn delete_matching(
             continue;
         }
         attempted.insert(file.full_path.clone());
-        if delete_file(&file.full_path) {
+        if delete_file(&file.full_path).await {
             deleted += 1;
         } else {
             errors += 1;
@@ -449,7 +591,7 @@ fn delete_matching(
     (deleted, errors, attempted)
 }
 
-fn enforce_output_limit(files: &[DatedLogFile], today: &str) -> (u64, u64) {
+async fn enforce_output_limit(files: &[DatedLogFile], today: &str) -> (u64, u64) {
     let mut total: u64 = files.iter().map(|file| file.size).sum();
     if total <= OUTPUT_RETENTION_MAX_TOTAL_BYTES {
         return (0, 0);
@@ -457,12 +599,15 @@ fn enforce_output_limit(files: &[DatedLogFile], today: &str) -> (u64, u64) {
     let min_keep = date_cutoff(OUTPUT_RETENTION_PRESSURE_MIN_KEEP_DAYS);
     let mut candidates: Vec<&DatedLogFile> = files
         .iter()
-        .filter(|file| file.date_str != today && file.date_str < min_keep)
+        .filter(|file| {
+            parse_output_segment(&file.file).is_some()
+                || (file.date_str != today && file.date_str < min_keep)
+        })
         .collect();
     candidates.sort_by(|left, right| {
         left.date_str
             .cmp(&right.date_str)
-            .then(right.size.cmp(&left.size))
+            .then(left.mtime_ms.cmp(&right.mtime_ms))
             .then(left.file.cmp(&right.file))
     });
     let mut deleted = 0;
@@ -471,7 +616,7 @@ fn enforce_output_limit(files: &[DatedLogFile], today: &str) -> (u64, u64) {
         if total <= OUTPUT_RETENTION_MAX_TOTAL_BYTES {
             break;
         }
-        if delete_file(&file.full_path) {
+        if delete_file(&file.full_path).await {
             deleted += 1;
             total = total.saturating_sub(file.size);
         } else {
@@ -513,14 +658,17 @@ fn active_sls_segments(files: &[DatedLogFile], today: &str) -> HashSet<PathBuf> 
     latest.into_values().map(|(_, path)| path).collect()
 }
 
-fn delete_file(path: &Path) -> bool {
-    match std::fs::remove_file(path) {
-        Ok(()) => true,
-        Err(err) => {
-            logger("LogRetention").warn("failed to delete log file", Some(&fields(serde_json::json!({ "file": path.display().to_string(), "error": err.to_string() }))));
-            false
+async fn delete_file(path: &Path) -> bool {
+    with_jsonl_file_lock(path, || async {
+        match tokio::fs::remove_file(path).await {
+            Ok(()) => true,
+            Err(error) => {
+                logger("LogRetention").warn("failed to delete log file",
+                    Some(&fields(serde_json::json!({"file":path.display().to_string(),"error":error.to_string()}))));
+                false
+            }
         }
-    }
+    }).await
 }
 
 fn mtime_ms(meta: &std::fs::Metadata) -> i64 {
@@ -557,6 +705,75 @@ mod tests {
         );
         assert!(extract_date("events-2019-01-01.jsonl").is_none());
         assert!(extract_date("no-date.jsonl").is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pressure_reclaims_today_sealed_segments_but_preserves_the_active_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("logs/output");
+        std::fs::create_dir_all(&output).unwrap();
+        let today = local_date_string(Local::now());
+        let active = output.join(format!("copilot-{today}.jsonl"));
+        std::fs::write(&active, b"active\n").unwrap();
+        for index in 0..3 {
+            let path = output.join(format!("copilot.part-{index:032x}-{today}.jsonl"));
+            std::fs::File::create(path)
+                .unwrap()
+                .set_len(900 * 1024 * 1024)
+                .unwrap();
+        }
+        let service = LogRetentionService::new(dir.path(), config(7));
+        let (deleted, errors) = service.run_pressure_cleanup().await;
+        assert_eq!((deleted, errors), (1, 0));
+        assert_eq!(std::fs::read_to_string(&active).unwrap(), "active\n");
+        let bytes: u64 = std::fs::read_dir(output)
+            .unwrap()
+            .map(|entry| entry.unwrap().metadata().unwrap().len())
+            .sum();
+        assert!(bytes <= super::OUTPUT_RETENTION_MAX_TOTAL_BYTES);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn emergency_reclaims_managed_mirrors_and_failed_evidence_without_touching_sources_or_checkpoints(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let today = local_date_string(Local::now());
+        let giant = crate::utils::LOCAL_LOG_EMERGENCY_FILE_BYTES + 1;
+        let sparse = |path: std::path::PathBuf| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::File::create(path).unwrap().set_len(giant).unwrap();
+        };
+        let output = dir
+            .path()
+            .join(format!("logs/output/copilot-{today}.jsonl"));
+        let failed = dir.path().join(format!(
+            "logs/otlp-failed/service-copilot__backend-{today}.jsonl"
+        ));
+        let debug = dir
+            .path()
+            .join(format!("logs/otlp-debug/service-copilot-{today}.jsonl"));
+        let native = dir.path().join("agent-home/events.jsonl");
+        let pending = dir
+            .path()
+            .join("logs/codex-pending-turns/group.pending.jsonl");
+        for path in [&output, &failed, &debug, &native, &pending] {
+            sparse(path.clone());
+        }
+        let checkpoint = dir.path().join("logs/input-state.json");
+        std::fs::write(&checkpoint, b"{\"cursor\":42}").unwrap();
+        let (deleted, errors) = LogRetentionService::new(dir.path(), config(7))
+            .run_pressure_cleanup()
+            .await;
+        assert_eq!((deleted, errors), (3, 0));
+        assert!(!output.exists() && !failed.exists() && !debug.exists());
+        assert_eq!(std::fs::metadata(native).unwrap().len(), giant);
+        assert_eq!(std::fs::metadata(pending).unwrap().len(), giant);
+        assert_eq!(
+            std::fs::read_to_string(checkpoint).unwrap(),
+            "{\"cursor\":42}"
+        );
     }
 
     #[tokio::test]

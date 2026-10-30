@@ -34,35 +34,70 @@ pub async fn collect_rollout_files(
     dir: &str,
     files: &mut Vec<String>,
     dir_mtimes: &mut Vec<(String, i64)>,
-) {
+) -> bool {
+    collect_rollout_files_observed(dir, files, dir_mtimes, &|_| {}).await
+}
+
+pub(super) fn directory_mtime(metadata: &std::fs::Metadata) -> Option<i64> {
+    metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_nanos()).ok())
+}
+
+async fn collect_rollout_files_observed(
+    dir: &str,
+    files: &mut Vec<String>,
+    dir_mtimes: &mut Vec<(String, i64)>,
+    observed: &(dyn Fn(&str) + Send + Sync),
+) -> bool {
+    // Snapshot before enumeration so publication during read_dir invalidates the cache.
+    let Ok(meta) = fs::metadata(dir).await else {
+        return false;
+    };
+    let Some(snapshot) = directory_mtime(&meta) else {
+        return false;
+    };
     let mut entries = match fs::read_dir(dir).await {
         Ok(entries) => entries,
-        Err(_) => return,
+        Err(_) => return false,
     };
-    let Ok(meta) = fs::metadata(dir).await else {
-        return;
-    };
-    dir_mtimes.push((dir.to_owned(), file_meta_snapshot(&meta).2));
+    dir_mtimes.push((dir.to_owned(), snapshot));
     let mut names = Vec::new();
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        names.push(entry);
+    loop {
+        match entries.next_entry().await {
+            Ok(Some(entry)) => names.push(entry),
+            Ok(None) => break,
+            Err(_) => return false,
+        }
     }
+    observed(dir);
+    let mut complete = true;
     for entry in names {
         let path = entry.path();
         let path_text = path.to_string_lossy().into_owned();
-        let file_type = entry.file_type().await.ok();
-        let Some(file_type) = file_type else {
+        let Ok(kind) = entry.file_type().await else {
+            complete = false;
             continue;
         };
-        if file_type.is_dir() {
-            Box::pin(collect_rollout_files(&path_text, files, dir_mtimes)).await;
-        } else if file_type.is_file() {
+        if kind.is_dir() {
+            if !Box::pin(collect_rollout_files_observed(
+                &path_text, files, dir_mtimes, observed,
+            ))
+            .await
+            {
+                complete = false;
+            }
+        } else if kind.is_file() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with("rollout-") && name.ends_with(".jsonl") {
                 files.push(path_text);
             }
         }
     }
+    complete
 }
 
 pub async fn collect_recent_rollout_files(
@@ -318,4 +353,82 @@ pub fn span_context_marker_name(session_id: &str, turn_id: &str) -> String {
         safe_wakeup_session_part(session_id),
         safe_wakeup_session_part(turn_id)
     )
+}
+
+#[cfg(all(test, unix))]
+mod cache_publication_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    async fn publication_is_visible_on_retry(dated: bool) {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().to_string_lossy().into_owned();
+        let before = std::fs::metadata(root.path()).unwrap().modified().unwrap();
+        let fired = AtomicBool::new(false);
+        let observe = |path: &str| {
+            if path == directory && !fired.swap(true, Ordering::SeqCst) {
+                let target = if dated {
+                    root.path().join("2026/10/30")
+                } else {
+                    root.path().to_path_buf()
+                };
+                std::fs::create_dir_all(&target).unwrap();
+                std::fs::write(target.join("rollout-late.jsonl"), "{}\n").unwrap();
+                std::fs::File::open(root.path())
+                    .unwrap()
+                    .set_modified(before + std::time::Duration::from_secs(2))
+                    .unwrap();
+            }
+        };
+        let mut files = Vec::new();
+        let mut snapshots = Vec::new();
+        assert!(
+            collect_rollout_files_observed(&directory, &mut files, &mut snapshots, &observe).await
+        );
+        assert!(files.is_empty());
+        assert_ne!(
+            snapshots[0].1,
+            directory_mtime(&std::fs::metadata(root.path()).unwrap()).unwrap()
+        );
+        files.clear();
+        snapshots.clear();
+        assert!(collect_rollout_files(&directory, &mut files, &mut snapshots).await);
+        assert_eq!(files.len(), 1);
+        for (path, stamp) in snapshots {
+            assert_eq!(
+                directory_mtime(&std::fs::metadata(path).unwrap()),
+                Some(stamp)
+            );
+        }
+    }
+    #[tokio::test]
+    async fn rollout_published_after_root_listing_invalidates_the_captured_generation() {
+        publication_is_visible_on_retry(false).await;
+    }
+    #[tokio::test]
+    async fn date_directory_published_after_root_listing_is_discovered_on_retry() {
+        publication_is_visible_on_retry(true).await;
+    }
+    #[tokio::test]
+    async fn failed_child_walk_is_not_a_publishable_cache_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let child = root.path().join("dated");
+        std::fs::create_dir_all(&child).unwrap();
+        let directory = root.path().to_string_lossy().into_owned();
+        let fired = AtomicBool::new(false);
+        let observe = |path: &str| {
+            if path == directory && !fired.swap(true, Ordering::SeqCst) {
+                std::fs::remove_dir_all(&child).unwrap();
+            }
+        };
+        let mut files = Vec::new();
+        let mut snapshots = Vec::new();
+        assert!(
+            !collect_rollout_files_observed(&directory, &mut files, &mut snapshots, &observe).await
+        );
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::write(child.join("rollout-restored.jsonl"), "{}\n").unwrap();
+        assert!(collect_rollout_files(&directory, &mut files, &mut snapshots).await);
+        assert_eq!(files.len(), 1);
+    }
 }

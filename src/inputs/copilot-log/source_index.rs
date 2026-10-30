@@ -73,35 +73,9 @@ fn iso(ms: i64) -> Option<String> {
     chrono::DateTime::from_timestamp_millis(ms)
         .map(|stamp| stamp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }
-// MetadataExt::file_index/volume_serial_number remain nightly-only in
-// Rust 1.99.1. Query the same open handle through the stable Windows API.
-fn file_identity(file: &File, metadata: &std::fs::Metadata) -> Result<String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let _ = file;
-        Ok(format!("{}:{}", metadata.dev(), metadata.ino()))
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Storage::FileSystem::{
-            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
-        };
-        let _ = metadata;
-        let mut information = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
-        // The File owns a valid handle and the output buffer has the API's exact layout.
-        let success =
-            unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) };
-        if success == 0 {
-            return Err(std::io::Error::last_os_error().into());
-        }
-        // Success initializes the complete output structure.
-        let information = unsafe { information.assume_init() };
-        let index =
-            (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
-        Ok(format!("{}:{index}", information.dwVolumeSerialNumber))
-    }
+fn file_identity(file: &File, _metadata: &std::fs::Metadata) -> Result<String> {
+    let identity = crate::utils::file_identity::identity_from_open(file)?;
+    Ok(format!("{}:{}", identity.dev, identity.ino))
 }
 
 fn anchor(file: &mut File, end: u64) -> Result<String> {

@@ -3,8 +3,10 @@
 //! `logs/metrics-summary.json` is the contract shared by the menu bar, the
 //! dashboard, and `token-usage`. Field names stay camelCase.
 
-use super::jsonl_tail_reader::scan_jsonl_tail;
+use super::jsonl_tail_reader::{scan_jsonl_tail, scan_jsonl_tail_checked};
 use crate::types::StatusBarConfig;
+use crate::utils::file_identity::{identity_from_open, OpenedFileIdentity as FileIdentity};
+use crate::utils::LOCAL_LOG_EMERGENCY_FILE_BYTES;
 use crate::utils::{ensure_dir, get_today_date_string, read_json_file, write_json_file};
 use chrono::{Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -222,13 +224,6 @@ struct CurrentDayState {
     files: Vec<CurrentDayFileState>,
 }
 
-struct FileIdentity {
-    dev: u64,
-    ino: u64,
-    birthtime_ms: f64,
-    size: u64,
-}
-
 pub struct MetricsSummaryWriter {
     data_dir: String,
     output_dir: String,
@@ -340,6 +335,11 @@ impl MetricsSummaryWriter {
             let Some(identity) = file_identity(Path::new(file)) else {
                 continue;
             };
+            if identity.size > LOCAL_LOG_EMERGENCY_FILE_BYTES {
+                crate::utils::create_logger("MetricsSummaryWriter").warn("metrics summary skipped oversized output file",
+                    Some(&serde_json::json!({"bytes":identity.size,"maxBytes":LOCAL_LOG_EMERGENCY_FILE_BYTES}).as_object().cloned().unwrap_or_default()));
+                continue;
+            }
             let has_digest = digest.days.contains_key(day);
             let cached = scan_state.files.get(name);
             let mut start_offset = 0_u64;
@@ -426,7 +426,12 @@ impl MetricsSummaryWriter {
         let existing: HashMap<String, CurrentDayFileState> = state
             .files
             .iter()
-            .map(|file| (file.file_name.clone(), file.clone()))
+            .map(|file| {
+                (
+                    identity_key(file.dev, file.ino, file.birthtime_ms),
+                    file.clone(),
+                )
+            })
             .collect();
         let mut next = existing.clone();
         let mut total_bytes = 0_u64;
@@ -446,7 +451,18 @@ impl MetricsSummaryWriter {
             let Some(identity) = file_identity(Path::new(file_path)) else {
                 continue;
             };
-            let previous = existing.get(name);
+            if identity.size > LOCAL_LOG_EMERGENCY_FILE_BYTES {
+                crate::utils::create_logger("MetricsSummaryWriter").warn("metrics summary skipped oversized output file",
+                    Some(&serde_json::json!({"bytes":identity.size,"maxBytes":LOCAL_LOG_EMERGENCY_FILE_BYTES}).as_object().cloned().unwrap_or_default()));
+                continue;
+            }
+            let key = identity_key(identity.dev, identity.ino, identity.birthtime_ms);
+            let previous = existing.get(&key);
+            for (old_key, old) in &mut next {
+                if old_key != &key && old.file_name == name {
+                    old.file_name = format!("retired:{old_key}");
+                }
+            }
             let can_resume = previous.is_some_and(|file| {
                 file.dev == identity.dev
                     && file.ino == identity.ino
@@ -459,19 +475,22 @@ impl MetricsSummaryWriter {
             } else {
                 0
             };
-            let mut stats = if can_resume {
-                deserialize_day_stats(&previous.unwrap().stats)
-            } else {
-                DayStats::default()
-            };
-            let result = scan_jsonl_tail(file_path, start_offset, identity.size, None, |record| {
-                apply_record(record, &mut stats)
-            })
+            let mut stats = previous
+                .map(|file| deserialize_day_stats(&file.stats))
+                .unwrap_or_default();
+            let result = scan_jsonl_tail_checked(
+                file_path,
+                start_offset,
+                identity.size,
+                None,
+                Some(identity.clone()),
+                |record| apply_record(record, &mut stats),
+            )
             .await
             .map_err(|err| err.to_string())?;
             total_bytes += result.bytes_read;
             next.insert(
-                name.to_string(),
+                key,
                 CurrentDayFileState {
                     file_name: name.to_string(),
                     dev: identity.dev,
@@ -1153,26 +1172,11 @@ fn read_version_file(path: &Path) -> Option<String> {
 }
 
 fn file_identity(path: &Path) -> Option<FileIdentity> {
-    let meta = std::fs::metadata(path).ok()?;
-    #[cfg(unix)]
-    let (dev, ino) = {
-        use std::os::unix::fs::MetadataExt;
-        (meta.dev(), meta.ino())
-    };
-    #[cfg(not(unix))]
-    let (dev, ino) = (0_u64, 0_u64);
-    let birth = meta
-        .created()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|time| time.as_millis() as f64)
-        .unwrap_or(0.0);
-    Some(FileIdentity {
-        dev,
-        ino,
-        birthtime_ms: birth,
-        size: meta.len(),
-    })
+    identity_from_open(&std::fs::File::open(path).ok()?).ok()
+}
+
+fn identity_key(dev: u64, ino: u64, birthtime_ms: f64) -> String {
+    format!("{dev}:{ino}:{}", birthtime_ms.to_bits())
 }
 
 #[allow(dead_code)]
@@ -1234,6 +1238,86 @@ mod tests {
             .await
             .unwrap();
         serde_json::from_str(&text).unwrap()
+    }
+
+    #[tokio::test]
+    async fn rotation_deletion_and_reused_names_preserve_observed_today_statistics() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("logs/output");
+        let day = today();
+        let name = format!("claude-code-{day}.jsonl");
+        write_jsonl(
+            &output,
+            &name,
+            &[response("10", json!({"gen_ai.session.id":"first"}))],
+        );
+        let writer = MetricsSummaryWriter::new(dir.path().to_str().unwrap(), config(), None);
+        writer.refresh().await;
+        assert_eq!(
+            summary(dir.path()).await["ranges"]["today"]["totalTokens"],
+            10.0
+        );
+        let archive = output.join(format!("claude-code.part-{}-{day}.jsonl", "a".repeat(32)));
+        std::fs::rename(output.join(&name), &archive).unwrap();
+        write_jsonl(
+            &output,
+            &name,
+            &[response("20", json!({"gen_ai.session.id":"second"}))],
+        );
+        writer.refresh().await;
+        assert_eq!(
+            summary(dir.path()).await["ranges"]["today"]["totalTokens"],
+            30.0
+        );
+        std::fs::remove_file(archive).unwrap();
+        writer.refresh().await;
+        assert_eq!(
+            summary(dir.path()).await["ranges"]["today"]["totalTokens"],
+            30.0
+        );
+        // Keep the old inode alive outside the scan directory while replacing its name.
+        std::fs::rename(output.join(&name), dir.path().join("retired-b.jsonl")).unwrap();
+        write_jsonl(
+            &output,
+            &name,
+            &[response("40", json!({"gen_ai.session.id":"third"}))],
+        );
+        writer.refresh().await;
+        assert_eq!(
+            summary(dir.path()).await["ranges"]["today"]["totalTokens"],
+            70.0
+        );
+        let restarted = MetricsSummaryWriter::new(dir.path().to_str().unwrap(), config(), None);
+        restarted.refresh().await;
+        assert_eq!(
+            summary(dir.path()).await["ranges"]["today"]["totalTokens"],
+            70.0
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn sparse_giant_is_skipped_without_retracting_already_observed_statistics() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("logs/output");
+        let name = format!("claude-code-{}.jsonl", today());
+        write_jsonl(&output, &name, &[response("10", json!({}))]);
+        let writer = MetricsSummaryWriter::new(dir.path().to_str().unwrap(), config(), None);
+        writer.refresh().await;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(output.join(name))
+            .unwrap();
+        file.set_len(crate::utils::LOCAL_LOG_EMERGENCY_FILE_BYTES + 1)
+            .unwrap();
+        drop(file);
+        tokio::time::timeout(std::time::Duration::from_secs(3), writer.refresh())
+            .await
+            .unwrap();
+        assert_eq!(
+            summary(dir.path()).await["ranges"]["today"]["totalTokens"],
+            10.0
+        );
     }
 
     #[tokio::test]
@@ -1372,7 +1456,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rebuilds_a_replaced_or_truncated_file_and_groups_providers() {
+    async fn preserves_observed_statistics_across_replacement_and_truncation() {
         let dir = tempfile::tempdir().unwrap();
         let output = dir.path().join("logs").join("output");
         let day = today();
@@ -1404,9 +1488,9 @@ mod tests {
         std::fs::rename(&temp, &codex).unwrap();
         writer.refresh().await;
         let parsed = summary(dir.path()).await;
-        assert_eq!(parsed["ranges"]["today"]["totalTokens"], 2500.0);
-        assert_eq!(parsed["ranges"]["today"]["totalEvents"], 2);
-        assert_eq!(parsed["ranges"]["today"]["totalSessions"], 2);
+        assert_eq!(parsed["ranges"]["today"]["totalTokens"], 3500.0);
+        assert_eq!(parsed["ranges"]["today"]["totalEvents"], 3);
+        assert_eq!(parsed["ranges"]["today"]["totalSessions"], 3);
 
         let truncated = tempfile::tempdir().unwrap();
         let out = truncated.path().join("logs").join("output");
@@ -1431,8 +1515,17 @@ mod tests {
         .unwrap();
         writer.refresh().await;
         let parsed = summary(truncated.path()).await;
-        assert_eq!(parsed["ranges"]["today"]["totalTokens"], 50.0);
-        assert_eq!(parsed["ranges"]["today"]["totalSessions"], 1);
+        assert_eq!(parsed["ranges"]["today"]["totalTokens"], 123506.0);
+        assert_eq!(parsed["ranges"]["today"]["totalSessions"], 2);
+        assert_eq!(parsed["ranges"]["today"]["totalEvents"], 2);
+        writer.refresh().await;
+        let restarted =
+            MetricsSummaryWriter::new(truncated.path().to_str().unwrap(), config(), None);
+        restarted.refresh().await;
+        assert_eq!(
+            summary(truncated.path()).await["ranges"]["today"]["totalTokens"],
+            123506.0
+        );
     }
 
     #[tokio::test]

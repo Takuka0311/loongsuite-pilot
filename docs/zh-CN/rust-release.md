@@ -288,3 +288,9 @@ Linux Hook 4 项、候选进程 5 项、fmt 与严格 clippy 已通过；Windows
 OTLP 对 Copilot 重放事件按 ID 合并缺失字段，已有非空信息优先；hybrid-v2 只由交互边界收尾，会话 summary 仅写日志，取消会反映到 Agent 状态。15 项 Copilot 定向测试通过，覆盖实际 Input 生命周期、重启去重、原生用量关联、增量输入、部署修复、畸形记录、10 MiB 未结束行跨重启续读、事务失败回滚及跨时间边界的原生恢复。最终 fmt、全 workspace/all-targets/all-features 严格 clippy 与 1,367 项 all-features 库级回归通过；不包含独立集成测试或 Windows/macOS 新版本实跑。
 
 尚不据此宣布 main 全部同步或迁移完成：#517 的 JSONL 分片、磁盘压力治理、Dashboard 文件身份竞态和 Codex 发现缓存竞态仍在下一批；#487 的端到端输出取消/恢复和验证规则迁移也仍需补齐。真实 Copilot 注入、跨平台回归与统一历史测试映射保持待验收状态。
+
+### 2026-10-30 JSONL、磁盘治理与扫描缓存
+
+原生 JSONL 和 OTLP 本地镜像统一按完整记录追加和分段，默认单片 100 MiB；写入、封片和删除共享每文件锁，保留超大片完整记录并告警。磁盘压力每分钟巡检，严格超过 3 GiB 的自有输出/失败文件可紧急回收，告警区分未发送数据；总输出上限允许回收当天已封片，保护活动文件和 Agent 原始数据。读写拒绝符号链接，Dashboard 在实际打开句柄上校验文件身份，跳过超大文件并保留已观察统计，覆盖轮转、删除、重名复用和重启。
+
+Codex 默认目录扫描在读取前记录纳秒级目录代次，仅完整遍历可更新缓存，修复扫描期间发布文件和失败子目录被缓存的问题。Copilot 来源索引与 Dashboard 共用打开文件的身份实现，Windows 使用稳定的系统 API。fmt、全 workspace/all-targets/all-features 严格 Clippy 和 1,378 项 all-features 库测试通过，包含并发完整记录、Unix 稀疏文件压力、统计保留和扫描竞态用例；Windows/macOS 新行为及全 workspace 集成验收仍待最终阶段。不创建正式发布。

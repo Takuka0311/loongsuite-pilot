@@ -122,3 +122,11 @@ pub use win_archive::{
     extract_tar_gz, get_ascii_temp_root, is_ascii_path, make_tar_staging_dir, replace_dir_with,
     reset_inherited_acl, WinArchiveError,
 };
+
+pub mod segmented_jsonl_writer;
+pub use segmented_jsonl_writer::{
+    append_segmented_jsonl, parse_output_segment, with_jsonl_file_lock,
+    DEFAULT_JSONL_SEGMENT_BYTES, LOCAL_LOG_EMERGENCY_FILE_BYTES,
+};
+
+pub(crate) mod file_identity;
