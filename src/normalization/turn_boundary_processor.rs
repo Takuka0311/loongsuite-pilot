@@ -90,7 +90,15 @@ impl TurnBoundaryProcessor {
         let mut order = Vec::new();
         let mut grouped: HashMap<String, Vec<usize>> = HashMap::new();
         for (index, entry) in entries.iter().enumerate() {
-            if is_subagent(entry) {
+            if is_subagent(entry)
+                || matches!(
+                    entry.event_name,
+                    Some(
+                        crate::types::AgentEventName::AgentInvoke
+                            | crate::types::AgentEventName::AgentResult
+                    )
+                )
+            {
                 continue;
             }
             let Some(key) = turn_key(entry) else {
@@ -740,5 +748,38 @@ mod tests {
                 "agent.openclaw.hook": "llm_output"
             }),
         )));
+    }
+
+    #[test]
+    fn audit_invocation_rows_cannot_claim_or_finish_a_work_turn_boundary() {
+        for name in ["gen_ai.agent.invoke", "gen_ai.agent.result"] {
+            let mut processor = TurnBoundaryProcessor::new();
+            let mut audit = entry(
+                "audit",
+                name,
+                json!({
+                    "gen_ai.agent.type":"cursor","gen_ai.turn.id":"work","gen_ai.session.id":"session",
+                    "gen_ai.response.finish_reasons":["stop"],"gen_ai.turn.end":true
+                }),
+            );
+            let original = audit.clone();
+            processor.enrich(std::slice::from_mut(&mut audit));
+            assert_eq!(processor.turns.len(), 0);
+            assert_eq!(audit, original);
+            let mut rows = vec![
+                audit,
+                entry(
+                    "work",
+                    "gen_ai.model.request",
+                    json!({
+                        "gen_ai.agent.type":"cursor","gen_ai.turn.id":"work","gen_ai.session.id":"session"
+                    }),
+                ),
+            ];
+            processor.enrich(&mut rows);
+            assert_eq!(rows[0], original);
+            assert_eq!(rows[1].turn_start, Some(true));
+            assert_eq!(rows[1].turn_end, None);
+        }
     }
 }

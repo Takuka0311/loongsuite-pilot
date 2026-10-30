@@ -256,6 +256,12 @@ pub fn unix_nanos_to_millis(value: Option<&Value>) -> i64 {
 
 pub fn normalize_event_name(value: Option<&Value>) -> AgentEventName {
     match value.and_then(Value::as_str) {
+        Some("gen_ai.model.request") => AgentEventName::ModelRequest,
+        Some("gen_ai.model.response") => AgentEventName::ModelResponse,
+        Some("gen_ai.tool.call") => AgentEventName::GenAiToolCall,
+        Some("gen_ai.tool.result") => AgentEventName::GenAiToolResult,
+        Some("gen_ai.agent.invoke") => AgentEventName::AgentInvoke,
+        Some("gen_ai.agent.result") => AgentEventName::AgentResult,
         Some("llm.request" | "llm_call_input") => AgentEventName::LlmRequest,
         Some("llm.response" | "llm_call_output" | "llm_call_thinking") => {
             AgentEventName::LlmResponse

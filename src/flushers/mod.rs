@@ -18,6 +18,7 @@ mod sls_loggroup_codec;
 mod sls_transport;
 mod span_enricher;
 mod span_id_reservation;
+mod trace_event_compat;
 
 pub use base_flusher::{BaseFlusher, FlushError, TraceRuntimeCounters, TraceRuntimeSnapshot};
 pub use delegated_turn_converter::convert_delegated_turn;

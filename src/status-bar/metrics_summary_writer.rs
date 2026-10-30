@@ -584,13 +584,22 @@ fn apply_record(record: &Map<String, Value>, stats: &mut DayStats) {
             entry.sessions.insert(session_id);
         }
     }
-    if event_name.as_deref() == Some("llm.request") {
+    if matches!(
+        event_name.as_deref(),
+        Some("llm.request" | "gen_ai.model.request")
+    ) {
         stats.requests += 1;
     }
-    if event_name.as_deref() == Some("tool.call") {
+    if matches!(
+        event_name.as_deref(),
+        Some("tool.call" | "gen_ai.tool.call")
+    ) {
         stats.tool_calls += 1;
     }
-    if event_name.as_deref() == Some("llm.response") {
+    if matches!(
+        event_name.as_deref(),
+        Some("llm.response" | "gen_ai.model.response")
+    ) {
         let input_tokens = to_number(record.get("gen_ai.usage.input_tokens"));
         let output_tokens = to_number(record.get("gen_ai.usage.output_tokens"));
         let cache_read = to_number(record.get("gen_ai.usage.cache_read.input_tokens"));
@@ -1435,5 +1444,38 @@ mod tests {
         let parsed = summary(dir.path()).await;
         assert_eq!(parsed["ranges"]["today"]["totalTokens"], 0.0);
         assert_eq!(parsed["packageVersion"], "unknown");
+    }
+
+    #[tokio::test]
+    async fn standard_model_and_tool_names_contribute_metrics_without_rewriting_audit_logs() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("logs/output");
+        let name = format!("codex-{}.jsonl", today());
+        write_jsonl(
+            &output,
+            &name,
+            &[
+                json!({"event.name":"gen_ai.model.request","gen_ai.session.id":"session-1","gen_ai.agent.type":"codex"}),
+                response(
+                    "1200",
+                    json!({"event.name":"gen_ai.model.response","gen_ai.agent.type":"codex"}),
+                ),
+                json!({"event.name":"gen_ai.tool.call","gen_ai.session.id":"session-1","gen_ai.agent.type":"codex"}),
+                json!({"event.name":"gen_ai.agent.invoke","gen_ai.session.id":"session-1","gen_ai.agent.type":"codex"}),
+                json!({"event.name":"gen_ai.agent.result","gen_ai.session.id":"session-1","gen_ai.agent.type":"codex"}),
+            ],
+        );
+        let before = std::fs::read(output.join(&name)).unwrap();
+        MetricsSummaryWriter::new(dir.path().to_str().unwrap(), config(), None)
+            .refresh()
+            .await;
+        let parsed = summary(dir.path()).await;
+        assert_eq!(parsed["ranges"]["today"]["totalRequests"], 1);
+        assert_eq!(parsed["ranges"]["today"]["totalToolCalls"], 1);
+        assert_eq!(parsed["ranges"]["today"]["totalTokens"], 1200.0);
+        assert_eq!(parsed["ranges"]["today"]["inputTokens"], 1000.0);
+        assert_eq!(parsed["ranges"]["today"]["outputTokens"], 200.0);
+        assert_eq!(parsed["ranges"]["today"]["totalEvents"], 5);
+        assert_eq!(std::fs::read(output.join(&name)).unwrap(), before);
     }
 }

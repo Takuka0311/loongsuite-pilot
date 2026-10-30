@@ -520,6 +520,9 @@ impl BaseFlusher for OtlpTraceFlusher {
 
 impl OtlpInner {
     async fn send_entry(self: &Arc<Self>, entry: AgentActivityEntry, logical_bytes: Option<f64>) {
+        if super::trace_event_compat::is_agent_audit_event(&entry) {
+            return;
+        }
         let (source, value, key) = resolve_group_key(&entry);
         let agent_type = normalize_agent_type(&entry.agent_type);
         if source == KeySource::Ephemeral {
@@ -834,11 +837,7 @@ impl OtlpInner {
             entry.active += 1;
         }
         let prepared = prepare_records(self, agent_type, &records);
-        let trace_records: Vec<AgentActivityEntry> = prepared
-            .records
-            .into_iter()
-            .filter(|record| entry_str(record, "event.name").as_deref() != Some("agent.input"))
-            .collect();
+        let trace_records = super::trace_event_compat::prepare_trace_events(&prepared.records);
         let sanitized = drop_orphan_pairs(&trace_records);
         let started = Instant::now();
         let result = route_convert(agent_type, &sanitized, &prepared.passthrough, converter);
@@ -2687,5 +2686,53 @@ mod tests {
         assert_eq!(snapshot[0].pending_records, 1);
         assert_eq!(snapshot[0].pending_logical_bytes, 10.0);
         assert_eq!(snapshot[0].largest_buffer_turn_id.as_deref(), Some("t1"));
+    }
+
+    #[tokio::test]
+    async fn standard_aliases_reach_converter_without_audit_creating_or_closing_buffers() {
+        let (flusher, converter) = make_flusher();
+        let audit = entry(json!({
+            "event.id":"audit-only","event.name":"gen_ai.agent.invoke","time_unix_nano":"1000000",
+            "gen_ai.agent.type":"cursor","gen_ai.session.id":"session","gen_ai.turn.id":"audit-only",
+            "gen_ai.turn.end":true,"gen_ai.response.finish_reasons":["stop"]
+        }));
+        flusher.send(audit.clone(), None).await.unwrap();
+        assert!(flusher.trace_runtime_snapshot().is_empty());
+        assert!(converter.calls.lock().unwrap().is_empty());
+        let request = entry(json!({
+            "event.id":"request","event.name":"gen_ai.model.request","time_unix_nano":"1000000",
+            "gen_ai.agent.type":"cursor","gen_ai.session.id":"session","gen_ai.turn.id":"turn",
+            "gen_ai.response.id":"response"
+        }));
+        flusher.send(request.clone(), None).await.unwrap();
+        let mut audit = audit;
+        audit.turn_id = Some("turn".into());
+        audit.event_name = Some(crate::types::AgentEventName::AgentResult);
+        flusher.send(audit, None).await.unwrap();
+        assert_eq!(flusher.trace_runtime_snapshot()[0].pending_records, 1);
+        assert!(converter.calls.lock().unwrap().is_empty());
+        let mut alias = request;
+        alias.event_id = "legacy-alias".into();
+        alias.event_name = Some(crate::types::AgentEventName::LlmRequest);
+        let response = entry(json!({
+            "event.id":"response","event.name":"gen_ai.model.response","time_unix_nano":"2000000",
+            "gen_ai.agent.type":"cursor","gen_ai.session.id":"session","gen_ai.turn.id":"turn",
+            "gen_ai.response.id":"response","gen_ai.response.finish_reasons":["stop"]
+        }));
+        flusher
+            .send_batch(vec![alias, response], None)
+            .await
+            .unwrap();
+        let calls = converter.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].len(), 2);
+        assert_eq!(
+            calls[0][0].event_name,
+            Some(crate::types::AgentEventName::LlmRequest)
+        );
+        assert_eq!(
+            calls[0][1].event_name,
+            Some(crate::types::AgentEventName::LlmResponse)
+        );
     }
 }
