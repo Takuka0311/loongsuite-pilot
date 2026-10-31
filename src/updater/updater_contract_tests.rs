@@ -795,7 +795,34 @@ mod migration_contract_tests {
             let net = Arc::new(ObservedNet {
                 scripted: scripted.clone(),
                 observe: Box::new(move |request| {
+                    assert_eq!(request.env["LOONGSUITE_PILOT_DATA_DIR"], target.data_dir);
+                    assert_eq!(request.env["LOONGSUITE_PILOT_CACHE_DIR"], target.cache_dir);
+                    assert_eq!(
+                        request.env["AGENT_DATA_COLLECTION_CONFIG"],
+                        Path::new(&target.data_dir)
+                            .join("config.json")
+                            .to_string_lossy()
+                    );
+                    if request.args == ["--version"] || request.args == ["check", "--json"] {
+                        let resources = &request.env["LOONGSUITE_PILOT_RESOURCE_ROOT"];
+                        assert_eq!(request.cwd.as_deref(), Some(resources.as_str()));
+                        assert!(Path::new(resources).join("runtime-manifest.json").is_file());
+                    }
                     if request.args.iter().any(|v| v == "restart-collector") {
+                        let current = std::fs::read_to_string(&target.current_file).unwrap();
+                        assert!(current
+                            .trim()
+                            .starts_with(&format!("{}_{}_", package.version, package.git_commit)));
+                        let service = if request.program == "powershell.exe" {
+                            &request.args[4]
+                        } else {
+                            &request.program
+                        };
+                        assert!(std::fs::read_to_string(service)
+                            .unwrap()
+                            .contains("native service"));
+                        assert!(!request.env.contains_key("LOONGSUITE_PILOT_RESOURCE_ROOT"));
+                        assert!(!request.env.contains_key("LOONGSUITE_PILOT_INSTALL_INPUT"));
                         healthy_for(&target, &package, std::process::id());
                     }
                     if request.args.iter().any(|v| v == "schedule-updater-restart") {
@@ -991,6 +1018,430 @@ mod migration_contract_tests {
         assert_eq!(scripted.fetch_log.lock().unwrap().len(), 2);
         updater.stop();
         assert!(!updater.is_scheduled());
+    }
+    async fn physical_collector_fixture(
+        root: &Path,
+    ) -> (crate::utils::candidate_process::CandidateChild, u32) {
+        use crate::utils::candidate_process::tests::{fixture, ready};
+        let directory = root.join("physical-collector");
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut command = fixture(&directory, "wait");
+        command
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let scope = crate::utils::candidate_process::CandidateChild::spawn(&mut command).unwrap();
+        let pid = ready(&directory).await;
+        (scope, pid)
+    }
+    fn component_current(updater: &Updater, version: &str, commit: &str, name: &str) {
+        native_package_version_for_test(
+            &Path::new(&updater.paths.versions_dir).join(name),
+            version,
+            commit,
+            Some(&crate::utils::native_binary::fixture_binary(build_target())),
+        );
+        std::fs::write(&updater.paths.current_file, format!("{name}\n")).unwrap();
+    }
+    #[tokio::test]
+    async fn current_collector_recovery_handles_missing_wrong_version_wrong_commit_and_failed_health(
+    ) {
+        for mode in [
+            "old-version",
+            "old-build",
+            "timeout-recovery",
+            "no-health",
+            "unknown-command",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let paths = build_paths(root.path().to_str().unwrap());
+            let target = paths.clone();
+            let mode_owned = mode.to_owned();
+            let (_scope, new_pid) = physical_collector_fixture(root.path()).await;
+            let execs = match mode {
+                "timeout-recovery" => vec![
+                    Err(command_failure(
+                        "restart timed out",
+                        "restart output",
+                        None,
+                        true,
+                    )),
+                    Ok(ExecOutput::default()),
+                ],
+                "unknown-command" => vec![
+                    Err(command_failure(
+                        "restart timed out",
+                        "restart output",
+                        None,
+                        true,
+                    )),
+                    Err(command_failure(
+                        "start failed",
+                        "Unknown command: start-collector",
+                        Some("permission denied"),
+                        false,
+                    )),
+                ],
+                _ => vec![],
+            };
+            let scripted = ScriptedNet::new(vec![Ok(manifest_body("1.0.2", "aaa"))], execs);
+            let net = Arc::new(ObservedNet {
+                scripted: scripted.clone(),
+                observe: Box::new(move |request| {
+                    let restart = request.args.iter().any(|v| v == "restart-collector");
+                    let start = request.args.iter().any(|v| v == "start-collector");
+                    if (restart && ["old-version", "old-build"].contains(&mode_owned.as_str()))
+                        || (start && mode_owned == "timeout-recovery")
+                    {
+                        let record = json!({"status":"active","packageVersion":"1.0.2","gitCommit":format!("{:0<40}","aaa"),"pid":new_pid,"updatedAt":"2099-01-01T00:00:00Z"});
+                        std::fs::create_dir_all(
+                            Path::new(&target.collector_runtime_file).parent().unwrap(),
+                        )
+                        .unwrap();
+                        std::fs::write(&target.collector_runtime_file, record.to_string()).unwrap();
+                    }
+                }),
+            });
+            let mut updater = scoped_updater(base_config(), root.path().to_str(), net);
+            component_current(&updater, "1.0.2", &format!("{:0<40}", "aaa"), "1.0.2_aaa");
+            updater.set_pid_alive(Arc::new(crate::utils::is_process_alive));
+            updater.set_health_timeout_ms(0);
+            let metrics = attach_metrics(&updater, root.path());
+            let stale = stale_version(&updater, "0.9.9", 10);
+            if mode != "no-health" {
+                std::fs::create_dir_all(
+                    Path::new(&updater.paths.collector_runtime_file)
+                        .parent()
+                        .unwrap(),
+                )
+                .unwrap();
+                std::fs::write(&updater.paths.collector_runtime_file,json!({"status":"active","packageVersion":if mode=="old-version"{"1.0.1"}else{"1.0.2"},"gitCommit":"old","pid":std::process::id(),"updatedAt":"2099-01-01T00:00:00Z"}).to_string()).unwrap();
+            }
+            let result = updater.check().await;
+            metrics.flush().await;
+            let events = records(root.path(), "pilot-updater-events");
+            let commands = service_commands(&scripted);
+            if ["no-health", "unknown-command"].contains(&mode) {
+                assert!(result.is_err());
+                assert_eq!(updater.consecutive_failures(), 1);
+                assert!(stale.exists());
+                assert!(!commands.iter().any(|v| v == "schedule-updater-restart"));
+                assert!(!events
+                    .iter()
+                    .any(|v| v["event_type"] == "collector_restarted"));
+                assert!(
+                    events
+                        .iter()
+                        .any(|v| v["event_type"] == "update_failure"
+                            && v["consecutive_failures"] == 1)
+                );
+                if mode == "unknown-command" {
+                    assert!(events.iter().any(|v| v["event_type"] == "update_failure"
+                        && v["error"]
+                            .as_str()
+                            .unwrap()
+                            .contains("stdout=\"Unknown command: start-collector\"")));
+                    assert_eq!(commands, ["restart-collector", "start-collector"]);
+                } else {
+                    assert_eq!(commands, ["start-collector"]);
+                }
+            } else {
+                result.unwrap();
+                assert_eq!(updater.consecutive_failures(), 0);
+                assert!(!stale.exists());
+                assert!(events
+                    .iter()
+                    .any(|v| v["event_type"] == "collector_restarted"
+                        && v["latest_version"] == "1.0.2"));
+                assert_eq!(
+                    commands,
+                    if mode == "timeout-recovery" {
+                        vec![
+                            "restart-collector",
+                            "start-collector",
+                            "schedule-updater-restart",
+                        ]
+                    } else {
+                        vec!["restart-collector", "schedule-updater-restart"]
+                    }
+                );
+                let runtime: Value = read_json_file(&updater.paths.collector_runtime_file)
+                    .await
+                    .unwrap();
+                assert_eq!(runtime["pid"], new_pid);
+            }
+        }
+    }
+    #[tokio::test]
+    async fn downloaded_candidate_without_health_rolls_back_and_never_reports_restart_or_runs_gc() {
+        let root = tempfile::tempdir().unwrap();
+        let (body, manifest) = cached_candidate_archive();
+        let scripted = ScriptedNet::new(
+            vec![
+                Ok(manifest_response(&manifest)),
+                Ok(FetchResponse {
+                    status: 200,
+                    status_text: "OK".into(),
+                    body,
+                }),
+            ],
+            preflight_outputs(&manifest),
+        );
+        let mut updater = scoped_updater(base_config(), root.path().to_str(), scripted.clone());
+        updater.paths.loongsuite_pilot_bin = root
+            .path()
+            .join("bin/pilot-service")
+            .to_string_lossy()
+            .into_owned();
+        updater.set_health_timeout_ms(0);
+        let stale = stale_version(&updater, "0.9.9", 10);
+        let metrics = attach_metrics(&updater, root.path());
+        assert!(updater.check().await.is_err());
+        metrics.flush().await;
+        assert_eq!(
+            service_commands(&scripted),
+            ["restart-collector", "start-collector"]
+        );
+        assert!(stale.exists());
+        assert!(!Path::new(&updater.paths.current_file).exists());
+        assert!(!Path::new(&updater.paths.previous_file).exists());
+        assert_eq!(updater.consecutive_failures(), 1);
+        let events = records(root.path(), "pilot-updater-events");
+        assert!(!events
+            .iter()
+            .any(|v| v["event_type"] == "collector_restarted"));
+        assert!(events
+            .iter()
+            .any(|v| v["event_type"] == "update_failure" && v["consecutive_failures"] == 1));
+        assert!(!Path::new(&updater.paths.loongsuite_pilot_bin).exists());
+    }
+    #[tokio::test]
+    async fn exact_restart_alarm_contracts_preserve_fresh_stage_ignore_stale_and_remain_quiet_on_success(
+    ) {
+        for mode in ["fresh", "stale", "timeout", "no-health", "success"] {
+            let root = tempfile::tempdir().unwrap();
+            let failure = if mode == "timeout" {
+                command_failure("Command failed", "", None, true)
+            } else if mode == "stale" {
+                CommandFailure::message("spawn ENOENT")
+            } else if mode == "no-health" {
+                command_failure(
+                    "Command failed",
+                    "[restart-failure] target=collector stage=task-missing\n",
+                    Some("Service manager failed to restart collector\n"),
+                    false,
+                )
+            } else {
+                command_failure(
+                    "Command failed",
+                    "[restart-failure] target=collector stage=register-denied\n",
+                    Some("Service manager failed to restart collector\n"),
+                    false,
+                )
+            };
+            let execs = match mode {
+                "success" => vec![],
+                "no-health" => vec![Err(failure), Ok(ExecOutput::default())],
+                _ => vec![Err(failure.clone()), Err(failure)],
+            };
+            let scripted = ScriptedNet::new(vec![], execs);
+            let mut updater = scoped_updater(base_config(), root.path().to_str(), scripted);
+            updater.set_pid_alive(Arc::new(|pid| pid == std::process::id()));
+            updater.set_health_timeout_ms(0);
+            let metrics = attach_metrics(&updater, root.path());
+            if mode == "success" {
+                write_healthy_runtime(&updater.paths);
+            }
+            if ["fresh", "stale", "no-health"].contains(&mode) {
+                let breadcrumb = Path::new(&updater.paths.data_dir)
+                    .join("logs/last-restart-failure-collector.json");
+                std::fs::create_dir_all(breadcrumb.parent().unwrap()).unwrap();
+                std::fs::write(breadcrumb,json!({"schema":1,"ts":if mode=="stale"{system_now_ms()/1000-900}else{system_now_ms()/1000},"target":"collector","stage":if mode=="no-health"{"task-missing"}else{"register-denied"},"init_type":"taskscheduler","detail":if mode=="stale"{"stale evidence from fifteen minutes ago"}else if mode=="no-health"{"scheduled task is not registered"}else{"self-heal failed: Access is denied."},"diag":{"definition_owner":"BUILTIN\\Administrators"}}).to_string()).unwrap();
+            }
+            let result = updater.restart_collector("1.0.2", false, "").await;
+            metrics.flush().await;
+            let alarms = records(root.path(), "pilot-alarms");
+            if mode == "success" {
+                result.unwrap();
+                assert!(alarms.is_empty());
+                continue;
+            }
+            assert!(result.is_err());
+            assert_eq!(alarms.len(), 1);
+            assert_eq!(alarms[0]["alarm_type"], "UPDATER_FAILURE_ALARM");
+            assert_eq!(alarms[0]["alarm_level"], "2");
+            let message = alarms[0]["alarm_message"].as_str().unwrap();
+            match mode {
+                "fresh" => {
+                    assert!(message.contains("stage=register-denied"));
+                    assert!(message.contains("reason=\"self-heal failed: Access is denied.\""));
+                    assert!(message.contains("definition_owner=\"BUILTIN\\Administrators\""));
+                    assert!(message.contains(
+                        "stdout=\"[restart-failure] target=collector stage=register-denied\""
+                    ));
+                }
+                "stale" => {
+                    assert!(message.contains("stage=unknown"));
+                    assert!(!message.contains("stale evidence"));
+                    assert!(!message.contains("register-denied"));
+                }
+                "timeout" => {
+                    let crumb =
+                        read_restart_failure(&updater.paths.data_dir, RestartTarget::Collector)
+                            .await
+                            .unwrap();
+                    assert_eq!(crumb.stage, "timeout");
+                    assert_eq!(crumb.target, "collector");
+                    assert!(message.contains("stage=timeout"));
+                }
+                "no-health" => {
+                    assert!(message.contains("stage=task-missing"));
+                    assert!(message.contains("health check failed after start-collector recovery"));
+                    assert!(message.contains("runtime record not found"));
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+    #[tokio::test]
+    async fn start_only_recovery_retains_the_full_default_thirty_second_health_window() {
+        let root = tempfile::tempdir().unwrap();
+        let began = Arc::new(tokio::sync::Notify::new());
+        let notify = began.clone();
+        let scripted = ScriptedNet::new(
+            vec![],
+            vec![
+                Err(command_failure("restart timed out", "", None, true)),
+                Ok(ExecOutput::default()),
+            ],
+        );
+        let net = Arc::new(ObservedNet {
+            scripted,
+            observe: Box::new(move |request| {
+                if request.args.iter().any(|v| v == "start-collector") {
+                    notify.notify_one();
+                }
+            }),
+        });
+        let mut updater = scoped_updater(base_config(), root.path().to_str(), net);
+        updater.set_pid_alive(Arc::new(|pid| pid == std::process::id()));
+        assert_eq!(updater.health_timeout_ms, 30_000);
+        let paths = updater.paths.clone();
+        let updater = Arc::new(updater);
+        let task = updater.clone();
+        let pending = tokio::spawn(async move { task.restart_collector("1.0.2", false, "").await });
+        tokio::time::timeout(Duration::from_secs(2), began.notified())
+            .await
+            .unwrap();
+        let start = tokio::time::Instant::now();
+        tokio::time::sleep(Duration::from_millis(29_500)).await;
+        assert!(!pending.is_finished());
+        write_healthy_runtime(&paths);
+        tokio::time::timeout(Duration::from_secs(3), pending)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(start.elapsed() >= Duration::from_millis(29_500));
+    }
+    #[tokio::test]
+    async fn real_service_publication_io_failure_preserves_both_pointers_layout_and_owned_entrypoint(
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let staging = root.path().join("candidate");
+        let manifest = native_package_version_for_test(
+            &staging,
+            "1.0.2",
+            &format!("{:0<40}", "bbb"),
+            Some(&crate::utils::native_binary::fixture_binary(build_target())),
+        );
+        let scripted = ScriptedNet::new(vec![], preflight_outputs(&manifest));
+        let mut updater = scoped_updater(base_config(), root.path().to_str(), scripted);
+        updater.paths.loongsuite_pilot_bin = root
+            .path()
+            .join("bin/pilot-service")
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(
+            Path::new(&updater.paths.loongsuite_pilot_bin)
+                .parent()
+                .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(&updater.paths.loongsuite_pilot_bin, "old owned service").unwrap();
+        let layout = Path::new(&updater.paths.loongsuite_pilot_bin)
+            .with_file_name("loongsuite-pilot-layout.json");
+        let old_layout=json!({"cacheDir":updater.paths.cache_dir,"dataDir":updater.paths.data_dir,"keep":"user-layout-field"}).to_string();
+        std::fs::write(&layout, &old_layout).unwrap();
+        write_pointer_file(&updater.paths.current_file, "1.0.1_aaa")
+            .await
+            .unwrap();
+        write_pointer_file(&updater.paths.previous_file, "1.0.0_zzz")
+            .await
+            .unwrap();
+        let permissions = std::fs::metadata(&updater.paths.loongsuite_pilot_bin)
+            .unwrap()
+            .permissions();
+        let mut readonly = permissions.clone();
+        readonly.set_readonly(true);
+        std::fs::set_permissions(&updater.paths.loongsuite_pilot_bin, readonly).unwrap();
+        let result = updater.activate_staged(&staging, &manifest).await;
+        std::fs::set_permissions(&updater.paths.loongsuite_pilot_bin, permissions).unwrap();
+        assert!(result.is_err());
+        assert_eq!(
+            read_pointer_file(&updater.paths.current_file)
+                .await
+                .as_deref(),
+            Some("1.0.1_aaa")
+        );
+        assert_eq!(
+            read_pointer_file(&updater.paths.previous_file)
+                .await
+                .as_deref(),
+            Some("1.0.0_zzz")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&updater.paths.loongsuite_pilot_bin).unwrap(),
+            "old owned service"
+        );
+        assert_eq!(std::fs::read_to_string(layout).unwrap(), old_layout);
+    }
+    #[tokio::test]
+    async fn windows_service_file_publication_has_bom_cmd_and_preserves_unowned_legacy_script() {
+        let root = tempfile::tempdir().unwrap();
+        let staging = root.path().join("candidate");
+        let manifest = native_package_version_for_test(
+            &staging,
+            "1.0.2",
+            &format!("{:0<40}", "bbb"),
+            Some(&crate::utils::native_binary::fixture_binary(build_target())),
+        );
+        let scripted = ScriptedNet::new(vec![], preflight_outputs(&manifest));
+        let mut updater = scoped_updater(base_config(), root.path().to_str(), scripted);
+        let bin = root.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        updater.paths.loongsuite_pilot_bin = bin
+            .join("loongsuite-pilot-service.ps1")
+            .to_string_lossy()
+            .into_owned();
+        let legacy = bin.join("loongsuite-pilot.ps1");
+        std::fs::write(&legacy, "unowned user legacy script").unwrap();
+        let transaction = updater.activate_staged(&staging, &manifest).await.unwrap();
+        let service = std::fs::read(&updater.paths.loongsuite_pilot_bin).unwrap();
+        assert!(service.starts_with(b"\xef\xbb\xbf"));
+        assert!(String::from_utf8_lossy(&service).contains("native service"));
+        let launcher = std::fs::read_to_string(bin.join("loongsuite-pilot.cmd")).unwrap();
+        assert!(launcher.contains("-File \"%~dp0loongsuite-pilot-service.ps1\" %*"));
+        assert_eq!(
+            std::fs::read_to_string(&legacy).unwrap(),
+            "unowned user legacy script"
+        );
+        drop(transaction);
+        assert!(!Path::new(&updater.paths.loongsuite_pilot_bin).exists());
+        assert!(!bin.join("loongsuite-pilot.cmd").exists());
+        assert_eq!(
+            std::fs::read_to_string(legacy).unwrap(),
+            "unowned user legacy script"
+        );
     }
     #[tokio::test]
     async fn fixture_installations_do_not_share_the_default_home_service_lock() {

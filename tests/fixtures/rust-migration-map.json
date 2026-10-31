@@ -42954,7 +42954,7 @@
       "coverage": "partial",
       "rust": [],
       "source_hash": "6ae448fd44164a31545a3cd7b51a228903393ec938ac7c35b7f9d71bcb6d172e",
-      "note": "固定ef8953的109条声明，当前逐条审定97条（90条Rust承接、7条被固定main f84明确替代的旧父子融合机制），其余12条待审。7条替代均保留仍有效字段并执行main当前合同，未恢复废弃身份改写；源hash与AST精确核对。Linux glibc2.34/Rust1.99.1定向与全量执行证据单独记录，Windows/macOS不据此视为通过。",
+      "note": "固定ef8953的109条声明，已逐条审定103条（96条原合同Rust完整承接、7条被固定main f84明确替代并执行当前合同），其余6条仍待审。真实control/fork控制中止、durable重启、legacy pending迁移、时间改写子会话、未匹配token与取消断言完整；源hash及AST逐条核对。平台实际执行证据独立记录，当前不据Linux执行宣称Windows/macOS通过。",
       "cases": [
         {
           "source": {
@@ -43697,6 +43697,32 @@
         },
         {
           "source": {
+            "id": "L1621:C3",
+            "title": "skips copied parent terminals whose line timestamps were rewritten at fork time",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原child fixture逐行改metadata+UUID、1..8重写同fork时间；真实start先于新rollout，child1、copied parent0、active/pending清空。 Linux strict+103targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "copied_parent_terminal_rewritten_to_fork_timestamp_never_masks_owned_uuid_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L1655:C3",
             "title": "skips the copied prefix when child metadata has no creation timestamp",
             "suites": [
@@ -44403,6 +44429,32 @@
         },
         {
           "source": {
+            "id": "L2506:C3",
+            "title": "keeps collecting normal turns after a control abort in a rollout created while running",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实start→create新rollout，4normal各1、control0、token[110121132143]、event ID唯一、EOF与无pending/fork；隔离子进程真实DEBUG turn-control/interrupted。 Linux strict+103targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "newly_created_live_rollout_collects_four_normal_turns_around_control_abort_with_exact_diagnostic"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L2563:C3",
             "title": "limits terminal recovery per file cycle and resumes from the saved offset",
             "suites": [
@@ -44423,6 +44475,58 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "hundred_terminal_budget_resumes_at_durable_offset_without_losing_the_hundred_and_first_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2589:C3",
+            "title": "skips copied history and emits new fork work in one cycle",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实父history→fork复制/control/新work同cycle，history1/control0/new1；StateStore save/load后二次fork新work1且pending/fork清空，真实日志无被跳过control recovery。 Linux strict+103targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "fork_copied_history_and_control_prefix_skip_in_one_cycle_and_durable_restart"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2665:C3",
+            "title": "clears a legacy empty pending terminal and emits later work during startup collection",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原旧JSON latestSessionMetaOffset+active+pending shape落盘后新Store恢复、真实start首cycle；control0/normal1及所有pending/fork清空。 Linux strict+103targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "legacy_empty_pending_terminal_clears_during_actual_startup_and_collects_later_work"
               }
             ]
           }
@@ -44795,6 +44899,58 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "prompt_waits_for_submitted_user_text_instead_of_emitting_environment_only_prompt"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3509:C3",
+            "title": "does not shift a token sample without a completed response wave onto a later step",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原completed3wave index3前插1+1无wave token，实际public生命周期且start后创建，后3resp tokens精确[110132143]。 Linux strict+103targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "unmatched_token_sample_before_any_response_wave_does_not_shift_later_step_tokens"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3524:C3",
+            "title": "uses one transcript collector to close an interrupted turn and cancel its pending tool",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原completed最后3行替换commentary/pending exec_command/abort；仅synthetic文本不执行sleep，实际单collector输出cancelled/interrupted、1assistant exact reasoning+finish、pending tool cancelled。 Linux strict+103targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "actual_single_collector_interrupt_closes_reasoning_response_and_cancels_pending_tool"
               }
             ]
           }
@@ -46784,7 +46940,7 @@
       "legacy": "tests/unit/updater/updater.test.ts",
       "coverage": "partial",
       "rust": [],
-      "note": "前三批42/58声明精确承接，其余保持未映射；固定ef8953 source/hash不变。基点native3d11568，保留容器capability门禁/最终安装路径pin/事务修复，不混旧runtime。platforms仅合同适用，当前仅Linux glibc2.34实测，Windows/macOS未实测。L245首检原60s延迟与原生立即差异另记pending，不靠Node计时器退役抹掉。L316/323已补实际daemon边界连续处理失败/告警/继续运行；Rust Result接口差异明确。归档fixture复用native_binary::fixture_binary，仅结构与资源字节/事务真实，执行明确由UpdaterNet提供；实际native child/caps/pin测试仍使用真实testexe，没有削弱平台格式校验或生产2s/30s预算。 主工作区严格Clippy与updater真实46项通过；Windows新接入契约的fixture安装路径和锁隔离问题正在独立修复，未计为Windows验收通过。",
+      "note": "固定ef8953 58条逐声明已登记：56complete、L245/L794明确partial，保持文件partial。仅Linux glibc2.34/Rust1.99.1实际运行；platforms仅适用。候选执行/service transport scripted处逐项注明，真实文件/hash/格式/解包/事务/JSONL/PID及29.5s健康窗口直接断言；caps-response与pin测试不冒称live CLI capability发布。旧timer延迟/owned legacy清理继续实施，不为凑数退休。",
       "source_hash": "4db0980f0bacb1fc16058a4f21a8c9c72f4b9b08334532bb6f01e1eb880996b0",
       "cases": [
         {
@@ -46810,6 +46966,33 @@
               {
                 "file": "src/updater/updater_contract_tests.rs",
                 "test": "disabled_scheduler_has_no_work_and_repeated_stop_is_safe"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L245:C5",
+            "title": "schedules initial delayed check and interval on start",
+            "suites": [
+              "Updater",
+              "lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "已有native daemon立即首检，不同于明确旧源60s延迟；本批只验证native注册/取消，不假报延迟完成。接续将恢复60s daemon delay，manual check立即，使用真实timer调度可控clock验59999/60000边界并保留独立heartbeat/interval。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "enabled_scheduler_owns_and_cancels_a_real_pending_check_and_supports_idempotent_stop"
               }
             ]
           }
@@ -47176,6 +47359,62 @@
         },
         {
           "source": {
+            "id": "L402:C5",
+            "title": "keeps failure state when already-current collector recovery never becomes healthy",
+            "suites": [
+              "Updater",
+              "check - manifest fetching"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check读取真实当前包与运行记录；旧version/旧commit两个参数均用真实物理新PID恢复、只在成功后handoff/collector_restarted/failure0；timeout→start-only同样成功。缺健康/Unknown command分别Err/failure1/no success/no GC/no handoff，Unknown stdout实际进入update_failure error。服务边界scripted，PID与状态文件/GC真实。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "current_collector_recovery_handles_missing_wrong_version_wrong_commit_and_failed_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L434:C5",
+            "title": "restarts a live collector running %s",
+            "suites": [
+              "Updater",
+              "check - manifest fetching"
+            ],
+            "parameters": [
+              "it.each([\n      ['an old version', '1.0.1', 'old'],\n      ['an old build of the same version', '1.0.2', 'old'],\n    ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "公开check读取真实当前包与运行记录；旧version/旧commit两个参数均用真实物理新PID恢复、只在成功后handoff/collector_restarted/failure0；timeout→start-only同样成功。缺健康/Unknown command分别Err/failure1/no success/no GC/no handoff，Unknown stdout实际进入update_failure error。服务边界scripted，PID与状态文件/GC真实。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "current_collector_recovery_handles_missing_wrong_version_wrong_commit_and_failed_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L511:C5",
             "title": "deploys successfully on first install",
             "suites": [
@@ -47203,6 +47442,34 @@
         },
         {
           "source": {
+            "id": "L527:C5",
+            "title": "runs the staged package postinstall, pointed at this install data dir",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "只退役旧Node staged postinstall.js执行机制：原生候选--version/check真实传入staging cwd/resource root、安装data/cache/config目录，且存在真实资源manifest；执行边界scripted并明示。原生服务资源共同事务承接安装结果，不恢复任意JS postinstall。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "只退役旧Node staged postinstall.js执行机制：原生候选--version/check真实传入staging cwd/resource root、安装data/cache/config目录，且存在真实资源manifest；执行边界scripted并明示。原生服务资源共同事务承接安装结果，不恢复任意JS postinstall。",
+            "replacement": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "downloaded_native_archive_commits_install_and_upgrade_then_hands_off_with_fresh_success_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L560:C5",
             "title": "adopts the managed node runtime + prebuilt modules and pins node-bin",
             "suites": [
@@ -47212,7 +47479,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "只退役.managed-runtime Node/prebuilt node_modules/node-bin接管机制；Rust独立包使用原生binary/resources与对应target/edition，原3d实际child能力门禁与最终安装路径pin有单独实测，保留普通原生事务数据。没有声称归档组件fixture执行了其合成binary。",
+          "behavior": "只退役.managed-runtime Node/prebuilt node_modules/node-bin接管机制；Rust独立包使用原生binary/resources与对应target/edition，原3d实际child能力门禁与最终安装路径pin有单独实测，保留普通原生事务数据。没有声称归档组件fixture执行了其合成binary。 精确证据界限：capability-response验证/最终path绑定/回滚使用真实exe文件资源，但预检JSON由ScriptedNet提供；实际候选子进程执行由real_candidate_exec_bounds_output_and_reaps_its_tree独立验证，不把此处说成live CLI capability发布验收。",
           "platforms": [
             "linux",
             "macos",
@@ -47220,7 +47487,7 @@
           ],
           "target": {
             "kind": "retired",
-            "reason": "只退役.managed-runtime Node/prebuilt node_modules/node-bin接管机制；Rust独立包使用原生binary/resources与对应target/edition，原3d实际child能力门禁与最终安装路径pin有单独实测，保留普通原生事务数据。没有声称归档组件fixture执行了其合成binary。",
+            "reason": "只退役.managed-runtime Node/prebuilt node_modules/node-bin接管机制；Rust独立包使用原生binary/resources与对应target/edition，原3d实际child能力门禁与最终安装路径pin有单独实测，保留普通原生事务数据。没有声称归档组件fixture执行了其合成binary。 精确证据界限：capability-response验证/最终path绑定/回滚使用真实exe文件资源，但预检JSON由ScriptedNet提供；实际候选子进程执行由real_candidate_exec_bounds_output_and_reaps_its_tree独立验证，不把此处说成live CLI capability发布验收。",
             "replacement": [
               {
                 "file": "src/updater/updater.rs",
@@ -47244,7 +47511,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "只退役不存在的Node node-bin文件写入fault；原生状态由同一ActivationTransaction控制，实际能力门禁失败无指针/状态发布，真实最终路径pin事务drop恢复old state，另实测current/previous/service/layout整体回滚。此项不宣称额外执行原生pin普通IO fault。",
+          "behavior": "只退役不存在的Node node-bin文件写入fault；原生状态由同一ActivationTransaction控制，实际能力门禁失败无指针/状态发布，真实最终路径pin事务drop恢复old state，另实测current/previous/service/layout整体回滚。此项不宣称额外执行原生pin普通IO fault。 精确证据界限：capability-response验证/最终path绑定/回滚使用真实exe文件资源，但预检JSON由ScriptedNet提供；实际候选子进程执行由real_candidate_exec_bounds_output_and_reaps_its_tree独立验证，不把此处说成live CLI capability发布验收。",
           "platforms": [
             "linux",
             "macos",
@@ -47252,7 +47519,7 @@
           ],
           "target": {
             "kind": "retired",
-            "reason": "只退役不存在的Node node-bin文件写入fault；原生状态由同一ActivationTransaction控制，实际能力门禁失败无指针/状态发布，真实最终路径pin事务drop恢复old state，另实测current/previous/service/layout整体回滚。此项不宣称额外执行原生pin普通IO fault。",
+            "reason": "只退役不存在的Node node-bin文件写入fault；原生状态由同一ActivationTransaction控制，实际能力门禁失败无指针/状态发布，真实最终路径pin事务drop恢复old state，另实测current/previous/service/layout整体回滚。此项不宣称额外执行原生pin普通IO fault。 精确证据界限：capability-response验证/最终path绑定/回滚使用真实exe文件资源，但预检JSON由ScriptedNet提供；实际候选子进程执行由real_candidate_exec_bounds_output_and_reaps_its_tree独立验证，不把此处说成live CLI capability发布验收。",
             "replacement": [
               {
                 "file": "src/updater/updater.rs",
@@ -47265,6 +47532,93 @@
               {
                 "file": "src/updater/updater.rs",
                 "test": "native_activation_rollback_restores_pointers_and_service_and_gc_keeps_current"
+              },
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "real_service_publication_io_failure_preserves_both_pointers_layout_and_owned_entrypoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L712:C5",
+            "title": "syncs installed scripts after switching the current pointer",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际collector restart边界验证current已切到目标唯一slot且安装服务文件已是候选内容，环境绑定正确并剔除候选资源/INSTALL_INPUT；共同事务承接旧逐文件copy顺序，终态current/service/layout一致，failed发布完整保留由另一实际IO回归验证。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "downloaded_native_archive_commits_install_and_upgrade_then_hands_off_with_fresh_success_heartbeat"
+              },
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "real_service_publication_io_failure_preserves_both_pointers_layout_and_owned_entrypoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L750:C5",
+            "title": "restores pointers and installed scripts when script sync fails",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际只读服务文件使激活发布返回Err，旧current/previous/service/layout字节均保留；正常生产事务路径而非mock copyFile错误。fixture解除readonly以便安全清理，没有放宽生产权限/回滚要求。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "real_service_publication_io_failure_preserves_both_pointers_layout_and_owned_entrypoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L794:C5",
+            "title": "syncs Windows CLI as -service.ps1 and removes legacy loongsuite-pilot.ps1",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "真实PS1服务文件BOM/.cmd目标名及回滚已验证，unknown同名legacy PS1原文保留；尚未证明有归属的旧PS1由updater或installer安全移交清理，不把拒Node/新文件名当删除完成。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "windows_service_file_publication_has_bom_cmd_and_preserves_unowned_legacy_script"
               }
             ]
           }
@@ -47516,6 +47870,118 @@
         },
         {
           "source": {
+            "id": "L1034:C5",
+            "title": "recovers a timed-out restart with the start-only command before reporting success",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check读取真实当前包与运行记录；旧version/旧commit两个参数均用真实物理新PID恢复、只在成功后handoff/collector_restarted/failure0；timeout→start-only同样成功。缺健康/Unknown command分别Err/failure1/no success/no GC/no handoff，Unknown stdout实际进入update_failure error。服务边界scripted，PID与状态文件/GC真实。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "current_collector_recovery_handles_missing_wrong_version_wrong_commit_and_failed_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1062:C5",
+            "title": "allows a full health window after timed-out restart recovery",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留默认health_timeout=30_000，不缩成小预算：restart timeout经start-only恢复后真正等29_500ms才发布真实健康文件，待测future此前未完成，随后成功；另公开check验证恢复成功metrics与failure0，不以纯formatter替代pipeline。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "start_only_recovery_retains_the_full_default_thirty_second_health_window"
+              },
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "current_collector_recovery_handles_missing_wrong_version_wrong_commit_and_failed_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1100:C5",
+            "title": "does not report success when Windows start-only returns Unknown command",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check读取真实当前包与运行记录；旧version/旧commit两个参数均用真实物理新PID恢复、只在成功后handoff/collector_restarted/failure0；timeout→start-only同样成功。缺健康/Unknown command分别Err/failure1/no success/no GC/no handoff，Unknown stdout实际进入update_failure error。服务边界scripted，PID与状态文件/GC真实。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "current_collector_recovery_handles_missing_wrong_version_wrong_commit_and_failed_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1137:C5",
+            "title": "does not report restart success or run GC when collector health never appears",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check真实解包/校验/激活候选后无健康，实际restart→start仍无健康则回滚current/previous/service，stale保留证明未GC；真实JSONL无collector_restarted、有update_failure/consecutive_failures1。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "downloaded_candidate_without_health_rolls_back_and_never_reports_restart_or_runs_gc"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L1171:C5",
             "title": "requires the target version, a fresh heartbeat, and a new PID for rebuilds",
             "suites": [
@@ -47593,6 +48059,141 @@
               {
                 "file": "src/updater/updater_contract_tests.rs",
                 "test": "restart_failure_keeps_both_child_diagnostics_when_start_only_also_fails"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1264:C5",
+            "title": "alarms with the stage the service script recorded when recovery also fails",
+            "suites": [
+              "Updater",
+              "restartCollector failure reporting"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实restart API和JSONL告警逐组：fresh恰一条type/level/quoted reason/definition_owner/stdout全部精确；900s stale不归因，stage unknown；killed timeout实际写schema1 collector breadcrumb且alarm timeout；成功无alarm；start成功但无健康保留首task-missing stage及health/runtime原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "exact_restart_alarm_contracts_preserve_fresh_stage_ignore_stale_and_remain_quiet_on_success"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1307:C5",
+            "title": "does not attribute an older breadcrumb to this attempt",
+            "suites": [
+              "Updater",
+              "restartCollector failure reporting"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实restart API和JSONL告警逐组：fresh恰一条type/level/quoted reason/definition_owner/stdout全部精确；900s stale不归因，stage unknown；killed timeout实际写schema1 collector breadcrumb且alarm timeout；成功无alarm；start成功但无健康保留首task-missing stage及health/runtime原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "exact_restart_alarm_contracts_preserve_fresh_stage_ignore_stale_and_remain_quiet_on_success"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1332:C5",
+            "title": "writes a timeout breadcrumb when restart-collector is killed",
+            "suites": [
+              "Updater",
+              "restartCollector failure reporting"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实restart API和JSONL告警逐组：fresh恰一条type/level/quoted reason/definition_owner/stdout全部精确；900s stale不归因，stage unknown；killed timeout实际写schema1 collector breadcrumb且alarm timeout；成功无alarm；start成功但无健康保留首task-missing stage及health/runtime原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "exact_restart_alarm_contracts_preserve_fresh_stage_ignore_stale_and_remain_quiet_on_success"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1349:C5",
+            "title": "stays silent when the restart succeeds",
+            "suites": [
+              "Updater",
+              "restartCollector failure reporting"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实restart API和JSONL告警逐组：fresh恰一条type/level/quoted reason/definition_owner/stdout全部精确；900s stale不归因，stage unknown；killed timeout实际写schema1 collector breadcrumb且alarm timeout；成功无alarm；start成功但无健康保留首task-missing stage及health/runtime原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "exact_restart_alarm_contracts_preserve_fresh_stage_ignore_stale_and_remain_quiet_on_success"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1356:C5",
+            "title": "alarms with the first restart stage when start-collector succeeds but health never appears",
+            "suites": [
+              "Updater",
+              "restartCollector failure reporting"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实restart API和JSONL告警逐组：fresh恰一条type/level/quoted reason/definition_owner/stdout全部精确；900s stale不归因，stage unknown；killed timeout实际写schema1 collector breadcrumb且alarm timeout；成功无alarm；start成功但无健康保留首task-missing stage及health/runtime原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "exact_restart_alarm_contracts_preserve_fresh_stage_ignore_stale_and_remain_quiet_on_success"
               }
             ]
           }

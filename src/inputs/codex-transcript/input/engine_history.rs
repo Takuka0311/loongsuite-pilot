@@ -2526,6 +2526,12 @@ async fn native_diagnostic_records_preserve_control_retry_resource_and_anchor_re
                     .all(|e| e["agent.codex.transcript_turn_id"] != "turn-control"));
                 assert_eq!(responses_for(&f.records(), "turn-normal").len(), 1);
             }
+            "live-control" => {
+                assert_live_control_does_not_end_collection(&f).await;
+            }
+            "fork-control" => {
+                assert_copied_control_forks_restart_without_control_recovery(&f).await;
+            }
             "pending" => {
                 let pending = record(
                     "2026-06-24T06:00:00.000Z",
@@ -4505,4 +4511,279 @@ fn actual_prompt_replay_can_be_known_before_any_closed_step_but_empty_audit_id_c
     assert_eq!(malformed.deduplicated_entry_count, 0);
     assert_eq!(malformed.rejected_entry_count, 1);
     assert!(!malformed.all_already_emitted());
+}
+
+fn control_abort_at(session: &str, seconds: i64) -> Vec<String> {
+    let base = chrono::DateTime::parse_from_rfc3339("2026-06-24T06:00:00Z").expect("time")
+        + chrono::Duration::seconds(seconds);
+    control_abort()
+        .into_iter()
+        .enumerate()
+        .map(|(n, line)| {
+            let mut r: Value = serde_json::from_str(&line).expect("control fixture");
+            r["timestamp"] = json!((base + chrono::Duration::seconds(n as i64)).to_rfc3339());
+            if r["type"] == "session_meta" {
+                r["payload"]["id"] = json!(session);
+            }
+            r.to_string()
+        })
+        .collect()
+}
+async fn assert_live_control_does_not_end_collection(f: &Fixture) {
+    f.input.start().await.expect("start before new rollout");
+    let mut lines = Vec::new();
+    for (n, turn) in ["turn-before-1", "turn-before-2", "turn-before-3"]
+        .iter()
+        .enumerate()
+    {
+        let turn = simple_turn(turn, 100 + n as u64 * 10, 10 + n as u64, n as i64 * 60);
+        lines.extend(turn.into_iter().skip(usize::from(n != 0)));
+    }
+    lines.extend(control_abort_at("session-1", 180));
+    lines.extend(simple_turn("turn-after", 130, 13, 240).into_iter().skip(1));
+    let text = lines.join("\n") + "\n";
+    let p = f.write("rollout-live-control.jsonl", &text).await;
+    f.input.inner.run_cycle().await;
+    f.input.stop().await.expect("bounded stop");
+    let entries = f.records();
+    for turn in [
+        "turn-before-1",
+        "turn-before-2",
+        "turn-before-3",
+        "turn-after",
+    ] {
+        assert_eq!(responses_for(&entries, turn).len(), 1, "{turn}");
+    }
+    assert!(entries
+        .iter()
+        .all(|e| e["agent.codex.transcript_turn_id"] != "turn-control"));
+    assert_eq!(
+        events(&entries, "llm.response")
+            .iter()
+            .map(|e| e["gen_ai.usage.total_tokens"].as_f64().expect("tokens") as u64)
+            .collect::<Vec<_>>(),
+        vec![110, 121, 132, 143]
+    );
+    let ids: std::collections::BTreeSet<_> = entries
+        .iter()
+        .map(|e| e["event.id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(ids.len(), entries.len());
+    let cp = f.checkpoint(&p);
+    assert_eq!(cp.scan_offset, text.len() as i64);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_none()
+    );
+}
+#[tokio::test]
+async fn newly_created_live_rollout_collects_four_normal_turns_around_control_abort_with_exact_diagnostic(
+) {
+    let records = isolated_diagnostic_records("live-control");
+    let diagnostic = records
+        .iter()
+        .find(|e| {
+            e["msg"] == "processed terminal Codex turn without observable entries"
+                && e["turnId"] == "turn-control"
+        })
+        .expect("actual control explanation");
+    assert_eq!(diagnostic["terminalStatus"], "interrupted");
+}
+async fn assert_copied_control_forks_restart_without_control_recovery(f: &Fixture) {
+    let history = simple_turn("turn-history", 100, 10, 0);
+    let p = f
+        .write("rollout-history-parent.jsonl", &(history.join("\n") + "\n"))
+        .await;
+    f.process(&p).await;
+    let mut lines = vec![record(
+        "2026-06-24T06:10:00Z",
+        "session_meta",
+        json!({"id":"session-fork","model_provider":"openai","forked_from_id":"session-1"}),
+    )];
+    lines.extend(history.into_iter().skip(1));
+    lines.extend(control_abort_at("session-fork", 660));
+    lines.extend(
+        simple_turn("turn-fork-new", 130, 13, 720)
+            .into_iter()
+            .skip(1),
+    );
+    let p = write_native_fixture(f, "rollout-fork.jsonl", &(lines.join("\n") + "\n")).await;
+    f.process(&p).await;
+    let entries = f.records();
+    assert_eq!(responses_for(&entries, "turn-history").len(), 1);
+    assert_eq!(responses_for(&entries, "turn-fork-new").len(), 1);
+    assert!(entries
+        .iter()
+        .all(|e| e["agent.codex.transcript_turn_id"] != "turn-control"));
+    let cp = f.checkpoint(&p);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_none()
+    );
+    let next = f.restart().await;
+    let mut lines = vec![record(
+        "2026-06-24T06:20:00Z",
+        "session_meta",
+        json!({"id":"session-fork-2","model_provider":"openai","forked_from_id":"session-fork"}),
+    )];
+    lines.extend(control_abort_at("session-fork-2", 1260));
+    lines.extend(
+        simple_turn("turn-fork-after-restart", 140, 14, 1320)
+            .into_iter()
+            .skip(1),
+    );
+    let p = write_native_fixture(
+        &next,
+        "rollout-fork-after-restart.jsonl",
+        &(lines.join("\n") + "\n"),
+    )
+    .await;
+    next.process(&p).await;
+    assert_eq!(
+        responses_for(&next.records(), "turn-fork-after-restart").len(),
+        1
+    );
+    let cp = next.checkpoint(&p);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_none()
+    );
+}
+#[tokio::test]
+async fn fork_copied_history_and_control_prefix_skip_in_one_cycle_and_durable_restart() {
+    let records = isolated_diagnostic_records("fork-control");
+    assert!(!records.iter().any(|e| e["msg"]
+        == "processed terminal Codex turn without observable entries"
+        && e["turnId"] == "turn-control"));
+}
+#[tokio::test]
+async fn legacy_empty_pending_terminal_clears_during_actual_startup_and_collects_later_work() {
+    let f = Fixture::new();
+    let lines = control_abort();
+    let control = lines.join("\n") + "\n";
+    let text = control.clone()
+        + &simple_turn("turn-normal", 120, 12, 60)
+            .into_iter()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n")
+        + "\n";
+    let p = f.write("rollout-session-1.jsonl", &text).await;
+    let (ino, _, _) = file_meta_snapshot(&tokio::fs::metadata(&p).await.expect("stat"));
+    f.rt().state_store.update(&f.engine().state_key(&p),InputStatePatch {
+        last_offset:Some(control.len() as f64),
+        extra:Some(json!({"codexTranscript":{
+            "inode":ino,"scanOffset":control.len(),
+            "activeTurn":{"turnId":"turn-control","startOffset":0,"startedAtMs":1_782_280_800_000.0,"model":"gpt-5.5"},
+            "pendingTerminal":{"turnId":"turn-control","terminalEndOffset":control.len()},
+            "latestSessionMetaOffset":(lines[..2].join("\n")+"\n").len(),
+            "emittedTerminalTurnIds":[]
+        }})),
+        ..Default::default()
+    });
+    let next = f.restart().await;
+    start_until_first_native_cycle(&next).await;
+    let entries = next.records();
+    assert!(entries
+        .iter()
+        .all(|e| e["agent.codex.transcript_turn_id"] != "turn-control"));
+    assert_eq!(responses_for(&entries, "turn-normal").len(), 1);
+    let cp = next.checkpoint(&p);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_none()
+    );
+}
+#[tokio::test]
+async fn copied_parent_terminal_rewritten_to_fork_timestamp_never_masks_owned_uuid_turn() {
+    let f = Fixture::new();
+    f.input.start().await.expect("start before new rollout");
+    let child = NATIVE_CHILDREN[0];
+    let mut lines = Vec::new();
+    for (n, line) in child.3.lines().enumerate() {
+        let mut r: Value = serde_json::from_str(line).expect("native fixture");
+        if n == 0 {
+            r["timestamp"] = json!("2026-08-07T08:42:35.146Z");
+            r["payload"]["timestamp"] = r["timestamp"].clone();
+            r["payload"]["id"] = json!("019fdb63-710a-7131-978c-6a6ee744fff9");
+        }
+        if (1..=8).contains(&n) {
+            r["timestamp"] = json!("2026-08-07T08:42:35.204Z");
+        }
+        lines.push(
+            r.to_string()
+                .replace("parent-turn-1", "019fdb63-2fc6-7491-9895-8c8f86a8bcab")
+                .replace("child-turn-1", "019fdb63-714b-7c72-9c8c-c2e40d9c9111"),
+        );
+    }
+    let p = write_native_fixture(&f, child.0, &(lines.join("\n") + "\n")).await;
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("stop");
+    assert_eq!(
+        responses_for(&f.records(), "019fdb63-714b-7c72-9c8c-c2e40d9c9111").len(),
+        1
+    );
+    assert!(responses_for(&f.records(), "019fdb63-2fc6-7491-9895-8c8f86a8bcab").is_empty());
+    let cp = f.checkpoint(&p);
+    assert!(cp.pending_subagent.is_none() && cp.active_turn.is_none());
+}
+#[tokio::test]
+async fn unmatched_token_sample_before_any_response_wave_does_not_shift_later_step_tokens() {
+    let f = Fixture::new();
+    f.input.start().await.expect("start before new rollout");
+    let text = completed();
+    let mut lines = text.lines().map(str::to_string).collect::<Vec<_>>();
+    lines.insert(
+        3,
+        record("2026-06-24T06:00:02.500Z", "event_msg", usage(1, 1)),
+    );
+    f.write("rollout-unmatched-token.jsonl", &(lines.join("\n") + "\n"))
+        .await;
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("stop");
+    assert_eq!(
+        events(&f.records(), "llm.response")
+            .iter()
+            .map(|e| e["gen_ai.usage.total_tokens"].as_f64().expect("tokens") as u64)
+            .collect::<Vec<_>>(),
+        vec![110, 132, 143]
+    );
+}
+#[tokio::test]
+async fn actual_single_collector_interrupt_closes_reasoning_response_and_cancels_pending_tool() {
+    let f = Fixture::new();
+    f.input.start().await.expect("start before new rollout");
+    let text = completed();
+    let mut lines = text.lines().map(str::to_string).collect::<Vec<_>>();
+    lines.truncate(lines.len() - 3);
+    lines.extend([
+      record("2026-06-24T06:00:10Z","event_msg",json!({"type":"agent_message","message":"one final operation","phase":"commentary"})),
+      record("2026-06-24T06:00:11Z","response_item",json!({"type":"function_call","call_id":"call-pending","name":"exec_command","arguments":"{\"cmd\":\"sleep 10\"}"})),
+      record("2026-06-24T06:00:12Z","event_msg",json!({"type":"turn_aborted","turn_id":"turn-1","reason":"interrupted"}))
+    ]);
+    f.write("rollout-interrupted.jsonl", &(lines.join("\n") + "\n"))
+        .await;
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("stop");
+    let entries = f.records();
+    let response = entries
+        .iter()
+        .find(|e| {
+            e["gen_ai.response.finish_reasons"]
+                .as_array()
+                .is_some_and(|v| v.contains(&json!("cancelled")))
+        })
+        .expect("cancelled real response");
+    assert_eq!(response["agent.codex.turn_status"], "interrupted");
+    let messages = response["gen_ai.output.messages"]
+        .as_array()
+        .expect("output");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], "assistant");
+    assert_eq!(messages[0]["finish_reason"], "cancelled");
+    assert!(messages[0]["parts"]
+        .as_array()
+        .expect("parts")
+        .contains(&json!({"type":"reasoning","content":"one final operation"})));
+    let tool = entries
+        .iter()
+        .find(|e| e["event.name"] == "tool.result" && e["gen_ai.tool.call.id"] == "call-pending")
+        .expect("pending tool closure");
+    assert_eq!(tool["tool.result.status"], "cancelled");
 }
