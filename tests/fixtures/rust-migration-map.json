@@ -50594,10 +50594,10 @@
     },
     {
       "legacy": "tests/unit/hooks/qoder-hook-processor-retry.test.mjs",
-      "coverage": "partial",
+      "coverage": "complete",
       "rust": [],
       "source_hash": "a398f659aca526811ec264992e290aae0251947252573822f74f471b880b6a5c",
-      "note": "首批21/56；Linux/glibc2.34/Rust1.99.1实际21及原20Qoder回归通过；Windows/macOS仅适用性。",
+      "note": "三批完整56/56声明精确映射、无retire；原生Qoder定向76通过（含既有20回归），fmt/strict全workspace门禁通过。执行仅Linux；Windows/macOS适用性和执行证据明确区分。",
       "cases": [
         {
           "source": {
@@ -51069,6 +51069,422 @@
         },
         {
           "source": {
+            "id": "L192:C3",
+            "title": "stamps Qoder IDE hook identity onto every event in the turn",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stamps Qoder IDE hook identity onto every event in the turn；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l192_identity_on_every_turn_event"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L245:C3",
+            "title": "omits identity when the hook payload has no usable extra.user",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "omits identity when the hook payload has no usable extra.user；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l245_no_usable_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L250:C3",
+            "title": "keeps thinking + text + multiple tool_use blocks as one response",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps thinking + text + multiple tool_use blocks as one response；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l250_thinking_text_parallel_tools_one_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L261:C3",
+            "title": "does not split parallel tool_use blocks when an early tool_result is interleaved",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not split parallel tool_use blocks when an early tool_result is interleaved；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l261_early_result_does_not_split_parallel_tools"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L272:C3",
+            "title": "starts the next response after all tools in the prior response resolve",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "starts the next response after all tools in the prior response resolve；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l272_completed_tools_start_next_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L282:C3",
+            "title": "uses a completed tool cycle even when progress events place both responses in one window",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses a completed tool cycle even when progress events place both responses in one window；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l282_completed_cycle_ignores_single_progress_window"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L299:C3",
+            "title": "derives the next request from the completed tool result, not progress timing",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "derives the next request from the completed tool result, not progress timing；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l299_completed_tool_result_sets_next_request_clock"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L350:C3",
+            "title": "starts a complete next step from a failed tool_result, independent of PostToolUseFailure",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "starts a complete next step from a failed tool_result, independent of PostToolUseFailure；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l350_failed_tool_result_completes_next_step"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L405:C3",
+            "title": "preserves a terminal response when tool_result is missing",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves a terminal response when tool_result is missing；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l405_terminal_response_survives_missing_tool_result"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L456:C3",
+            "title": "conservatively merges later assistant rows when both tool_result and stop_reason are missing",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "conservatively merges later assistant rows when both tool_result and stop_reason are missing；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l456_missing_result_and_reason_merge"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L469:C3",
+            "title": "keeps structure and content identical when third-party PostToolUse progress is present",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps structure and content identical when third-party PostToolUse progress is present；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。Rust边界API只接content，Progress先走真实split_progress_content；比较有/无第三方Progress的边界及原5字段事件指纹，Option保留缺失/null区别。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l469_third_party_progress_preserves_structure_and_content"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L515:C3",
+            "title": "keeps responses populated when adjacent groups have the same assistant timestamp",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps responses populated when adjacent groups have the same assistant timestamp；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l515_equal_assistant_timestamps_preserve_event_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L550:C3",
+            "title": "preserves sub-millisecond transcript order in emitted timestamps",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves sub-millisecond transcript order in emitted timestamps；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l550_sub_millisecond_emitted_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L591:C3",
+            "title": "uses the final assistant timestamp when SQLite enrichment is unavailable",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses the final assistant timestamp when SQLite enrichment is unavailable；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l591_last_assistant_clock_without_sqlite"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L623:C3",
+            "title": "does not close a parallel response until completion signals cover its declared tools",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not close a parallel response until completion signals cover its declared tools；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l623_all_declared_parallel_tools_must_resolve"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L643:C3",
+            "title": "does not invent a boundary without a completed tool cycle",
+            "suites": [
+              "buildLlmBoundaries complete-response priority"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not invent a boundary without a completed tool cycle；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l643_no_invented_cycle_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L655:C3",
             "title": "commits the completed turn but preserves the next queued prompt",
             "suites": [
@@ -51141,6 +51557,500 @@
               {
                 "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
                 "test": "increment_l686_real_next_user_without_progress"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L715:C3",
+            "title": "anchors the current Stop turn and excludes a queued next prompt",
+            "suites": [
+              "findTriggeredTurnWindow"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "anchors the current Stop turn and excludes a queued next prompt；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l715_stop_anchor_excludes_queued_prompt"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L745:C3",
+            "title": "uses the next prompt as a boundary when SessionEnd is missing",
+            "suites": [
+              "findTriggeredTurnWindow"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses the next prompt as a boundary when SessionEnd is missing；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l745_next_prompt_without_session_end"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L765:C3",
+            "title": "returns a stable-EOF candidate when Stop is the final row",
+            "suites": [
+              "findTriggeredTurnWindow"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns a stable-EOF candidate when Stop is the final row；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l765_stop_at_eof_waits"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L782:C3",
+            "title": "requires two identical hashed snapshots before accepting Stop at EOF",
+            "suites": [
+              "findTriggeredTurnWindow"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requires two identical hashed snapshots before accepting Stop at EOF；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l782_two_identical_hashes_required"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L811:C3",
+            "title": "uses last-prompt as the terminal marker for Qoder CLI",
+            "suites": [
+              "findTriggeredTurnWindow"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses last-prompt as the terminal marker for Qoder CLI；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l811_cli_last_prompt_terminal"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L843:C3",
+            "title": "case 1: detects stop via Stop progress row (regression, old path not degraded)",
+            "suites": [
+              "findTriggeredTurnWindow stop source variants (B3 P0)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "case 1: detects stop via Stop progress row (regression, old path not degraded)；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l843_traditional_progress_stop"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L854:C3",
+            "title": "case 2: detects stop via assistant message.stop_reason when no Stop progress row",
+            "suites": [
+              "findTriggeredTurnWindow stop source variants (B3 P0)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "case 2: detects stop via assistant message.stop_reason when no Stop progress row；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l854_assistant_terminal_without_progress"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L865:C3",
+            "title": "case 3: prefers the Stop progress row when both signals are present",
+            "suites": [
+              "findTriggeredTurnWindow stop source variants (B3 P0)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "case 3: prefers the Stop progress row when both signals are present；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l865_prefers_progress_when_both_present"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L879:C3",
+            "title": "case 4: skips mid-turn tool_use and stops at the terminal assistant row",
+            "suites": [
+              "findTriggeredTurnWindow stop source variants (B3 P0)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "case 4: skips mid-turn tool_use and stops at the terminal assistant row；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l879_tool_cycle_waits_for_terminal_assistant"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L893:C3",
+            "title": "case 5: treats stop_sequence as terminal",
+            "suites": [
+              "findTriggeredTurnWindow stop source variants (B3 P0)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "case 5: treats stop_sequence as terminal；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l893_stop_sequence_is_terminal"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L907:C3",
+            "title": "case 6: keeps waiting when the turn only carries non-terminal stop reasons",
+            "suites": [
+              "findTriggeredTurnWindow stop source variants (B3 P0)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "case 6: keeps waiting when the turn only carries non-terminal stop reasons；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "window_l907_nonterminal_reasons_keep_waiting"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L923:C3",
+            "title": "accepts the traditional progress Stop marker",
+            "suites": [
+              "hasQoderCnTerminalMarker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "accepts the traditional progress Stop marker；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "terminal_l923_progress_stop"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L927:C3",
+            "title": "accepts SDK print-mode terminal rows before progress Stop is appended",
+            "suites": [
+              "hasQoderCnTerminalMarker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "accepts SDK print-mode terminal rows before progress Stop is appended；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "terminal_l927_sdk_terminal_before_progress_appended"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L934:C3",
+            "title": "rejects a mid-tool snapshot",
+            "suites": [
+              "hasQoderCnTerminalMarker"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rejects a mid-tool snapshot；真实独立物理JSONL快照、原始逐字段窗口status/reason/起止索引、原两次hash稳定判定和原terminal marker行实际执行；B3六份原fixture逐字固定ef8953并记录hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_window_history_tests.rs",
+                "test": "terminal_l934_mid_tool_not_terminal"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L943:C3",
+            "title": "matches parallel tool results by tool_use_id instead of return order",
+            "suites": [
+              "buildEventsFromBoundaries tool result matching"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "matches parallel tool results by tool_use_id instead of return order；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "boundary_l943_parallel_results_match_ids_and_original_durations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1020:C3",
+            "title": "keeps the primary prompt and appends meta Image:source text for qoder-cli",
+            "suites": [
+              "buildEventsFromBoundaries CLI image source parts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps the primary prompt and appends meta Image:source text for qoder-cli；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "cli_l1020_primary_prompt_then_meta_image_source"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1072:C3",
+            "title": "does not append Image:source parts for IDE turns",
+            "suites": [
+              "buildEventsFromBoundaries CLI image source parts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not append Image:source parts for IDE turns；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "cli_l1072_ide_omits_meta_image_source"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1110:C3",
+            "title": "does not start a new turn on isMeta Image:source rows",
+            "suites": [
+              "buildEventsFromBoundaries CLI image source parts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not start a new turn on isMeta Image:source rows；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "cli_l1110_meta_rows_do_not_split_or_replace_primary_prompt"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1167:C3",
+            "title": "reads image_file.filename from the attachment row, not from user/assistant stream",
+            "suites": [
+              "buildEventsFromBoundaries CLI image source parts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reads image_file.filename from the attachment row, not from user/assistant stream；固定原字面量静态AST提取，原生真实边界/事件投影执行；所有原工具ID/状态/调用时钟/时长/身份/CLI图片关联断言保留，纳秒用i128，缺失turn.end显式校验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
+                "test": "cli_l1167_attachment_filename_and_parent_only"
               }
             ]
           }

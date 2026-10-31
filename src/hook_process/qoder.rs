@@ -4800,3 +4800,11 @@ mod identity_tests;
 #[cfg(test)]
 #[path = "qoder_retry_lock_history_tests.rs"]
 mod retry_lock_history_tests;
+
+#[cfg(test)]
+#[path = "qoder_retry_boundary_history_tests.rs"]
+mod retry_boundary_history_tests;
+
+#[cfg(test)]
+#[path = "qoder_retry_window_history_tests.rs"]
+mod retry_window_history_tests;

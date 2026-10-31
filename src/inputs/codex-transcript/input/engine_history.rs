@@ -4446,3 +4446,63 @@ async fn persisted_legacy_parent_and_child_holds_migrate_to_independent_native_c
     assert!(cp.pending_fusion.is_none() && cp.active_turn.is_none());
     assert!(recovered.checkpoint(&child).pending_subagent.is_none());
 }
+#[test]
+fn actual_segment_filter_distinguishes_known_replay_from_missing_step_or_tool_identity() {
+    for name in ["llm.request", "llm.response", "tool.call", "tool.result"] {
+        let valid = build_agent_activity_entry(
+            &json!({"event.name":name,"gen_ai.agent.type":"codex","gen_ai.session.id":"filter-session","gen_ai.step.id":"filter-session:turn:s1","gen_ai.tool.call.id":"filter-call"}),
+        );
+        let mut missing = valid.clone();
+        if name.starts_with("llm.") {
+            missing.step_id = None;
+        } else {
+            missing.tool_call_id = None;
+        }
+        let mut active = create_active_turn("turn".into(), 0, 1_782_280_800_000.0, false);
+        let initial = filter_new_segment_entries(
+            vec![valid.clone(), valid.clone(), missing.clone()],
+            &mut active,
+        );
+        assert_eq!(initial.input_entry_count, 3);
+        assert_eq!(initial.entries.len(), 1);
+        assert_eq!(initial.entries[0].event_id, valid.event_id);
+        assert_eq!(initial.deduplicated_entry_count, 1);
+        assert_eq!(initial.rejected_entry_count, 1);
+        assert!(!initial.all_already_emitted());
+        let mixed = filter_new_segment_entries(vec![valid.clone(), missing], &mut active);
+        assert!(mixed.entries.is_empty());
+        assert_eq!(mixed.deduplicated_entry_count, 1);
+        assert_eq!(mixed.rejected_entry_count, 1);
+        assert!(
+            !mixed.all_already_emitted(),
+            "missing IDs must not be explained as previous successful emission"
+        );
+        let replay = filter_new_segment_entries(vec![valid], &mut active);
+        assert!(replay.entries.is_empty());
+        assert_eq!(replay.deduplicated_entry_count, 1);
+        assert_eq!(replay.rejected_entry_count, 0);
+        assert!(replay.all_already_emitted());
+    }
+}
+#[test]
+fn actual_prompt_replay_can_be_known_before_any_closed_step_but_empty_audit_id_cannot() {
+    let prompt = build_agent_activity_entry(
+        &json!({"event.name":"other","gen_ai.agent.type":"codex","gen_ai.session.id":"filter-session","gen_ai.input.messages_delta":[{"role":"user","parts":[{"type":"text","content":"synthetic prompt"}]}]}),
+    );
+    let mut active = create_active_turn("turn".into(), 0, 1_782_280_800_000.0, true);
+    assert_eq!(active.emitted_step_count, 0);
+    let replay = filter_new_segment_entries(vec![prompt], &mut active);
+    assert!(replay.all_already_emitted());
+    assert_eq!(replay.deduplicated_entry_count, 1);
+    assert_eq!(replay.rejected_entry_count, 0);
+    let mut audit = build_agent_activity_entry(
+        &json!({"event.name":"gen_ai.agent.invoke","gen_ai.agent.type":"codex","gen_ai.session.id":"filter-session"}),
+    );
+    audit.event_id.clear();
+    active.emitted_audit_event_ids.push(String::new());
+    let malformed = filter_new_segment_entries(vec![audit], &mut active);
+    assert!(malformed.entries.is_empty());
+    assert_eq!(malformed.deduplicated_entry_count, 0);
+    assert_eq!(malformed.rejected_entry_count, 1);
+    assert!(!malformed.all_already_emitted());
+}

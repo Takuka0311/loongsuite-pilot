@@ -1190,11 +1190,23 @@ impl<'a> CodexTranscriptEngine<'a> {
                 ready.push(marker);
             }
         }
-        let entries = if let Some(active) = checkpoint.active_turn.as_mut() {
+        let filtered = if let Some(active) = checkpoint.active_turn.as_mut() {
             filter_new_segment_entries(ready.clone(), active)
         } else {
-            ready.clone()
+            SegmentFilterResult {
+                input_entry_count: ready.len(),
+                entries: ready.clone(),
+                deduplicated_entry_count: 0,
+                rejected_entry_count: 0,
+            }
         };
+        let all_already_emitted = filtered.all_already_emitted();
+        let SegmentFilterResult {
+            entries,
+            deduplicated_entry_count,
+            rejected_entry_count,
+            ..
+        } = filtered;
         if terminal && entries.is_empty() {
             let diagnostics = json!({
                 "sourceRecordCount": records.items.len(),
@@ -1204,7 +1216,8 @@ impl<'a> CodexTranscriptEngine<'a> {
                 "unmatchedTokenUsageCount": extraction.turn.unmatched_token_usages.len(),
                 "builtEntryCount": built.entries.len(),
                 "readyEntryCount": ready.len(),
-                "deduplicatedEntryCount": ready.len().saturating_sub(entries.len()),
+                "deduplicatedEntryCount": deduplicated_entry_count,
+                "rejectedEntryCount": rejected_entry_count,
                 "emittedEntryCount": entries.len(),
                 "previouslyEmittedStepCount": active.emitted_step_count,
             });
@@ -1219,8 +1232,7 @@ impl<'a> CodexTranscriptEngine<'a> {
                     "processed terminal Codex turn without observable entries",
                     meta.as_object(),
                 );
-            } else if !ready.is_empty() && ready.len() == ready.len().saturating_sub(entries.len())
-            {
+            } else if all_already_emitted {
                 rt.debug(
                     "terminal Codex turn entries were already emitted incrementally",
                     meta.as_object(),
@@ -1302,15 +1314,34 @@ fn empty_unparseable(end_offset: i64) -> Recovery {
     }
 }
 
+struct SegmentFilterResult {
+    input_entry_count: usize,
+    entries: Vec<AgentActivityEntry>,
+    deduplicated_entry_count: usize,
+    rejected_entry_count: usize,
+}
+
+impl SegmentFilterResult {
+    fn all_already_emitted(&self) -> bool {
+        self.input_entry_count > 0
+            && self.entries.is_empty()
+            && self.rejected_entry_count == 0
+            && self.deduplicated_entry_count == self.input_entry_count
+    }
+}
+
 fn filter_new_segment_entries(
     entries: Vec<AgentActivityEntry>,
     active: &mut CodexActiveTranscriptTurn,
-) -> Vec<AgentActivityEntry> {
+) -> SegmentFilterResult {
+    let input_entry_count = entries.len();
     let mut requests: HashSet<String> = active.emitted_step_request_ids.iter().cloned().collect();
     let mut responses: HashSet<String> = active.emitted_step_response_ids.iter().cloned().collect();
     let mut calls: HashSet<String> = active.emitted_tool_call_ids.iter().cloned().collect();
     let mut results: HashSet<String> = active.emitted_tool_result_ids.iter().cloned().collect();
     let mut out = Vec::new();
+    let mut deduplicated_entry_count = 0;
+    let mut rejected_entry_count = 0;
     let mut audits: HashSet<String> = active.emitted_audit_event_ids.iter().cloned().collect();
     for entry in entries {
         if matches!(
@@ -1326,6 +1357,10 @@ fn filter_new_segment_entries(
         ) {
             if audits.insert(entry.event_id.clone()) {
                 out.push(entry);
+            } else if entry.event_id.is_empty() {
+                rejected_entry_count += 1;
+            } else {
+                deduplicated_entry_count += 1;
             }
             continue;
         }
@@ -1335,6 +1370,7 @@ fn filter_new_segment_entries(
                 continue;
             }
             if active.emitted_prompt {
+                deduplicated_entry_count += 1;
                 continue;
             }
             active.emitted_prompt = true;
@@ -1344,22 +1380,42 @@ fn filter_new_segment_entries(
         let step_id = entry.step_id.clone().unwrap_or_default();
         let tool_id = entry.tool_call_id.clone().unwrap_or_default();
         if entry.event_name == Some(AgentEventName::LlmRequest) {
-            if step_id.is_empty() || !requests.insert(step_id) {
+            if step_id.is_empty() {
+                rejected_entry_count += 1;
+                continue;
+            }
+            if !requests.insert(step_id) {
+                deduplicated_entry_count += 1;
                 continue;
             }
             out.push(entry);
         } else if entry.event_name == Some(AgentEventName::LlmResponse) {
-            if step_id.is_empty() || !responses.insert(step_id) {
+            if step_id.is_empty() {
+                rejected_entry_count += 1;
+                continue;
+            }
+            if !responses.insert(step_id) {
+                deduplicated_entry_count += 1;
                 continue;
             }
             out.push(entry);
         } else if entry.event_name == Some(AgentEventName::ToolCall) {
-            if tool_id.is_empty() || !calls.insert(tool_id) {
+            if tool_id.is_empty() {
+                rejected_entry_count += 1;
+                continue;
+            }
+            if !calls.insert(tool_id) {
+                deduplicated_entry_count += 1;
                 continue;
             }
             out.push(entry);
         } else if entry.event_name == Some(AgentEventName::ToolResult) {
-            if tool_id.is_empty() || !results.insert(tool_id) {
+            if tool_id.is_empty() {
+                rejected_entry_count += 1;
+                continue;
+            }
+            if !results.insert(tool_id) {
+                deduplicated_entry_count += 1;
                 continue;
             }
             out.push(entry);
@@ -1372,7 +1428,12 @@ fn filter_new_segment_entries(
     active.emitted_tool_call_ids = calls.into_iter().collect();
     active.emitted_tool_result_ids = results.into_iter().collect();
     active.emitted_audit_event_ids = audits.into_iter().collect();
-    out
+    SegmentFilterResult {
+        input_entry_count,
+        entries: out,
+        deduplicated_entry_count,
+        rejected_entry_count,
+    }
 }
 
 fn persisted_input_context(
