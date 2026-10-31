@@ -111,6 +111,8 @@ impl UpdaterWatchdog {
                 Box::pin(async move { run_restart_command(&bin).await }) as BoxFut<_>
             })
         });
+        let now_ms = opts.now_ms.unwrap_or_else(|| Arc::new(now_ms));
+        let started_at = now_ms();
         Self {
             enabled: opts.enabled,
             data_dir: opts.data_dir,
@@ -128,8 +130,8 @@ impl UpdaterWatchdog {
             alarm_manager: opts.alarm_manager,
             liveness,
             restart_command,
-            now_ms: opts.now_ms.unwrap_or_else(|| Arc::new(now_ms)),
-            started_at: Mutex::new(0),
+            now_ms,
+            started_at: Mutex::new(started_at),
             last_tick_at: Mutex::new(0),
             sleep_wake_grace_until: Mutex::new(0),
             last_restart_at: Mutex::new(0),
@@ -1447,3 +1449,7 @@ exit 0
             .unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "updater_watchdog_history_health_tests.rs"]
+mod history_health_tests;

@@ -6809,7 +6809,7 @@
       "coverage": "partial",
       "rust": [],
       "source_hash": "ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9",
-      "note": "仅固定f84e3881958b39c5c7cbe8a035f50ccd80a25783当前文件7个已实际逐assert承接的replacement合同，独立main补充映射；整文件有123个AST声明，仅本7被登记，绝不将全文件算complete，不改变ef8953固定109分母。source IDs/title/suites/parameters与f84 AST完全一致。Linux95targeted实际过，Windows/macOS未代验。",
+      "note": "固定f84 main123仅登记8条已审合同（7独立子会话替代+6格隐私矩阵），文件保持partial；source hash/AST严格核验。实际执行与平台覆盖独立记录，不改变ef8953固定分母。",
       "cases": [
         {
           "source": {
@@ -6989,6 +6989,34 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "persisted_legacy_parent_and_child_holds_migrate_to_independent_native_completion"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L5698:C3",
+            "title": "%s checks privacy before attachment upload",
+            "suites": [
+              "workspace privacy during independent Codex subagent collection"
+            ],
+            "parameters": [
+              "it.each([\n    ['completed child, blocked parent', true, true, false],\n    ['running child, blocked parent', false, true, false],\n    ['completed child, public parent', true, false, false],\n    ['running child, public parent', false, false, false],\n    ['completed child, blocked child', true, false, true],\n    ['running child, blocked child', false, false, true],\n  ] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "固定main原6格矩阵：completed/running×blocked-parent/public/blocked-child；独立child identity、运行中parent结束不force、child真实terminal关闭、private0上传/0output，public uploader得到exact hello PNG且child会话/子scope全对。真实生产组件，Linux strict+104targeted通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "independent_child_six_case_privacy_matrix_blocks_before_real_attachment_processing_and_output"
               }
             ]
           }

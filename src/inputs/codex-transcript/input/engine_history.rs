@@ -13,6 +13,12 @@ impl Fixture {
         Self::with_root(Arc::new(tempfile::tempdir().expect("tempdir")))
     }
     fn with_root(root: Arc<tempfile::TempDir>) -> Self {
+        Self::with_root_options(root, None)
+    }
+    fn with_root_options(
+        root: Arc<tempfile::TempDir>,
+        multimodal: Option<crate::inputs::codex_transcript::CodexMultimodalOptions>,
+    ) -> Self {
         let input = CodexTranscriptInput::new(CodexTranscriptInputOptions {
             state_store: Arc::new(crate::checkpoints::StateStore::new(
                 root.path().join("state.json"),
@@ -21,7 +27,7 @@ impl Fixture {
             wakeup_dir: Some(root.path().join("wakeups").to_string_lossy().into_owned()),
             span_context_dir: Some(root.path().join("spans").to_string_lossy().into_owned()),
             poll_interval_ms: Some(60_000),
-            multimodal: None,
+            multimodal,
         });
         let entries = Arc::new(Mutex::new(Vec::new()));
         let batches = Arc::new(Mutex::new(Vec::new()));
@@ -2532,6 +2538,9 @@ async fn native_diagnostic_records_preserve_control_retry_resource_and_anchor_re
             "fork-control" => {
                 assert_copied_control_forks_restart_without_control_recovery(&f).await;
             }
+            "invalid-offset" => {
+                assert_invalid_fork_search_repair(&f).await;
+            }
             "pending" => {
                 let pending = record(
                     "2026-06-24T06:00:00.000Z",
@@ -4786,4 +4795,377 @@ async fn actual_single_collector_interrupt_closes_reasoning_response_and_cancels
         .find(|e| e["event.name"] == "tool.result" && e["gen_ai.tool.call.id"] == "call-pending")
         .expect("pending tool closure");
     assert_eq!(tool["tool.result.status"], "cancelled");
+}
+#[derive(Default)]
+struct SyntheticImageUploads(Mutex<Vec<crate::multimodal::types::UploadItem>>);
+#[async_trait::async_trait]
+impl crate::multimodal::types::Uploader for SyntheticImageUploads {
+    async fn upload(
+        &self,
+        item: crate::multimodal::types::UploadItem,
+        _opts: crate::multimodal::types::UploadOptions,
+    ) -> bool {
+        self.0.lock().expect("uploads").push(item);
+        true
+    }
+    async fn shutdown(&self) {}
+}
+#[tokio::test]
+async fn independent_child_six_case_privacy_matrix_blocks_before_real_attachment_processing_and_output(
+) {
+    use crate::inputs::base::WorkspacePolicy;
+    use crate::inputs::codex_transcript::CodexMultimodalOptions;
+    let mut privacy_failures = Vec::new();
+    for child_terminal in [true, false] {
+        for (blocked_parent, blocked_child) in [(true, false), (false, false), (false, true)] {
+            let root = Arc::new(tempfile::tempdir().expect("tempdir"));
+            let uploads = Arc::new(SyntheticImageUploads::default());
+            let processor = crate::multimodal::MultimodalProcessor::new(
+                Some("oss://test/synthetic-child"),
+                uploads.clone(),
+                None,
+            )
+            .expect("processor");
+            let f = Fixture::with_root_options(
+                root.clone(),
+                Some(CodexMultimodalOptions {
+                    enabled: true,
+                    upload_mode: Some(crate::types::MultimodalUploadMode::All),
+                    processor: Some(processor.clone()),
+                }),
+            );
+            // Native absolute paths make the same fixture meaningful on Windows.
+            let private = root
+                .path()
+                .join("private-project")
+                .to_string_lossy()
+                .into_owned();
+            let public = root
+                .path()
+                .join("public-project")
+                .to_string_lossy()
+                .into_owned();
+            f.rt().set_workspace_policy(WorkspacePolicy::new(
+                vec![private.clone()],
+                Some(root.path().join("privacy-state")),
+            ));
+            let parent = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+            if blocked_parent {
+                assert!(!f.rt().with_workspace_policy(|p| p.allows(
+                    json!({"gen_ai.session.id":parent,"cwd":private})
+                        .as_object()
+                        .expect("record"),
+                    "codex"
+                )));
+            }
+            let output = Arc::new(Mutex::new(Vec::<AgentActivityEntry>::new()));
+            let target = output.clone();
+            let weak = Arc::downgrade(&f.input.inner);
+            f.input.on_entries(move |batch| {
+                let host = weak.upgrade().expect("fixture input lifetime");
+                let filtered = host.runtime.with_workspace_policy(|p| {
+                    p.filter_entries(batch, crate::types::ClientType::CodexCliHook)
+                });
+                target.lock().expect("output").extend(filtered);
+            });
+            f.input.start().await.expect("real startup before fixtures");
+            let mut parent_lines = NATIVE_PARENT
+                .lines()
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            let parent_terminal = parent_lines.pop().expect("parent terminal");
+            let pp =
+                write_native_fixture(&f, NATIVE_PARENT_NAME, &(parent_lines.join("\n") + "\n"))
+                    .await;
+            f.input.run_cycle().await;
+            assert_eq!(f.input.subagent_link_snapshot().detected_spawns, 4);
+            let child = NATIVE_CHILDREN[0];
+            let mut child_records = child
+                .3
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).expect("child fixture"))
+                .collect::<Vec<_>>();
+            for item in &mut child_records {
+                if item["type"] == "turn_context" && item["payload"]["turn_id"] == child.2 {
+                    item["payload"]["cwd"] = json!(if blocked_child { &private } else { &public });
+                }
+                if item["type"] == "response_item"
+                    && item["payload"]["role"] == "user"
+                    && item["payload"]["content"].as_array().is_some_and(|parts| {
+                        parts.iter().any(|p| p["text"] == "synthetic child task")
+                    })
+                {
+                    item["payload"]["content"].as_array_mut().expect("content").push(json!({"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}));
+                }
+            }
+            let child_end = child_records.last().expect("child terminal").to_string();
+            if !child_terminal {
+                child_records.pop();
+            }
+            let text = child_records
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n";
+            let cp = write_native_fixture(&f, child.0, &text).await;
+            f.input.run_cycle().await;
+            let before = f.checkpoint(&cp);
+            if child_terminal {
+                assert!(before.active_turn.is_none() && before.scan_offset > 0);
+            } else {
+                assert!(before
+                    .active_turn
+                    .as_ref()
+                    .is_some_and(|active| before.scan_offset > active.start_offset));
+                assert!(responses_for(&f.records(), child.2).is_empty());
+            }
+            f.append(&pp, &(parent_terminal + "\n")).await;
+            f.input.run_cycle().await;
+            assert!(f.checkpoint(&pp).active_turn.is_none());
+            if !child_terminal {
+                assert!(
+                    responses_for(&f.records(), child.2).is_empty(),
+                    "parent must not force child"
+                );
+                f.append(&cp, &(child_end + "\n")).await;
+                f.input.run_cycle().await;
+            }
+            assert!(f.checkpoint(&cp).active_turn.is_none());
+            f.input.stop().await.expect("real bounded stop");
+            processor.shutdown(1500).await;
+            let output: Vec<Value> = output
+                .lock()
+                .expect("output")
+                .iter()
+                .map(|e| serde_json::to_value(e).expect("entry"))
+                .collect();
+            if blocked_parent || blocked_child {
+                if !uploads.0.lock().expect("uploads").is_empty() {
+                    privacy_failures.push(format!("private attachment reached uploader parent={blocked_parent} child={blocked_child} terminal={child_terminal}"));
+                }
+                if output
+                    .iter()
+                    .any(|e| e["agent.codex.transcript_turn_id"] == child.2)
+                {
+                    privacy_failures.push(format!("private child reached output parent={blocked_parent} child={blocked_child} terminal={child_terminal}"));
+                }
+            } else {
+                let entries = f
+                    .records()
+                    .into_iter()
+                    .filter(|e| e["agent.codex.transcript_turn_id"] == child.2)
+                    .collect::<Vec<_>>();
+                assert!(!entries.is_empty());
+                assert!(entries
+                    .iter()
+                    .all(|e| e["gen_ai.session.id"] == child.1
+                        && e["gen_ai.agent.scope"] == "subagent"));
+                let uploads = uploads.0.lock().expect("uploads");
+                assert!(!uploads.is_empty());
+                assert!(uploads
+                    .iter()
+                    .all(|item| item.data.as_deref() == Some(b"hello")
+                        && item.content_type == "image/png"));
+                assert!(output
+                    .iter()
+                    .any(|e| e["agent.codex.transcript_turn_id"] == child.2));
+            }
+        }
+    }
+    assert!(
+        privacy_failures.is_empty(),
+        "{}",
+        privacy_failures.join("\n")
+    );
+}
+
+async fn replace_native_inode(path: &str, text: &str) -> u64 {
+    let original = tokio::fs::metadata(path).await.expect("old stat");
+    let original = file_meta_snapshot(&original).0;
+    let replacement = format!("{path}.replacement");
+    tokio::fs::write(&replacement, text)
+        .await
+        .expect("new file");
+    tokio::fs::rename(&replacement, path)
+        .await
+        .expect("atomic replacement");
+    let current = file_meta_snapshot(&tokio::fs::metadata(path).await.expect("new stat")).0;
+    assert_ne!(
+        current, original,
+        "real replacement must change platform file identity"
+    );
+    current
+}
+#[tokio::test]
+async fn replaced_inode_baseline_never_suppresses_same_turn_id_in_another_file_after_restart() {
+    let f = Fixture::new();
+    f.input.start().await.expect("start before new rollout");
+    let p = f
+        .write(
+            "rollout-original-inode.jsonl",
+            &(simple_turn("turn-1", 100, 10, 0).join("\n") + "\n"),
+        )
+        .await;
+    f.input.run_cycle().await;
+    assert_eq!(responses_for(&f.records(), "turn-1").len(), 1);
+    let ino = replace_native_inode(
+        &p,
+        &(simple_turn("turn-2", 200, 20, 1200).join("\n") + "\n"),
+    )
+    .await;
+    f.input.run_cycle().await;
+    assert_eq!(f.checkpoint(&p).inode, ino);
+    f.input
+        .stop()
+        .await
+        .expect("stop after replacement observed");
+    let next = f.restart().await;
+    next.input.start().await.expect("startup restore");
+    let mut lines = simple_turn("turn-2", 200, 20, 1800);
+    lines.extend(simple_turn("turn-3", 300, 30, 1860).into_iter().skip(1));
+    next.write("rollout-newfile-inode.jsonl", &(lines.join("\n") + "\n"))
+        .await;
+    next.input.run_cycle().await;
+    next.input.stop().await.expect("stop");
+    assert_eq!(responses_for(&next.records(), "turn-2").len(), 1);
+    let r = responses_for(&next.records(), "turn-3");
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0]["gen_ai.usage.total_tokens"].as_f64(), Some(330.0));
+}
+fn inode_fork_records(tail: u64) -> (String, String, String, String, Vec<String>) {
+    let parent = uuid_at("2026-08-05T09:00:00Z", tail + 1);
+    let owner = uuid_at("2026-08-05T10:00:00Z", tail + 2);
+    let copied = uuid_at("2026-08-05T09:30:00Z", tail + 3);
+    let owned = uuid_at("2026-08-05T10:00:00.010Z", tail + 4);
+    let mut lines = vec![owner_meta(&owner, &parent, false)];
+    lines.extend(turn_block(&copied, "2026-08-05T09:30:00Z"));
+    (parent, owner, copied, owned, lines)
+}
+async fn assert_later_parent_not_deduped(f: &Fixture, parent: &str, copied: &str) {
+    let mut lines = vec![record(
+        "2026-08-05T09:00:00Z",
+        "session_meta",
+        json!({"id":parent,"thread_source":"user","model_provider":"openai"}),
+    )];
+    lines.extend(turn_block(copied, "2026-08-05T09:30:00Z"));
+    let p = f
+        .write(
+            &format!("2026/08/05/rollout-2026-08-05T09-00-00-{parent}.jsonl"),
+            &(lines.join("\n") + "\n"),
+        )
+        .await;
+    f.process(&p).await;
+    assert_eq!(responses_for(&f.records(), copied).len(), 1);
+}
+#[tokio::test]
+async fn pending_fork_inode_replacement_restarts_search_and_keeps_later_parent_emittable() {
+    let f = Fixture::new();
+    let (parent, owner, copied, owned, mut lines) = inode_fork_records(20);
+    let p = fork_path(&f, &owner, &lines).await;
+    f.process(&p).await;
+    let cp = f.checkpoint(&p);
+    assert_eq!(cp.scan_offset, 0);
+    assert!(cp.fork_bootstrap.is_some());
+    lines.extend(turn_block(&owned, "2026-08-05T10:00:00.010Z"));
+    replace_native_inode(&p, &(lines.join("\n") + "\n")).await;
+    f.process(&p).await;
+    assert!(responses_for(&f.records(), &copied).is_empty());
+    assert_eq!(responses_for(&f.records(), &owned).len(), 1);
+    assert_later_parent_not_deduped(&f, &parent, &copied).await;
+}
+#[tokio::test]
+async fn anchored_before_collection_fork_replacement_retains_recovery_anchor_and_collects_once() {
+    let f = Fixture::new();
+    let (_parent, owner, copied, owned, mut lines) = inode_fork_records(30);
+    lines.extend(turn_block(&owned, "2026-08-05T10:00:00.010Z"));
+    let text = lines.join("\n") + "\n";
+    let p = fork_path(&f, &owner, &lines).await;
+    initial_hook(&f, &owner, &owned, &p, "user-prompt-submit").await;
+    f.process(&p).await;
+    let cp = f.checkpoint(&p);
+    assert!(cp.scan_offset > 0);
+    assert_eq!(
+        cp.fork_bootstrap
+            .expect("anchored")
+            .initial_turn_id
+            .as_deref(),
+        Some(owned.as_str())
+    );
+    assert!(f.records().is_empty());
+    replace_native_inode(&p, &text).await;
+    f.marker("wakeups",&format!("{owner}.json"),json!({"session_id":owner,"initial_turn_id":owned,"recovery_turn_id":owned,"transcript_path":p,"hook_event":"stop"})).await;
+    f.process(&p).await;
+    assert!(responses_for(&f.records(), &copied).is_empty());
+    assert_eq!(responses_for(&f.records(), &owned).len(), 1);
+    assert!(f.checkpoint(&p).fork_bootstrap.is_none());
+}
+#[tokio::test]
+async fn consumed_fork_inode_replacement_baselines_without_parent_deduplication_poisoning() {
+    let f = Fixture::new();
+    let (parent, owner, copied, owned, mut lines) = inode_fork_records(50);
+    lines.extend(turn_block(&owned, "2026-08-05T10:00:00.010Z"));
+    let text = lines.join("\n") + "\n";
+    let p = fork_path(&f, &owner, &lines).await;
+    f.process(&p).await;
+    assert!(responses_for(&f.records(), &copied).is_empty());
+    assert_eq!(responses_for(&f.records(), &owned).len(), 1);
+    let cp = f.checkpoint(&p);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_none()
+    );
+    replace_native_inode(&p, &text).await;
+    f.process(&p).await;
+    assert!(responses_for(&f.records(), &copied).is_empty());
+    assert_eq!(responses_for(&f.records(), &owned).len(), 1);
+    let cp = f.checkpoint(&p);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_some()
+    );
+    assert_later_parent_not_deduped(&f, &parent, &copied).await;
+}
+async fn assert_invalid_fork_search_repair(f: &Fixture) {
+    let owner = "cccccccc-0006-4006-8006-000000000006";
+    let turn = "owned-turn-after-invalid-offset";
+    let mut lines = vec![owner_meta(owner, "parent", false)];
+    lines.extend(turn_block(
+        "copied-before-invalid-offset",
+        "2026-08-04T10:00:00Z",
+    ));
+    lines.extend(turn_block(turn, "2026-08-05T10:00:00.010Z"));
+    let text = lines.join("\n") + "\n";
+    let p = fork_path(f, owner, &lines).await;
+    let (ino, _, _) = file_meta_snapshot(&tokio::fs::metadata(&p).await.expect("stat"));
+    f.rt().state_store.update(&f.engine().state_key(&p),InputStatePatch{
+      last_offset:Some(0.0),
+      extra:Some(json!({"codexTranscript":{
+       "inode":ino,"scanOffset":0,"activeTurn":null,"pendingTerminal":null,"pendingFusion":null,"pendingSubagent":null,
+       "ownerSessionMetaOffset":null,"forkBootstrap":{"initialTurnId":turn,"searchOffset":text.len()+100},
+       "emittedTerminalTurnIds":[]
+      }})),..Default::default()
+    });
+    initial_hook(f, owner, turn, &p, "stop").await;
+    f.process(&p).await;
+    assert_eq!(responses_for(&f.records(), turn).len(), 1);
+    assert!(responses_for(&f.records(), "copied-before-invalid-offset").is_empty());
+    println!(
+        "{}",
+        json!({"msg":"synthetic invalid fork search offset","expectedOffset":text.len()+100})
+    );
+}
+#[tokio::test]
+async fn persisted_out_of_range_fork_search_offset_is_repaired_and_actual_warning_names_both_offsets(
+) {
+    let records = isolated_diagnostic_records("invalid-offset");
+    let offset = records
+        .iter()
+        .find(|e| e["msg"] == "synthetic invalid fork search offset")
+        .expect("fixture offset")["expectedOffset"]
+        .clone();
+    let warning = records
+        .iter()
+        .find(|e| e["msg"] == "repaired invalid Codex fork bootstrap search offset")
+        .expect("actual repair diagnostic");
+    assert_eq!(warning["searchOffset"], offset);
+    assert_eq!(warning["repairedSearchOffset"], 0);
 }

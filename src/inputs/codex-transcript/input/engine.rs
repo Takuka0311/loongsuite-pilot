@@ -931,12 +931,24 @@ impl<'a> CodexTranscriptEngine<'a> {
         let processor = self.body.processor.clone();
         let include = self.body.include_multimodal && processor.is_some();
         let blob = if include {
-            Some(self.make_blob(
-                rt,
-                file_path,
-                active.cwd.as_deref(),
-                attachment_parent_thread_id,
-            ))
+            Some(
+                self.make_blob(
+                    rt,
+                    file_path,
+                    active.cwd.as_deref(),
+                    attachment_parent_thread_id
+                        .or_else(|| {
+                            active
+                                .delegation
+                                .as_ref()
+                                .map(|link| link.parent_thread_id.as_str())
+                        })
+                        .or_else(|| {
+                            meta.as_ref()
+                                .and_then(|meta| meta.parent_thread_id.as_deref())
+                        }),
+                ),
+            )
         } else {
             None
         };
@@ -1276,6 +1288,23 @@ impl<'a> CodexTranscriptEngine<'a> {
         };
         if let Some(span) = span {
             attach_turn_span_attributes(&mut output, &span);
+        }
+        // Independent child session identities must retain the parent's
+        // workspace exclusion even after the parent turn has completed.
+        if let Some(parent) = delegation
+            .as_ref()
+            .map(|link| link.parent_thread_id.as_str())
+            .or_else(|| {
+                meta.as_ref()
+                    .and_then(|meta| meta.parent_thread_id.as_deref())
+            })
+        {
+            let parent_record = json!({ "gen_ai.session.id": parent });
+            if !rt.with_workspace_policy(|policy| {
+                policy.allows(parent_record.as_object().expect("parent record"), "codex")
+            }) {
+                output.clear();
+            }
         }
         let kind = if output.is_empty() {
             RecoveryKind::ProcessedEmpty
@@ -1933,6 +1962,15 @@ impl<'a> CodexTranscriptEngine<'a> {
         }
         let safe = scan::bounded_search_offset(bootstrap.search_offset, file_size);
         if safe != bootstrap.search_offset {
+            let diagnostics = json!({
+                "transcriptPath": file_path,
+                "searchOffset": bootstrap.search_offset,
+                "repairedSearchOffset": safe,
+            });
+            rt.warn(
+                "repaired invalid Codex fork bootstrap search offset",
+                diagnostics.as_object(),
+            );
             bootstrap.search_offset = safe;
         }
         checkpoint.fork_bootstrap = Some(bootstrap.clone());

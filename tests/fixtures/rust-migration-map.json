@@ -42951,10 +42951,10 @@
     },
     {
       "legacy": "tests/unit/inputs/codex-transcript/codex-transcript-input.test.ts",
-      "coverage": "partial",
+      "coverage": "complete",
       "rust": [],
       "source_hash": "6ae448fd44164a31545a3cd7b51a228903393ec938ac7c35b7f9d71bcb6d172e",
-      "note": "固定ef8953的109条声明，已逐条审定103条（96条原合同Rust完整承接、7条被固定main f84明确替代并执行当前合同），其余6条仍待审。真实control/fork控制中止、durable重启、legacy pending迁移、时间改写子会话、未匹配token与取消断言完整；源hash及AST逐条核对。平台实际执行证据独立记录，当前不据Linux执行宣称Windows/macOS通过。",
+      "note": "固定ef8953 109/109逐声明完整处置：101原合同真实native+8由固定f84上游明确改为独立子会话/不强制结束而逐条替代（含privacy矩阵）；所有仍有效精确断言保留。Linux隔离Rust1.99.1/ICU原锁/glibc2.34/no-network strict alltargets allfeatures +109targeted实际通过。Windows/macOS未执行不能代证；fullworkspace后补receipt。source_hash保持immutable。",
       "cases": [
         {
           "source": {
@@ -44619,6 +44619,32 @@
         },
         {
           "source": {
+            "id": "L2910:C3",
+            "title": "does not let an inode baseline suppress matching IDs in another transcript",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实start新turn1→原子rename确认不同platform file identity、native cycle更新cp.inode→stop/StateStore save/load→重启新文件含相同turn2和freshturn3，各1且330tokens；inode基线不污染其他文件。 Linux Rust1.99.1/glibc2.34/network-none strict+109targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "replaced_inode_baseline_never_suppresses_same_turn_id_in_another_file_after_restart"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L2987:C3",
             "title": "exports completed transcript waves before task_complete and flushes stop at terminal",
             "suites": [
@@ -45200,6 +45226,87 @@
         },
         {
           "source": {
+            "id": "L4010:C5",
+            "title": "restarts a pending fork bootstrap after inode replacement without poisoning parent dedupe",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原UUID时间/复制parent前缀，首cycle scan0+pendingsearch；真实原子inode replacement追加owned work，copied0/owned1；之后真实parentfile copiedturn仍1。 Linux Rust1.99.1/glibc2.34/network-none strict+109targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "pending_fork_inode_replacement_restarts_search_and_keeps_later_parent_emittable"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4069:C5",
+            "title": "retains fork recovery state across the anchored-before-collection inode window",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原UUID fork user-prompt-submit锚点让scan>0、bootstrap.initialTurn保留且entries0；原子换inode+stop/recoveryTurn hook后copied0/owned1/bootstrap清除。 Linux Rust1.99.1/glibc2.34/network-none strict+109targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "anchored_before_collection_fork_replacement_retains_recovery_anchor_and_collects_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4123:C5",
+            "title": "baselines a consumed fork replacement without poisoning parent dedupe",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已消费forkcopied0/owned1且active/pending/fork清；原子换同内容不同inode后不重发owned1、留fork基线状态；之后真实parent同copiedturn仍1。 Linux Rust1.99.1/glibc2.34/network-none strict+109targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "consumed_fork_inode_replacement_baselines_without_parent_deduplication_poisoning"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L4186:C5",
             "title": "accepts a session-matched initial anchor when transcript paths differ",
             "suites": [
@@ -45248,6 +45355,33 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "hook_anchor_uses_turn_context_when_task_started_is_absent"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4260:C5",
+            "title": "repairs an out-of-range persisted fork search offset",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原旧shape持久offset=size+100+initialTurn、实hook/native scan，owned1/copied0；隔离子进程实际WARN对比原offset和repaired0。首次108pass1fail证实缺WARN，仅补诊断不改修复算法。 Linux Rust1.99.1/glibc2.34/network-none strict+109targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "persisted_out_of_range_fork_search_offset_is_repaired_and_actual_warning_names_both_offsets"
               }
             ]
           }
@@ -45670,6 +45804,35 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "stable_blob_reuse_key_prevents_repeat_decode_across_partial_extractor_replay"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4917:C3",
+            "title": "%s checks privacy before attachment upload",
+            "suites": [
+              "workspace privacy during Codex subagent fusion"
+            ],
+            "parameters": [
+              "it.each([\n    ['captured child, blocked parent', true, true, false],\n    ['forced child, blocked parent', false, true, false],\n    ['captured child, public parent', true, false, false],\n    ['forced child, public parent', false, false, false],\n    ['captured child, blocked child', true, false, true],\n    ['forced child, blocked child', false, false, true],\n  ] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "原6格privacy矩阵实质检查通过生产MultimodalProcessor/受控Uploader、真CodexInput.start/run_cycle/stop和同真实WorkspacePolicy输出；新身份/运行中子工作语义按固定main明确替代。合成hello只在public矩阵到Uploader，blocked parent/child均0上传/0child输出。Linux strict+104 targeted实过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "固定f84e388 main AST L5698:C3（hash ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9）明确废止旧fusion等待/parent session重写和parent force-finalize。替代为completed/running child独立identity、parent不能提前force child、child实际terminal后结束；保留6格parent/child workspace隐私在attachment处理和最终输出前生效，不用恢复旧融合缺陷承接旧断言。",
+            "replacement": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "independent_child_six_case_privacy_matrix_blocks_before_real_attachment_processing_and_output"
               }
             ]
           }
@@ -52652,6 +52815,379 @@
               {
                 "file": "src/hook_process/qoder_retry_boundary_history_tests.rs",
                 "test": "cli_l1167_attachment_filename_and_parent_only"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/core/updater-watchdog.test.ts",
+      "coverage": "partial",
+      "rust": [],
+      "source_hash": "b803c8cb8526e1dd86ff7ea52d7639c299def62d6262b3a92396bb5e0e913b63",
+      "note": "首14/26；其余12明确暂缓转优先QoderWork产品缺口。Linux实际14+既有14 watchdog=28通过，strict通过。平台适用性不是Windows/macOS执行证据。",
+      "cases": [
+        {
+          "source": {
+            "id": "L125:C3",
+            "title": "reports healthy when updater pid, command, and heartbeat match",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reports healthy when updater pid, command, and heartbeat match；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l125_matching_process_and_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L145:C3",
+            "title": "restarts and records service alarm when updater process is missing",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "restarts and records service alarm when updater process is missing；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l145_missing_process_restarts_and_service_alarm"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L165:C3",
+            "title": "does not alarm from an overlapping tick while restart-updater is still running",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not alarm from an overlapping tick while restart-updater is still running；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l165_overlapping_check_does_not_alarm_or_spawn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L206:C3",
+            "title": "uses startup grace before restarting for a missing updater process",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses startup grace before restarting for a missing updater process；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l206_constructor_startup_grace_missing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L228:C3",
+            "title": "uses startup grace before restarting for a command mismatch",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses startup grace before restarting for a command mismatch；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l228_constructor_startup_grace_mismatch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L258:C3",
+            "title": "uses sleep/wake grace before restarting for a missing updater process",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses sleep/wake grace before restarting for a missing updater process；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l258_real_sleep_wake_grace_missing_process"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L298:C3",
+            "title": "reports healthy when updater PID changed but process identity matches heartbeat",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reports healthy when updater PID changed but process identity matches heartbeat；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l298_recovered_process_pid_matches_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L323:C3",
+            "title": "restarts when updater command does not look like the updater daemon",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "restarts when updater command does not look like the updater daemon；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l323_unrelated_command_restarts_with_failure_alarm"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L354:C3",
+            "title": "restarts when heartbeat is stale outside grace",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "restarts when heartbeat is stale outside grace；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l354_stale_heartbeat_outside_grace"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L378:C3",
+            "title": "uses startup grace before restarting for stale heartbeat",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses startup grace before restarting for stale heartbeat；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l378_constructor_startup_grace_stale_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L395:C3",
+            "title": "uses sleep/wake grace before restarting for stale heartbeat",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses sleep/wake grace before restarting for stale heartbeat；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l395_real_sleep_wake_grace_stale_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L420:C3",
+            "title": "rate limits repeated restart attempts",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rate limits repeated restart attempts；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l420_repeated_restarts_rate_limited"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L776:C3",
+            "title": "does nothing when disabled",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does nothing when disabled；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l776_disabled_checks_nothing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L787:C3",
+            "title": "does not check or restart updater for an agentshell current version",
+            "suites": [
+              "UpdaterWatchdog"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not check or restart updater for an agentshell current version；真实时钟（now_ms=None）、真实独立heartbeat/current文件及隔离restart-updater脚本子进程，保留alarm类型/input_name和调用次数原断言。sleep/wake两项实际等待7秒；不降低生产90s命令预算。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/updater_watchdog_history_health_tests.rs",
+                "test": "health_l787_agentshell_checks_nothing"
               }
             ]
           }
