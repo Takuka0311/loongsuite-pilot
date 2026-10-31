@@ -299,6 +299,11 @@ fn strict_components(path: &Path, create: bool) -> io::Result<()> {
     let mut current = PathBuf::new();
     for component in absolute.components() {
         current.push(component.as_os_str());
+        // A Windows drive/UNC prefix is not a complete filesystem path until
+        // RootDir has been appended (notably canonical \\?\ paths).
+        if matches!(component, std::path::Component::Prefix(_)) {
+            continue;
+        }
         match fs::symlink_metadata(&current) {
             Ok(meta) if link_or_reparse(&meta) => {
                 return Err(io::Error::other(
@@ -455,6 +460,33 @@ pub(crate) async fn open_source_strict(path: PathBuf) -> io::Result<tokio::fs::F
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn canonical_windows_root_preserves_verbatim_prefix_for_records_and_sources() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = fs::canonicalize(root.path()).unwrap();
+        assert!(matches!(
+            canonical.components().next(),
+            Some(std::path::Component::Prefix(_))
+        ));
+        let directory = canonical.join("recovery with spaces 中文").join("nested");
+        let record = serde_json::json!({"schema": 1, "marker": "synthetic"});
+        assert!(
+            create_small_record(directory.clone(), "proof.json".into(), record.clone())
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            read_small_record(directory.join("proof.json"))
+                .await
+                .unwrap(),
+            Some(record)
+        );
+        let source = canonical.join("source with spaces 中文.jsonl");
+        fs::write(&source, b"{}\n").unwrap();
+        let opened = open_source_strict(source).await.unwrap();
+        assert_eq!(opened.metadata().await.unwrap().len(), 3);
+    }
     #[test]
     fn proof_survives_append_without_body_or_acknowledged_progress() {
         let root = tempfile::tempdir().unwrap();

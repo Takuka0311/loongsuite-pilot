@@ -3348,6 +3348,3461 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-content.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "03004c96b0d624ad9576058c22c4fc297d7ff369287c27f0f6505047ac72741b",
+      "cases": [
+        {
+          "source": {
+            "id": "L18:C3",
+            "title": "extracts the exact current request and final answer without intermediate/tool content",
+            "suites": [
+              "Doubao native I/O and decision identity"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "extracts the exact current request and final answer without intermediate/tool content；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=0,1，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_native_content_exact_fields_and_negative_ownership"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L26:C3",
+            "title": "never carries an earlier assignment or answer into a reused request",
+            "suites": [
+              "Doubao native I/O and decision identity"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "never carries an earlier assignment or answer into a reused request；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=2,3,4,5，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_native_content_exact_fields_and_negative_ownership"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L35:C3",
+            "title": "omits ambiguous or superseded content instead of selecting the latest by proximity",
+            "suites": [
+              "Doubao native I/O and decision identity"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "omits ambiguous or superseded content instead of selecting the latest by proximity；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=6,7,8,9，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_native_content_exact_fields_and_negative_ownership"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L42:C3",
+            "title": "retains one native decision ID for parallel calls, with exact call/result identity and names",
+            "suites": [
+              "Doubao native I/O and decision identity"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retains one native decision ID for parallel calls, with exact call/result identity and names；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=10,11,12，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_native_content_exact_fields_and_negative_ownership"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L65:C3",
+            "title": "decodes JSON tool arguments before masking, including an escaped newline before a synthetic API key",
+            "suites": [
+              "Doubao native I/O and decision identity"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "decodes JSON tool arguments before masking, including an escaped newline before a synthetic API key；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=13,14,15,16,17，完整JSON值相等，不仅名称相似。追加真实parse→decoded arguments→normal recursive mask组合测试，转义换行密钥移除、非敏感filepath保留、原始对象不变。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_native_content_exact_fields_and_negative_ownership"
+              },
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "native_recursive_mask_receives_decoded_newline_tool_content_and_preserves_the_originals"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L85:C3",
+            "title": "does not promote duplicate IDs or orphan results into content or decision ownership",
+            "suites": [
+              "Doubao native I/O and decision identity"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not promote duplicate IDs or orphan results into content or decision ownership；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=18,19，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_native_content_exact_fields_and_negative_ownership"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-execution.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "1015aecacb893842c8ae68b999ac806092c95f3d5618bb47b162144f195518d6",
+      "cases": [
+        {
+          "source": {
+            "id": "L30:C3",
+            "title": "requires a unique contained native lifetime for tools even across reconnects and reused actors",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requires a unique contained native lifetime for tools even across reconnects and reused actors；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=34,35,36,37,38,39,40,41,42，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_execution_metadata_boundaries_owner_ancestry_and_digests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L43:C3",
+            "title": "projects only bounded execution metadata, never account, file paths or contents",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "projects only bounded execution metadata, never account, file paths or contents；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=43，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_execution_metadata_boundaries_owner_ancestry_and_digests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L47:C3",
+            "title": "rejects missing or invalid native %s",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": [
+              "it.each([\n    ['executionKey', 'unproven'], ['queryMessageId', 'missing-request'], ['conversationId', '../history'],\n    ['startedAtMs', undefined], ['endedAtMs', undefined], ['startedAtMs', execution.endedAtMs],\n    ['endedAtMs', execution.startedAtMs - 1], ['startedAtMs', DOUBAO_EPOCH + .1], ['endedAtMs', Infinity],\n    ['agentType', 'unknown'], ['agentId', '../escape'],\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "rejects missing or invalid native %s；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=44,45,46,47,48,49,50,51,52,53,54，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_execution_metadata_boundaries_owner_ancestry_and_digests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L55:C3",
+            "title": "uses genuine execution start/end and stable execution IDs independently of poll time",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses genuine execution start/end and stable execution IDs independently of poll time；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=55,56,57,58,59,60,61，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_execution_metadata_boundaries_owner_ancestry_and_digests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L69:C3",
+            "title": "links an enclosing parent execution only with native ancestry, same query and sandbox",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "links an enclosing parent execution only with native ancestry, same query and sandbox；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_execution_metadata_boundaries_owner_ancestry_and_digests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L83:C3",
+            "title": "keeps reuse executions distinct and rejects cycle or pre-request timing evidence",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps reuse executions distinct and rejects cycle or pre-request timing evidence；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=78,79,80,81,82,83，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_execution_metadata_boundaries_owner_ancestry_and_digests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L91:C3",
+            "title": "reads only the current conversation and ignores file mtime and file contents",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reads only the current conversation and ignores file mtime and file contents；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "execution_scan_selects_exact_conversation_without_private_account_or_file_content"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L96:C3",
+            "title": "defers truncated files and rejects identity conflicts rather than committing partial scans",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "defers truncated files and rejects identity conflicts rather than committing partial scans；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "execution_scan_rejects_truncated_and_cross_account_conflicting_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L102:C3",
+            "title": "rejects path identity mismatches and bounded oversized native files",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rejects path identity mismatches and bounded oversized native files；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "execution_scan_rejects_path_identity_mismatch_and_oversized_metadata_before_parse"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L108:C3",
+            "title": "never follows a conversation or execution directory symlink",
+            "suites": [
+              "native persisted sandbox execution evidence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "never follows a conversation or execution directory symlink；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "execution_scan_never_follows_conversation_or_execution_directory_symlink"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-first-output.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "54f58c4e638b42d0548fdd58cad343785e93552bc134e87762a643837d554a0b",
+      "cases": [
+        {
+          "source": {
+            "id": "L6:C3",
+            "title": "rejects unsupported or ambiguous producer metadata %j",
+            "suites": [
+              "Doubao native first reasoning output"
+            ],
+            "parameters": [
+              "it.each([\n    { metric_scene: 'render' }, { ev_name: 'answer_first_token' }, { ev_name: 'task_finish' }, { ev_name: 'loading_first_token' },\n    { ev_type: 'render_duration' }, { task_stage: 'async' }, { is_recovery: true }, { is_recovery: undefined },\n    { occurrence_index: 2 }, { event_instance_id: 'different-task:sync:6:1' }, { event_instance_id: 'synthetic-turn:sync:6:2' },\n    { duration: 0 }, { duration: -1 }, { duration: 1.5 }, { duration: '1000' }, { duration: 86_400_001 },\n    { answer_id: '' }, { message_id: 'contains private text' },\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "rejects unsupported or ambiguous producer metadata %j；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_first_output_18_negative_producers_and_source_time"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L16:C3",
+            "title": "uses native query plus SSE duration rather than the later logger or observation clock",
+            "suites": [
+              "Doubao native first reasoning output"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses native query plus SSE duration rather than the later logger or observation clock；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=102,103,104,105，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_first_output_18_negative_producers_and_source_time"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-input.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "8d6606403a27d51bdd14817f7b807f37ddbcaa291b58c676bcd4c48c989320df",
+      "cases": [
+        {
+          "source": {
+            "id": "L60:C3",
+            "title": "bounds a missing parent snapshot wait across restart even when the parent Write succeeded",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "bounds a missing parent snapshot wait across restart even when the parent Write succeeded；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "missing_parent_write_wait_is_durable_and_bounded_then_emitted_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L78:C3",
+            "title": "does not extend the parent wait using %s Write evidence",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": [
+              "it.each(['legacy', 'previous-query'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "does not extend the parent wait using %s Write evidence；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "stale_or_legacy_mutation_witness_cannot_extend_the_30s_parent_grace"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L91:C3",
+            "title": "does not block an independent background execution on a missing parent snapshot",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not block an independent background execution on a missing parent snapshot；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "independent_background_execution_does_not_wait_for_missing_parent"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L98:C3",
+            "title": "does not starve a completed request behind four unclosable requests (invalid terminal=%s)",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": [
+              "it.each([false, true])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "does not starve a completed request behind four unclosable requests (invalid terminal=%s)；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "invalid_terminal_completion_cursor_survives_restart_without_starving_fifth_ready_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L119:C3",
+            "title": "drops presentation inspections restored from an older checkpoint while keeping a real Bash call",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "drops presentation inspections restored from an older checkpoint while keeping a real Bash call；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "restored_presentation_helper_is_removed_while_real_bash_is_exported"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L144:C3",
+            "title": "retains a unique native first output across restart and emits it once with source time",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retains a unique native first output across restart and emits it once with source time；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "unique_first_output_survives_disk_restart_without_prompt_or_llm_inference"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L161:C3",
+            "title": "does not invent a model observation for %s",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": [
+              "it.each(['conflict', 'ambiguous-task', 'no-start', 'future-receipt', 'after-terminal', 'different-task'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "does not invent a model observation for %s；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "conflicting_ambiguous_unstarted_late_and_other_task_first_output_never_becomes_llm"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L172:C3",
+            "title": "allows a bounded native final-row settle without changing invocation times (arrives=%s)",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": [
+              "it.each([true, false])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "allows a bounded native final-row settle without changing invocation times (arrives=%s)；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "final_row_settle_waits_only_for_native_content_and_preserves_original_boundaries"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L190:C3",
+            "title": "caps native metadata scans independently of repeated log polls",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "caps native metadata scans independently of repeated log polls；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "native_metadata_interval_caps_scans_independently_of_repeated_log_polls"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L201:C3",
+            "title": "preserves native parent evidence across restart (Write status=%s)",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": [
+              "it.each([['success', true], ['error', false], ['cancelled', false]] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "preserves native parent evidence across restart (Write status=%s)；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "parent_write_status_controls_restart_grace_and_late_parent_links_exact_native_lifetime"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L252:C3",
+            "title": "recovers late complete execution metadata after restart without replaying history or guessing missing boundaries",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "recovers late complete execution metadata after restart without replaying history or guessing missing boundaries；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "late_complete_snapshot_recovers_after_restart_and_conflicting_rewrite_never_reexports"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L295:C3",
+            "title": "preserves late nested tool facts without invented invocation boundaries, including reuse and restart",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves late nested tool facts without invented invocation boundaries, including reuse and restart；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "late_nested_tools_require_native_ancestry_survive_restart_and_reuse_distinct_trace"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L340:C3",
+            "title": "does not assign a child to a sandbox containing two root actors",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not assign a child to a sandbox containing two root actors；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "sandbox_with_two_root_actors_never_assigns_child_tools_or_executions"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L358:C3",
+            "title": "does not let one unavailable native conversation starve a different valid child",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not let one unavailable native conversation starve a different valid child；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "unavailable_conversation_does_not_starve_different_valid_child_at_one_scan_per_cycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L382:C3",
+            "title": "pairs parallel local tools by native ID and retains selected skills only in that request",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "pairs parallel local tools by native ID and retains selected skills only in that request；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "parallel_tool_ids_statuses_durations_and_selected_skills_remain_request_scoped"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L407:C3",
+            "title": "restores an in-flight tool and a half result line without duplicating its call",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "restores an in-flight tool and a half result line without duplicating its call；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "half_settled_tool_record_restores_original_call_without_duplicate_replay"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L426:C3",
+            "title": "does not guess tools from orphan results, conflicting starts or background completion",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not guess tools from orphan results, conflicting starts or background completion；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "orphan_conflicting_actor_and_post_terminal_background_tools_do_not_gain_a_root_owner"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L441:C3",
+            "title": "handles a result received in a previous scan before its matching dispatch record",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "handles a result received in a previous scan before its matching dispatch record；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "result_from_an_earlier_scan_can_join_only_its_exact_later_dispatch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L448:C3",
+            "title": "baselines history, then associates temporary IDs and returns a content-free pair",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "baselines history, then associates temporary IDs and returns a content-free pair；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "first_install_excludes_an_existing_complete_turn_but_keeps_later_turn"
+              },
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "server_mapping_is_required_and_joined_by_exact_local_message_without_private_payloads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L478:C3",
+            "title": "waits for a late server conversation mapping before completing a request",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "waits for a late server conversation mapping before completing a request；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "server_mapping_is_required_and_joined_by_exact_local_message_without_private_payloads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L490:C3",
+            "title": "persists a pending request and an incomplete line across a collector restart",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "persists a pending request and an incomplete line across a collector restart；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "trailing_half_line_retains_offset_and_recovers_once_after_restart"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L511:C3",
+            "title": "retains offsets and pending requests while the log directory is unavailable",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retains offsets and pending requests while the log directory is unavailable；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "log_directory_unavailability_preserves_cursor_and_pending_then_resumes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L524:C3",
+            "title": "handles file replacement, truncate-and-regrow and duplicate rotations without re-emission",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "handles file replacement, truncate-and-regrow and duplicate rotations without re-emission；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "truncate_and_regrow_same_inode_rechecks_raw_anchor_without_inventing_old_terminal"
+              },
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "file_replacement_and_duplicate_rotations_keep_completed_event_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L541:C3",
+            "title": "requires an observed start and supports out-of-order arrival and concurrent turns",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requires an observed start and supports out-of-order arrival and concurrent turns；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "terminal_before_start_and_concurrent_turns_keep_independent_source_session_owners"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L560:C3",
+            "title": "skips malformed and oversized records with bounded reads and resumes after their newline",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "skips malformed and oversized records with bounded reads and resumes after their newline；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "oversized_line_is_skipped_through_its_newline_then_valid_turn_is_recovered"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L570:C3",
+            "title": "ignores repair logs and never creates a missing source directory",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "ignores repair logs and never creates a missing source directory；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "repair_logs_do_not_create_a_missing_source_directory"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L581:C3",
+            "title": "bounds saved file cursors and keeps the newest numeric rotation suffixes",
+            "suites": [
+              "Doubao Work passive client-message input"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "bounds saved file cursors and keeps the newest numeric rotation suffixes；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "numeric_rotation_capacity_evicts_oldest_suffix_and_bounded_sweep_eventually_closes_ready_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L608:C3",
+            "title": "does not export present_files path inspections as separate GenAI Bash calls: %j",
+            "suites": [
+              "Doubao Work log protocol"
+            ],
+            "parameters": [
+              "it.each([\n    { status: 'received' },\n    { status: 'success', phase: 'execution_settled' },\n    { status: 'error', phase: 'execution_settled' },\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "does not export present_files path inspections as separate GenAI Bash calls: %j；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=143,144,145,146,147,148,149,150,151,152,153,154，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_log_protocol_producer_allowlists_privacy_outcomes_and_year_rollover"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L626:C3",
+            "title": "accepts only the exact local tool lifecycle producer and allowlisted metadata",
+            "suites": [
+              "Doubao Work log protocol"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "accepts only the exact local tool lifecycle producer and allowlisted metadata；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=155,156,157,158,159，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_log_protocol_producer_allowlists_privacy_outcomes_and_year_rollover"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L638:C3",
+            "title": "keeps the client outcome separate from business success: %j",
+            "suites": [
+              "Doubao Work log protocol"
+            ],
+            "parameters": [
+              "it.each([\n    [{ session_success: '1', receive_success: '1' }, 'received'],\n    [{ session_success: undefined, receive_success: undefined }, 'ended'],\n    [{ session_success: '0', session_err: 'SYNTHETIC_PRIVATE_ERROR' }, 'error'],\n    [{ cancel_source: 'stop_button' }, 'cancelled'],\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "keeps the client outcome separate from business success: %j；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=160,161,162,163，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_log_protocol_producer_allowlists_privacy_outcomes_and_year_rollover"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L649:C3",
+            "title": "rejects monotonic clocks, malformed identifiers, unsupported schemas and unrelated events",
+            "suites": [
+              "Doubao Work log protocol"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rejects monotonic clocks, malformed identifiers, unsupported schemas and unrelated events；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=164,165,166,167，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_log_protocol_producer_allowlists_privacy_outcomes_and_year_rollover"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L656:C3",
+            "title": "resolves the year across a Chromium log date rollover",
+            "suites": [
+              "Doubao Work log protocol"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resolves the year across a Chromium log date rollover；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=168，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_log_protocol_producer_allowlists_privacy_outcomes_and_year_rollover"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-native.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "9efa18355efea300b4e477eafd55c5bc3719b77c8017e87473d0d44617e04a8b",
+      "cases": [
+        {
+          "source": {
+            "id": "L13:C3",
+            "title": "projects only sandbox actor identity from the exact producer",
+            "suites": [
+              "Doubao native identity evidence and log-only tool observations"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "projects only sandbox actor identity from the exact producer；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=20,21,22，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_graph_exact_ancestry_and_late_tool_facts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L19:C3",
+            "title": "requires matching create_agent call/result and native parent IDs, without copying instructions",
+            "suites": [
+              "Doubao native identity evidence and log-only tool observations"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requires matching create_agent call/result and native parent IDs, without copying instructions；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=23,24,25,26，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_graph_exact_ancestry_and_late_tool_facts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L27:C3",
+            "title": "emits late tool facts without synthesizing Agent invocation boundaries",
+            "suites": [
+              "Doubao native identity evidence and log-only tool observations"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "emits late tool facts without synthesizing Agent invocation boundaries；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=27,28,29,30,31,32,33，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_graph_exact_ancestry_and_late_tool_facts"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-paths.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "450ec7ebfa09c0196c860a6dc27f16982b71c98b7f7792d18da406be70e493b5",
+      "cases": [
+        {
+          "source": {
+            "id": "L14:C3",
+            "title": "keeps native roots under the platform data directory for shallow, relative and Unicode log overrides",
+            "suites": [
+              "Doubao native roots on %s"
+            ],
+            "parameters": [
+              "describe.each(['darwin', 'win32'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "keeps native roots under the platform data directory for shallow, relative and Unicode log overrides；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "platform_owned_native_roots_do_not_move_with_shallow_relative_or_unicode_log_override"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L28:C3",
+            "title": "preserves separately supplied session and snapshot roots",
+            "suites": [
+              "Doubao native roots on %s"
+            ],
+            "parameters": [
+              "describe.each(['darwin', 'win32'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "preserves separately supplied session and snapshot roots；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "explicitly_supplied_session_and_snapshot_roots_are_kept_independent_of_log_override"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L37:C1",
+            "title": "does not infer native roots from a log override on an unsupported platform",
+            "suites": [],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not infer native roots from a log override on an unsupported platform；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "linux_log_override_does_not_guess_native_or_snapshot_roots"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-performance.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "5594edcb1ffd27f9a11445af3d780781070889dce2a29339cc6a0a2335a17fc2",
+      "cases": [
+        {
+          "source": {
+            "id": "L43:C3",
+            "title": "resumes a slow 128-file sweep and gives completed requests a fresh finalization budget",
+            "suites": [
+              "Doubao performance and recovery contracts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resumes a slow 128-file sweep and gives completed requests a fresh finalization budget；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "numeric_rotation_capacity_evicts_oldest_suffix_and_bounded_sweep_eventually_closes_ready_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L61:C3",
+            "title": "retains an ended request across temporary native I/O failure and restart instead of finalizing missing content",
+            "suites": [
+              "Doubao performance and recovery contracts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retains an ended request across temporary native I/O failure and restart instead of finalizing missing content；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "temporary_native_io_failure_keeps_ended_request_durable_then_recovers_full_content_after_restart"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L77:C3",
+            "title": "never treats a valid read buffer as an oversized line when the time budget expires during I/O",
+            "suites": [
+              "Doubao performance and recovery contracts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "never treats a valid read buffer as an oversized line when the time budget expires during I/O；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "valid_read_buffer_is_not_oversized_when_deadline_expires_during_the_read"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L93:C3",
+            "title": "does not clone committed records or replace an unchanged shared checkpoint",
+            "suites": [
+              "Doubao performance and recovery contracts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not clone committed records or replace an unchanged shared checkpoint；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "large_unchanged_checkpoint_does_not_clone_branches_rewrite_disk_or_mutate_retained_expiry_snapshot"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L116:C3",
+            "title": "uses one read budget for logs and native files and resumes a >2 MiB source after restart without duplicate output",
+            "suites": [
+              "Doubao performance and recovery contracts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses one read budget for logs and native files and resumes a >2 MiB source after restart without duplicate output；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "native_and_log_share_128k_read_budget_and_restart_recovers_exact_long_history_rounds_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L156:C3",
+            "title": "resumes CPU reconstruction across record budgets using its validated immutable request snapshot",
+            "suites": [
+              "Doubao performance and recovery contracts"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resumes CPU reconstruction across record budgets using its validated immutable request snapshot；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "reconstruction_pauses_at_record_budget_while_retaining_validated_immutable_native_snapshot"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-profiles.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "1fdc62183969c60934754c42360b0e5e6325e0f1c77ea346638141359b077177",
+      "cases": [
+        {
+          "source": {
+            "id": "L19:C3",
+            "title": "links the exact conversation in %s",
+            "suites": [
+              "Doubao native conversation lookup after an account switch"
+            ],
+            "parameters": [
+              "it.each(['Default', 'Profile 3'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "links the exact conversation in %s；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "profiles_link_default_and_switched_exact_conversation_without_copying_private_instructions"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L25:C3",
+            "title": "does not select a stale Default conversation over the new account",
+            "suites": [
+              "Doubao native conversation lookup after an account switch"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not select a stale Default conversation over the new account；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "profiles_ignore_stale_default_and_refuse_cross_profile_ambiguity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L31:C3",
+            "title": "does not guess when two profiles contain the same conversation",
+            "suites": [
+              "Doubao native conversation lookup after an account switch"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not guess when two profiles contain the same conversation；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "profiles_ignore_stale_default_and_refuse_cross_profile_ambiguity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": "ignores arbitrary directories and rejects unsafe conversation IDs",
+            "suites": [
+              "Doubao native conversation lookup after an account switch"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "ignores arbitrary directories and rejects unsafe conversation IDs；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "profiles_ignore_arbitrary_folders_and_reject_unsafe_conversation"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L41:C3",
+            "title": "bounds the number of profiles and does not follow a profile symlink",
+            "suites": [
+              "Doubao native conversation lookup after an account switch"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "bounds the number of profiles and does not follow a profile symlink；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "profile_count_limit_is_enforced_before_conversation_body_reads"
+              },
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "profile_symlink_is_rejected_instead_of_reusing_the_default"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-reader.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "cb08542cd9fde33d9f9f20d45c466d706f9c206c1b95d047785135eff7116c01",
+      "cases": [
+        {
+          "source": {
+            "id": "L43:C3",
+            "title": "shares the exact decoded content and performs no body reads or parsing for unchanged sources",
+            "suites": [
+              "bounded incremental Doubao native sources"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "shares the exact decoded content and performs no body reads or parsing for unchanged sources；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::unchanged_sources_share_graph_and_do_not_read_or_parse_again"
+              },
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::lone_surrogate_native_text_is_repaired_without_dropping_the_record"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L57:C3",
+            "title": "waits for a complete UTF-8 line and parses only appended records",
+            "suites": [
+              "bounded incremental Doubao native sources"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "waits for a complete UTF-8 line and parses only appended records；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::partial_utf8_line_waits_without_rereading_then_only_parses_new_record"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L74:C3",
+            "title": "invalidates %s without using stat times as model or execution times",
+            "suites": [
+              "bounded incremental Doubao native sources"
+            ],
+            "parameters": [
+              "it.each(['same-size', 'replacement', 'truncate-regrow'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "invalidates %s without using stat times as model or execution times；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::same_size_replacement_and_truncate_regrow_reset_native_state"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L85:C3",
+            "title": "caches only execution metadata after the first bounded snapshot parse and notices changes",
+            "suites": [
+              "bounded incremental Doubao native sources"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "caches only execution metadata after the first bounded snapshot parse and notices changes；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::execution_cache_discards_private_body_and_invalidates_failed_parse"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L104:C3",
+            "title": "preserves early ancestry and exact new rounds after a trajectory grows beyond 2 MiB",
+            "suites": [
+              "bounded incremental Doubao native sources"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves early ancestry and exact new rounds after a trajectory grows beyond 2 MiB；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::growth_beyond_two_mib_keeps_early_creation_edges_and_recent_demands"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L133:C3",
+            "title": "prioritizes active cache entries, enforces capacity and expires inactive files",
+            "suites": [
+              "bounded incremental Doubao native sources"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "prioritizes active cache entries, enforces capacity and expires inactive files；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::cache_capacity_protects_active_entries_and_evicts_rejected_source"
+              },
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::inactive_ttl_expiry_does_not_expire_active_sources"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L147:C3",
+            "title": "does not reuse cached content through a replaced symlink and recovers from transient stat errors",
+            "suites": [
+              "bounded incremental Doubao native sources"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not reuse cached content through a replaced symlink and recovers from transient stat errors；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::replaced_source_symlink_is_rejected_and_missing_source_recovers"
+              },
+              {
+                "file": "src/inputs/doubao-work/reader.rs",
+                "test": "tests::temporary_stat_failure_preserves_cached_content_and_recovery_needs_no_body_read"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-rounds.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "f38cfa7cb65b0cbb03f42fc29dffe333db3e21205cbf923960e2c08533ec96b0",
+      "cases": [
+        {
+          "source": {
+            "id": "L19:C3",
+            "title": "keeps the exact UTF-8/escaped JSON suffix and stable source identity for long reused history",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps the exact UTF-8/escaped JSON suffix and stable source identity for long reused history；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=106,107，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L30:C3",
+            "title": "retains the oversized-single-input omission rule",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retains the oversized-single-input omission rule；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=108,109，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": "matches an expanded native Skill link without duplicating the user input (%s)",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": [
+              "it.each([\n    '/Users/synthetic/Library/Application Support/DoubaoWork/Profile 2/.doubaowork/agent_mode/workspace/.skills/doubao-human-signal/SKILL.md',\n    'C:\\\\Users\\\\synthetic\\\\AppData\\\\Local\\\\DoubaoWork\\\\User Data\\\\Profile 3\\\\.doubaowork\\\\agent_mode\\\\workspace\\\\.skills\\\\doubao-human-signal\\\\SKILL.md',\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "matches an expanded native Skill link without duplicating the user input (%s)；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=110,111,112,113，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L49:C3",
+            "title": "selects an expanded Skill on reuse while preserving historical messages only as input",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "selects an expanded Skill on reuse while preserving historical messages only as input；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=114,115，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L59:C3",
+            "title": "does not treat an unrelated link or changed instruction as the current request (%s)",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": [
+              "it.each([\n    '[去AI味](</Users/synthetic/.doubaowork/agent_mode/workspace/.skills/other-skill/SKILL.md>)\\nCURRENT',\n    '[去AI味](https://example.test/doubao-human-signal/SKILL.md)\\nCURRENT',\n    '[去AI味](</unrelated/.skills/doubao-human-signal/SKILL.md>)\\nCURRENT',\n    '[去AI味](</Users/synthetic/.doubaowork/agent_mode/workspace/.skills/doubao-human-signal/SKILL.md>)\\nOTHER',\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "does not treat an unrelated link or changed instruction as the current request (%s)；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=116,117,118,119,120,121,122,123，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L70:C3",
+            "title": "rejects ambiguous repeated Skill demands instead of selecting the last matching text",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rejects ambiguous repeated Skill demands instead of selecting the last matching text；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=124,125，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L78:C3",
+            "title": "keeps three parallel tool calls in one assistant round and carries their results into the next input",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps three parallel tool calls in one assistant round and carries their results into the next input；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=126,127，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L92:C3",
+            "title": "selects only a reused request while retaining earlier visible context as context",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "selects only a reused request while retaining earlier visible context as context；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=128,129，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L103:C3",
+            "title": "does not guess a missing reused-request delimiter or an unrelated call",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not guess a missing reused-request delimiter or an unrelated call；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=130,131,132,133，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L109:C3",
+            "title": "stops a local execution fragment before subsequent organizer coordination",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stops a local execution fragment before subsequent organizer coordination；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=134,135,136，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L118:C3",
+            "title": "does not double-count an adjacent duplicate final message",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not double-count an adjacent duplicate final message；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=137,138，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L124:C3",
+            "title": "bounds round expansion and reports omitted rows",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "bounds round expansion and reports omitted rows；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=139,140，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L131:C3",
+            "title": "passes decoded JSON argument content through the normal recursive mask path",
+            "suites": [
+              "visible assistant-round reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "passes decoded JSON argument content through the normal recursive mask path；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=141,142，完整JSON值相等，不仅名称相似。追加真实parse→decoded arguments→normal recursive mask组合测试，转义换行密钥移除、非敏感filepath保留、原始对象不变。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_rounds_exact_json_ids_utf8_suffix_parallel_skill_and_fragment"
+              },
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "native_recursive_mask_receives_decoded_round_arguments_without_mutating_reconstruction"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-state.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "3d816f75eb721fcafaf0c7cb28fa79ec53e03c27d446e3103d248719c9748edc",
+      "cases": [
+        {
+          "source": {
+            "id": "L5:C3",
+            "title": "does not clone or dirty an unchanged poll",
+            "suites": [
+              "Doubao private checkpoint draft"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not clone or dirty an unchanged poll；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/state.rs",
+                "test": "tests::idle_draft_keeps_every_committed_branch_and_noop_write_is_shared"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L14:C3",
+            "title": "keeps the committed state intact through nested array and record edits",
+            "suites": [
+              "Doubao private checkpoint draft"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps the committed state intact through nested array and record edits；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/state.rs",
+                "test": "tests::nested_array_and_record_edits_keep_the_committed_checkpoint_intact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L26:C3",
+            "title": "resolves borrowed references when a pending turn moves to roots",
+            "suites": [
+              "Doubao private checkpoint draft"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resolves borrowed references when a pending turn moves to roots；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/state.rs",
+                "test": "tests::moving_pending_to_roots_resolves_the_owned_terminal_and_keeps_original_pending"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/doubao-work-windows.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "1521f9dc7e1f721e3e4469bf49e170f1f356bf2b836359c0791f5314de1f3aed",
+      "cases": [
+        {
+          "source": {
+            "id": "L22:C3",
+            "title": "reads native CONSOLE millisecond boundaries and keeps macOS microseconds",
+            "suites": [
+              "Doubao Work Windows 2.25 client logs"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reads native CONSOLE millisecond boundaries and keeps macOS microseconds；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=169,170，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_windows_console_precision_and_mismatched_family_rejections"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L30:C3",
+            "title": "rejects unrelated files and mismatched producer headers or precision",
+            "suites": [
+              "Doubao Work Windows 2.25 client logs"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rejects unrelated files and mismatched producer headers or precision；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。冻结TS纯函数oracle索引=171,172,173,174,175，完整JSON值相等，不仅名称相似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/golden_tests.rs",
+                "test": "frozen_main_windows_console_precision_and_mismatched_family_rejections"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L40:C3",
+            "title": "discovers Windows logs, baselines old turns and resumes a new turn without replay",
+            "suites": [
+              "Doubao Work Windows 2.25 client logs"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "discovers Windows logs, baselines old turns and resumes a new turn without replay；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "discovers_only_source_files_and_baselines_existing_history_before_new_windows_turn"
+              },
+              {
+                "file": "src/inputs/doubao-work/input_tests.rs",
+                "test": "first_install_excludes_an_existing_complete_turn_but_keeps_later_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L68:C3",
+            "title": "uses LOCALAPPDATA on Windows and falls back to the user profile",
+            "suites": [
+              "Doubao Work Windows 2.25 client logs"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses LOCALAPPDATA on Windows and falls back to the user profile；逐声明核对冻结原始数据/精确字段与现有原生断言，已实际执行通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/doubao-work/native_fs_tests.rs",
+                "test": "platform_paths_preserve_windows_localappdata_fallback_mac_roots_and_unsupported_linux"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/doubao-work.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "冻结f84输出22声明逐项对应真实native OtlpTraceFlusher/生产converter，Linux隔离16组合合同及JSON/protobuf投影实跑通过；platforms为合同适用范围，Windows/macOS实机仍待验。SLS/OTLP独立ACK继承边界保持pending，本文件只证明转换/内容/时序/所有权合同。",
+      "source_hash": "d625a8024927718fb9d2d7971cec0122411ac06210d96e38e97fad2d38261a5e",
+      "cases": [
+        {
+          "source": {
+            "id": "L29:C3",
+            "title": "exports real local tool lifetimes without fabricating LLM or ReAct spans",
+            "suites": [
+              "Doubao Work truthful partial OTLP"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "exports real local tool lifetimes without fabricating LLM or ReAct spans；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::concurrent_same_name_tools_keep_real_identity_bounds_content_and_cancel_status"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L55:C3",
+            "title": "exports one linked local TASK per execution, with child observations owned by the correct TASK",
+            "suites": [
+              "Doubao Work truthful partial OTLP"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "exports one linked local TASK per execution, with child observations owned by the correct TASK；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::root_client_nested_tasks_and_background_links_do_not_stretch_or_duplicate_invocations"
+              },
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::local_task_parent_links_nested_tool_ownership_and_background_replay_are_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L106:C3",
+            "title": "does not let a late local execution or log-only tools truncate an active request in the same session",
+            "suites": [
+              "Doubao Work truthful partial OTLP"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not let a late local execution or log-only tools truncate an active request in the same session；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::local_execution_and_log_only_facts_do_not_preempt_active_client_request"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L125:C3",
+            "title": "exports a background execution as a deterministic linked root without stretching the request (start=%s)",
+            "suites": [
+              "Doubao Work truthful partial OTLP"
+            ],
+            "parameters": [
+              "it.each([2000, 4000])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "exports a background execution as a deterministic linked root without stretching the request (start=%s)；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::contained_and_background_task_rounds_keep_exact_owner_turn_fallback_and_time_bounds"
+              },
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::root_client_nested_tasks_and_background_links_do_not_stretch_or_duplicate_invocations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L179:C3",
+            "title": "bounds local TOOL spans and reports facts omitted from the trace",
+            "suites": [
+              "Doubao Work truthful partial OTLP"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "bounds local TOOL spans and reports facts omitted from the trace；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::local_tool_spans_are_bounded_and_absent_content_is_not_invented"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L196:C3",
+            "title": "masks native TASK I/O and nested tool content before Span event projection",
+            "suites": [
+              "Doubao Work truthful partial OTLP"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "masks native TASK I/O and nested tool content before Span event projection；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::mask_native_task_tool_and_round_content_before_real_span_and_json_projection"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L207:C3",
+            "title": "does not reinterpret legacy tool fragments or log-only records as Agent invocations",
+            "suites": [
+              "Doubao Work truthful partial OTLP"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not reinterpret legacy tool fragments or log-only records as Agent invocations；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::invalid_legacy_fragments_or_unproved_request_boundaries_export_nothing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L220:C3",
+            "title": "exports only one accurately timed ENTRY/AGENT pair (client=%s, parent=%s)",
+            "suites": [
+              "Doubao Work truthful partial OTLP"
+            ],
+            "parameters": [
+              "it.each([\n    ['1', undefined], ['0', undefined], ['cancelled', undefined], ['1', '1234567890abcdef'],\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "exports only one accurately timed ENTRY/AGENT pair (client=%s, parent=%s)；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::passive_boundaries_preserve_precision_parent_outcomes_and_no_provider_fabrication"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/doubao-work-grouping.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "冻结f84输出22声明逐项对应真实native OtlpTraceFlusher/生产converter，Linux隔离16组合合同及JSON/protobuf投影实跑通过；platforms为合同适用范围，Windows/macOS实机仍待验。SLS/OTLP独立ACK继承边界保持pending，本文件只证明转换/内容/时序/所有权合同。",
+      "source_hash": "669345ba41bd57b871ad5002c6b3f7df11f1720ef57c08b1f76151c3efe75f95",
+      "cases": [
+        {
+          "source": {
+            "id": "L29:C3",
+            "title": "exports both requests when a native session ID is reused, while deduplicating replay",
+            "suites": [
+              "Doubao request identity from %s logs"
+            ],
+            "parameters": [
+              "describe.each(['darwin', 'win32'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "exports both requests when a native session ID is reused, while deduplicating replay；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::request_identity_survives_reused_session_interleaving_other_agents_and_replay"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L46:C3",
+            "title": "keeps interleaved requests in different conversations separate despite a reused session ID",
+            "suites": [
+              "Doubao request identity from %s logs"
+            ],
+            "parameters": [
+              "describe.each(['darwin', 'win32'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "keeps interleaved requests in different conversations separate despite a reused session ID；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::request_identity_survives_reused_session_interleaving_other_agents_and_replay"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L59:C3",
+            "title": "does not suppress another Agent with the same turn ID",
+            "suites": [
+              "Doubao request identity from %s logs"
+            ],
+            "parameters": [
+              "describe.each(['darwin', 'win32'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "does not suppress another Agent with the same turn ID；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::request_identity_survives_reused_session_interleaving_other_agents_and_replay"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/doubao-work-tools.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "冻结f84输出22声明逐项对应真实native OtlpTraceFlusher/生产converter，Linux隔离16组合合同及JSON/protobuf投影实跑通过；platforms为合同适用范围，Windows/macOS实机仍待验。SLS/OTLP独立ACK继承边界保持pending，本文件只证明转换/内容/时序/所有权合同。",
+      "source_hash": "eadfa321782bbb6423475b35ea2b46760fb3556ab35eff9d813908d250d5309a",
+      "cases": [
+        {
+          "source": {
+            "id": "L27:C3",
+            "title": "exports concurrent same-name tools under the evidenced owner without inventing a ReAct/model span",
+            "suites": [
+              "source-evidenced Doubao local tool spans"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "exports concurrent same-name tools under the evidenced owner without inventing a ReAct/model span；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::concurrent_same_name_tools_keep_real_identity_bounds_content_and_cancel_status"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L56:C3",
+            "title": "omits an ambiguous call instead of binding one of its duplicate results",
+            "suites": [
+              "source-evidenced Doubao local tool spans"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "omits an ambiguous call instead of binding one of its duplicate results；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::rejects_ambiguous_wrong_owner_and_invalid_tool_boundaries_without_transcript_bypass"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L63:C3",
+            "title": "rejects %s boundaries while preserving the other parallel call",
+            "suites": [
+              "source-evidenced Doubao local tool spans"
+            ],
+            "parameters": [
+              "it.each(['wrong-name', 'wrong-actor', 'different-owner', 'wrong-trace', 'outside-owner', 'nonpositive', 'log-only'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "rejects %s boundaries while preserving the other parallel call；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::rejects_ambiguous_wrong_owner_and_invalid_tool_boundaries_without_transcript_bypass"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L79:C3",
+            "title": "keeps deterministic tool identity across restart/reconversion and does not invent absent content",
+            "suites": [
+              "source-evidenced Doubao local tool spans"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps deterministic tool identity across restart/reconversion and does not invent absent content；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::local_tool_spans_are_bounded_and_absent_content_is_not_invented"
+              },
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::concurrent_same_name_tools_keep_real_identity_bounds_content_and_cancel_status"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L90:C3",
+            "title": "preserves a cancelled local execution as an ERROR tool without changing its real bounds",
+            "suites": [
+              "source-evidenced Doubao local tool spans"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves a cancelled local execution as an ERROR tool without changing its real bounds；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::concurrent_same_name_tools_keep_real_identity_bounds_content_and_cancel_status"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/doubao-work-rounds.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "冻结f84输出22声明逐项对应真实native OtlpTraceFlusher/生产converter，Linux隔离16组合合同及JSON/protobuf投影实跑通过；platforms为合同适用范围，Windows/macOS实机仍待验。SLS/OTLP独立ACK继承边界保持pending，本文件只证明转换/内容/时序/所有权合同。",
+      "source_hash": "a8dabee0a62433716c6dd89484519c011fe144f6ae062a60445158857fe5d112",
+      "cases": [
+        {
+          "source": {
+            "id": "L43:C3",
+            "title": "exports four LLM decisions and five tools, preserving real parallel tool times and exact input/output",
+            "suites": [
+              "Doubao assistant rounds through the actual OTLP converter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "exports four LLM decisions and five tools, preserving real parallel tool times and exact input/output；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::four_visible_rounds_preserve_parallel_tool_anchors_exact_messages_and_stable_ids"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L79:C3",
+            "title": "bounds untimed coordination calls between adjacent source anchors and retains an explicit error result",
+            "suites": [
+              "Doubao assistant rounds through the actual OTLP converter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "bounds untimed coordination calls between adjacent source anchors and retains an explicit error result；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::untimed_coordination_is_interpolated_between_native_anchors_and_error_is_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L99:C3",
+            "title": "keeps the native Wait interval out of the estimated LLM latency",
+            "suites": [
+              "Doubao assistant rounds through the actual OTLP converter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps the native Wait interval out of the estimated LLM latency；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::explicit_native_wait_interval_is_excluded_from_estimated_model_latency"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L112:C3",
+            "title": "does not turn an orphan transcript intent into a completed tool",
+            "suites": [
+              "Doubao assistant rounds through the actual OTLP converter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not turn an orphan transcript intent into a completed tool；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::orphan_intent_and_inconsistent_round_order_keep_native_facts_without_fabrication"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L118:C3",
+            "title": "keeps a child fragment and its rounds under the exact native TASK, without importing later coordination",
+            "suites": [
+              "Doubao assistant rounds through the actual OTLP converter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps a child fragment and its rounds under the exact native TASK, without importing later coordination；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。还运行真实同一history中保留LATER后文、local_fragment重建时排除LATER的原生输入测试。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::contained_and_background_task_rounds_keep_exact_owner_turn_fallback_and_time_bounds"
+              },
+              {
+                "file": "src/inputs/doubao-work/rounds.rs",
+                "test": "migration_contract_tests::local_fragment_excludes_later_coordination_from_the_same_history"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L155:C3",
+            "title": "rejects inconsistent temporal order without losing the separately evidenced local tools",
+            "suites": [
+              "Doubao assistant rounds through the actual OTLP converter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rejects inconsistent temporal order without losing the separately evidenced local tools；真实OtlpTraceFlusher→生产converter→capture exporter，精确计数/来源时序/父链/内容和无虚构断言已Linux Cargo实跑通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "doubao_contract_tests::orphan_intent_and_inconsistent_round_order_keep_native_facts_without_fabrication"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/integration/doubao-work-pipeline.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。",
+      "source_hash": "fa5357dbc9d5693cb6195eaf25a71b816738b93c628b6ffe08e9c862a7bf781c",
+      "cases": [
+        {
+          "source": {
+            "id": "L21:C1",
+            "title": "routes native first output and late execution snapshots through the masked pipeline without inventing child LLMs",
+            "suites": [],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "routes native first output and late execution snapshots through the masked pipeline without inventing child LLMs；实际watched Doubao源→InputManager身份/normal mask→并发JsonlFlusher+真实OTLP converter；完整输出接受后停机。原10/5事件、4/2/7 span计数、2LLM/STEP/TOOL父链、content字段类型/脱敏/不可伪造断言均保留。首例还调用真实Rust JSONL validator hardIssues=0。合成conversation改为严格协议要求的十进制ID，不使用客户端业务数据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/doubao_pipeline.rs",
+                "test": "native_pipeline_first_output_late_nested_executions_reach_jsonl_and_exact_task_spans_without_child_llms"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L84:C1",
+            "title": "routes watched native-shaped metadata through identity, mask, JSONL projection and real trace conversion",
+            "suites": [],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "routes watched native-shaped metadata through identity, mask, JSONL projection and real trace conversion；实际watched Doubao源→InputManager身份/normal mask→并发JsonlFlusher+真实OTLP converter；完整输出接受后停机。原10/5事件、4/2/7 span计数、2LLM/STEP/TOOL父链、content字段类型/脱敏/不可伪造断言均保留。首例还调用真实Rust JSONL validator hardIssues=0。合成conversation改为严格协议要求的十进制ID，不使用客户端业务数据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/doubao_pipeline.rs",
+                "test": "native_pipeline_watched_metadata_keeps_configured_identity_masking_and_log_only_child_tools"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L160:C1",
+            "title": "captures current I/O and masks exact tool content before TOOL span serialization",
+            "suites": [],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "captures current I/O and masks exact tool content before TOOL span serialization；实际watched Doubao源→InputManager身份/normal mask→并发JsonlFlusher+真实OTLP converter；完整输出接受后停机。原10/5事件、4/2/7 span计数、2LLM/STEP/TOOL父链、content字段类型/脱敏/不可伪造断言均保留。首例还调用真实Rust JSONL validator hardIssues=0。合成conversation改为严格协议要求的十进制ID，不使用客户端业务数据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/doubao_pipeline.rs",
+                "test": "native_pipeline_exact_current_io_and_decoded_tool_content_are_masked_before_jsonl_and_tool_span_projection"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/core/config-loader.test.ts",
+      "coverage": "partial",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。 此fragment只承接本提交新增Doubao声明，旧基线声明/ID/hash映射不改；core文件级partial为增量范围，须由root合并已有其余用例映射后再计算全文件coverage。",
+      "source_hash": "8783088b47f21ca6786b00272d3043a14ed0774f817e0a7a610eb49dfe305baa",
+      "cases": [
+        {
+          "source": {
+            "id": "L335:C5",
+            "title": "resolves the passive Doubao source override without changing other listeners",
+            "suites": [
+              "ConfigLoader",
+              "listeners config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resolves the passive Doubao source override without changing other listeners；真实配置assemble、注册闭包动态准入和$DOUBAO_WORK_DATA三平台路径规则已原生断言验证。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "doubao_listener_wiring_tests::doubao_listener_defaults_on_and_older_serialized_listeners_remain_compatible"
+              },
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "doubao_listener_wiring_tests::only_doubao_accepts_trimmed_absolute_log_override_without_mutating_source"
+              },
+              {
+                "file": "src/core/config_loader.rs",
+                "test": "doubao_listener_wiring_tests::blank_and_nonstring_log_overrides_are_ignored_and_global_poll_is_preserved"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/core/orchestrator.test.ts",
+      "coverage": "partial",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。 此fragment只承接本提交新增Doubao声明，旧基线声明/ID/hash映射不改；core文件级partial为增量范围，须由root合并已有其余用例映射后再计算全文件coverage。",
+      "source_hash": "ff93e2365dd7cfd0d0c9f78936d4a878424241f063cfb9fb72e5a8a34b1667e0",
+      "cases": [
+        {
+          "source": {
+            "id": "L512:C5",
+            "title": "registers passive Doubao collection with source, agent and listener gates",
+            "suites": [
+              "Orchestrator",
+              "startup sequence (T038)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "registers passive Doubao collection with source, agent and listener gates；真实配置assemble、注册闭包动态准入和$DOUBAO_WORK_DATA三平台路径规则已原生断言验证。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator.rs",
+                "test": "tests::doubao_listener_override_cannot_bypass_agent_disable_or_recorded_scope"
+              },
+              {
+                "file": "src/core/orchestrator.rs",
+                "test": "tests::full_start_and_registration_are_isolated_in_temp_home_subprocess"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/deployment/doubao-work-paths.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "仅映射冻结f84新增main合同；Linux glibc2.34/Rust1.99.1隔离真实Cargo通过，platforms表示合同适用范围，不代表三平台实跑。SLS/OTLP ACK、真实平台客户端与跨平台FS唤醒单列pending，不由本映射替代。 此fragment只承接本提交新增Doubao声明，旧基线声明/ID/hash映射不改；core文件级partial为增量范围，须由root合并已有其余用例映射后再计算全文件coverage。",
+      "source_hash": "8fd7cdb5e515c3e7f885e989b5cc4be772ae893b4cef47d7af80946d15490a68",
+      "cases": [
+        {
+          "source": {
+            "id": "L16:C3",
+            "title": "matches the collector default with LOCALAPPDATA set=%s",
+            "suites": [
+              "Doubao definition paths on %s"
+            ],
+            "parameters": [
+              "describe.each(['darwin', 'win32'] as const)",
+              "it.each([true, false])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "matches the collector default with LOCALAPPDATA set=%s；真实配置assemble、注册闭包动态准入和$DOUBAO_WORK_DATA三平台路径规则已原生断言验证。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/agent_def_loader.rs",
+                "test": "tests::doubao_builtin_detection_expands_only_supported_platform_data_roots"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

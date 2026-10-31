@@ -208,3 +208,135 @@ fn frozen_main_log_protocol_producer_allowlists_privacy_outcomes_and_year_rollov
 fn frozen_main_windows_console_precision_and_mismatched_family_rejections() {
     assert_cases("doubao-work-windows.test.ts");
 }
+
+#[test]
+fn native_recursive_mask_receives_decoded_newline_tool_content_and_preserves_the_originals() {
+    let cases = oracle_cases();
+    let parse = &cases[13];
+    assert_eq!(parse["function"], "parseNativeContent");
+    let content = content::parse_native_content(
+        &serde_json::from_value(parse["args"][0].clone()).unwrap(),
+        &serde_json::from_value(parse["args"][1].clone()).unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let secret = format!("sk-{}", "x".repeat(24));
+    let original_content = serde_json::to_string(&content).unwrap();
+    let enriched = content::enrich_native_tool_events(
+        serde_json::from_value(cases[14]["args"][0].clone()).unwrap(),
+        Some(&content),
+    );
+    let parsed_event = |index: usize| {
+        let item = &cases[index];
+        let line = localized_log(
+            item["args"][0].as_str().unwrap(),
+            item["args"][1].as_str().unwrap(),
+            item["timezoneOffset"].as_i64().unwrap(),
+        );
+        log::parse_doubao_log_line(&line, item["args"][1].as_str().unwrap()).unwrap()
+    };
+    let observations = content::native_tool_observations(
+        &[types::DoubaoToolPair {
+            start: parsed_event(15),
+            end: parsed_event(16),
+        }],
+        Some(&content),
+    );
+    assert_eq!(observations.len(), 1);
+    assert_eq!(
+        observations[0]["arguments"],
+        json!({
+            "content": format!("total=90\n{secret}"),
+            "file_path": "synthetic-file"
+        })
+    );
+    let before_observations = serde_json::to_string(&observations).unwrap();
+    let mut fields = enriched[0].clone();
+    fields.extend(
+        json!({"time_unix_nano":"1792897200100123000","event.id":"mask-json",
+        "user.id":"synthetic","gen_ai.agent.type":"doubao-work",
+        "agent.doubao_work.tool_observations":observations})
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
+    let entry = crate::normalization::entry_from_map(fields);
+    let before_entry = serde_json::to_string(&entry).unwrap();
+    let masked = crate::mask::mask_agent_activity_entry(
+        &entry,
+        &crate::types::MaskConfig {
+            mode: crate::types::MaskMode::All,
+            types: vec![],
+            replacement_mode: None,
+        },
+        None,
+        None,
+    )
+    .into_owned();
+    assert!(!serde_json::to_string(&masked).unwrap().contains(&secret));
+    let masked = serde_json::to_value(masked).unwrap();
+    assert_eq!(
+        masked["gen_ai.tool.call.arguments"]["file_path"],
+        "synthetic-file"
+    );
+    assert_eq!(serde_json::to_string(&entry).unwrap(), before_entry);
+    assert_eq!(serde_json::to_string(&content).unwrap(), original_content);
+    assert_eq!(
+        serde_json::to_string(&observations).unwrap(),
+        before_observations
+    );
+    assert!(before_entry.contains(&secret));
+}
+#[test]
+fn native_recursive_mask_receives_decoded_round_arguments_without_mutating_reconstruction() {
+    let cases = oracle_cases();
+    let parse = &cases[141];
+    assert_eq!(parse["function"], "parseNativeContent");
+    let content = content::parse_native_content(
+        &serde_json::from_value(parse["args"][0].clone()).unwrap(),
+        &serde_json::from_value(parse["args"][1].clone()).unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let secret = format!("sk-{}", "x".repeat(24));
+    let rebuilt = rounds::reconstruct_native_rounds(
+        Some(&content),
+        "m_synthetic",
+        1792897200000,
+        "1792897230000000000",
+        &["mask".to_owned()],
+        "client_request",
+    )
+    .unwrap();
+    let rebuilt = serde_json::to_value(rebuilt).unwrap();
+    assert_eq!(
+        rebuilt["rounds"][0]["tools"][0]["arguments"]["content"],
+        format!(
+            "value
+{secret}"
+        )
+    );
+    let before = serde_json::to_string(&rebuilt).unwrap();
+    assert!(before.contains(&secret));
+    let fields = json!({"time_unix_nano":"1792897230000000000","event.id":"mask-rounds",
+        "event.name":"other","user.id":"synthetic","gen_ai.agent.type":"doubao-work",
+        "agent.doubao_work.assistant_rounds":rebuilt})
+    .as_object()
+    .unwrap()
+    .clone();
+    let entry = crate::normalization::entry_from_map(fields);
+    let masked = crate::mask::mask_agent_activity_entry(
+        &entry,
+        &crate::types::MaskConfig {
+            mode: crate::types::MaskMode::All,
+            types: vec![],
+            replacement_mode: None,
+        },
+        None,
+        None,
+    )
+    .into_owned();
+    assert!(!serde_json::to_string(&masked).unwrap().contains(&secret));
+    assert_eq!(serde_json::to_string(&rebuilt).unwrap(), before);
+    assert!(serde_json::to_string(&entry).unwrap().contains(&secret));
+}

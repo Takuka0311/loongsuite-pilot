@@ -91,6 +91,7 @@ jobs:
           for filter in \
             inputs::base::tests \
             inputs::doubao_work:: \
+            checkpoints::source_ownership::tests \
             hook_process::cursor:: \
             hook_process::cursor_assemble:: \
             hook_process::claude_code:: \
@@ -121,4 +122,4 @@ jobs:
           test "$failures" -eq 0
       - name: Native interceptor, upstream context, and Hook timing
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-        run: cargo test --locked -p loongsuite-pilot --test interceptor_native --test upstream_context --test hook_timing --test grok_output_contracts --test runtime_snapshot_allocation --test doubao_delivery --test hosted_collect_durability -- --nocapture
+        run: cargo test --locked -p loongsuite-pilot --test interceptor_native --test upstream_context --test hook_timing --test grok_output_contracts --test runtime_snapshot_allocation --test doubao_delivery --test doubao_pipeline --test hosted_collect_durability -- --nocapture

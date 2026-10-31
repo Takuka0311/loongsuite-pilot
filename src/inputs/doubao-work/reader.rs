@@ -1102,10 +1102,7 @@ async fn stamp_of(handle: &File) -> Result<Stamp> {
         (meta.ctime(), meta.ctime_nsec())
     };
     #[cfg(windows)]
-    let changed = {
-        use std::os::windows::fs::MetadataExt;
-        (meta.last_write_time() as i64, meta.creation_time() as i64)
-    };
+    let changed = windows_change_stamp(&standard)?;
     Ok(Stamp {
         identity: format!(
             "{}:{}:{}",
@@ -1115,6 +1112,32 @@ async fn stamp_of(handle: &File) -> Result<Stamp> {
         modified: meta.modified().ok(),
         changed,
     })
+}
+#[cfg(windows)]
+fn windows_change_stamp(file: &std::fs::File) -> std::io::Result<(i64, i64)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileBasicInfo, GetFileInformationByHandleEx, FILE_BASIC_INFO,
+    };
+    let mut info = std::mem::MaybeUninit::<FILE_BASIC_INFO>::zeroed();
+    // SAFETY: File owns the live handle; the output buffer has the exact
+    // FILE_BASIC_INFO layout and size required by FileBasicInfo.
+    let success = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileBasicInfo,
+            info.as_mut_ptr().cast(),
+            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+        )
+    };
+    if success == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a successful call initializes the entire FILE_BASIC_INFO.
+    let info = unsafe { info.assume_init() };
+    // LastWriteTime can be restored by a producer. ChangeTime still witnesses
+    // a same-size rewrite, preventing reuse of stale native content.
+    Ok((info.ChangeTime, info.CreationTime))
 }
 fn metadata_matches(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
     if a.len() != b.len() || a.modified().ok() != b.modified().ok() {

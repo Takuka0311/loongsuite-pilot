@@ -2153,12 +2153,18 @@ fn dashboard_probe_cli_is_read_only_and_checks_real_instance_headers() {
     .unwrap();
     let before = snapshot(root.path());
     for option in ["--port", "--data-dir", "--available"] {
-        let result = invoke(executable(), root.path(), &["dashboard", "probe", option]);
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        // start() binds before its HTTP worker is scheduled. Wait for actual
+        // readiness under runner load while retaining the read-only contract.
+        let started = Instant::now();
+        let result = loop {
+            let result = invoke(executable(), root.path(), &["dashboard", "probe", option]);
+            assert_eq!(snapshot(root.path()), before);
+            if result.status.success() || started.elapsed() >= Duration::from_secs(2) {
+                break result;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(result.status.success(), "option={option} output={result:?}");
         if option == "--port" {
             assert_eq!(
                 String::from_utf8(result.stdout).unwrap().trim(),
