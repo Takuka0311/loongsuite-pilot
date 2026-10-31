@@ -2444,10 +2444,17 @@ impl<'a> CodexTranscriptEngine<'a> {
         });
         if let Some(meta) = cached {
             self.body.with_shared(|shared| {
-                if let Some(mut cached) = shared.meta_cache.shift_remove(file_path) {
+                if active {
+                    if let Some(mut cached) = shared.meta_cache.shift_remove(file_path) {
+                        cached.file_size = file_size;
+                        cached.last_seen_at_ms = now_ms() as i64;
+                        shared.meta_cache.insert(file_path.to_owned(), cached);
+                    }
+                } else if let Some(cached) = shared.meta_cache.get_mut(file_path) {
+                    // Discovery refreshes the witness, but only active consumption
+                    // promotes metadata in the bounded LRU working set.
                     cached.file_size = file_size;
                     cached.last_seen_at_ms = now_ms() as i64;
-                    shared.meta_cache.insert(file_path.to_owned(), cached);
                 }
             });
             return Ok(Some(meta));
@@ -2911,3 +2918,7 @@ fn reusable_cached(cached: &CachedMeta, inode: u64, file_size: i64, owner_offset
         && owner_offset >= 0
         && owner_offset < file_size
 }
+
+#[cfg(test)]
+#[path = "engine_history.rs"]
+mod history_contracts;
