@@ -1018,6 +1018,9 @@ mod tests {
         let b = compute_hook_trust_hash("SessionStart", "bash /a session-start", None).unwrap();
         assert_eq!(a, b);
         assert!(a.starts_with("sha256:") && a.len() == "sha256:".len() + 64);
+        assert!(a["sha256:".len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
         assert_ne!(
             a,
             compute_hook_trust_hash("SessionStart", "bash /b session-start", None).unwrap()
@@ -1150,8 +1153,8 @@ mod tests {
         assert!(result.valid, "{:?}", result.mismatches);
         let content = std::fs::read_to_string(&config).unwrap();
         assert_eq!(content.matches("[hooks.state.\"").count(), 5);
-        assert!(content.contains("# BEGIN otel-codex-hook trust"));
-        assert!(content.contains("# END otel-codex-hook trust"));
+        assert_eq!(content.matches("# BEGIN otel-codex-hook trust").count(), 1);
+        assert_eq!(content.matches("# END otel-codex-hook trust").count(), 1);
         assert!(!write_trusted_hashes(&opts).await.unwrap());
 
         let windows = TrustOpts::Legacy(LegacyTrustOpts {
@@ -1276,3 +1279,7 @@ mod tests {
         assert!(!content.contains("# BEGIN otel-codex-hook trust"));
     }
 }
+
+#[cfg(test)]
+#[path = "codex_trust_writer_contract_tests.rs"]
+mod migration_contract_tests;

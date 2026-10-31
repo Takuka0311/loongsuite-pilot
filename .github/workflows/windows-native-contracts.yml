@@ -108,11 +108,13 @@ jobs:
             interceptor::cli::qoder_surface::tests \
             hook_process::qoder:: \
             utils::single_instance_lock::tests \
-            deployment::hook_strategy::tests \
+            deployment::hook_strategy:: \
+            deployment::plugin_probe_strategy:: \
+            deployment::codex_trust_writer:: \
             deployment::dsh_yaml_patch_strategy::tests \
             deployment::legacy_uninstall::tests \
             updater::package_archive::tests \
-            updater::runtime::tests::same_version_activation_preserves_live_tree_and_retries_failed_preflight \
+            updater::runtime::tests \
             utils::restart_breadcrumb::tests \
             core::updater_watchdog::tests; do
             cargo test --locked -p loongsuite-pilot --lib "$filter" -- --nocapture || failures=1

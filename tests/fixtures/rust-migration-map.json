@@ -15395,7 +15395,7 @@
     },
     {
       "legacy": "tests/unit/deployment/hook-strategy.test.ts",
-      "coverage": "partial",
+      "coverage": "complete",
       "rust": [
         {
           "file": "src/deployment/hook_strategy.rs",
@@ -15438,7 +15438,1501 @@
           "test": "hook_transaction_external_edit_conflict_preserves_recovery_evidence"
         }
       ],
-      "note": "承接 JSONC 用户字段、env 合并、Kiro 用户默认 Agent、Codex retired 事件与损坏配置保护。根据批准计划，旧 env 失败仍成功的断言改为显式失败；新增主配置、首次 JSONC 备份、资源、trust、Kiro CLI 与部署状态共同事务，覆盖普通失败、真实退出后正式 manager 重试、跨安装配置锁、取消和外部修改冲突。健康读取按声明语法解析 JSONC。Windows 实机命令、全部 matcher/interceptor/并发场景尚待完整验收。"
+      "note": "逐声明核对固定ef8953源断言；本批隔离Linux glibc2.34/Rust1.99.1验证。platforms仅合同适用，不代表三平台均执行。Windows cfg测试待中央原生CI；明确Win32参数分支在Linux是真实纯逻辑模拟，不替代实机进程/文件系统。仅逐条退役已移除Node机制或已批准旧策略，功能与失败保护有明确原生替代。 主工作区01–03随全workspace2337通过，Trust目标27通过。此前无source-case的partial标记由本逐声明账本替代，既有额外事务测试保留。Windows新增专用部署回归待原生CI，platforms仅适用范围。",
+      "source_hash": "19b21f94551449f1ef35da56cf3d82d31462f921da9b73136d9f6e44ac6452d6",
+      "cases": [
+        {
+          "source": {
+            "id": "L103:C5",
+            "title": "delegates to detectAgent",
+            "suites": [
+              "HookStrategy",
+              "detect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实路径不存在/存在分别发现；实际部署两事件后健康=false，删除一事件后needs=true；重装后每事件仍各一条、用户字段保留。旧mock次数由实际最终配置和字节幂等承接。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "discovery_and_each_installed_event_control_real_deployment_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L111:C5",
+            "title": "returns false when agent not found",
+            "suites": [
+              "HookStrategy",
+              "detect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实路径不存在/存在分别发现；实际部署两事件后健康=false，删除一事件后needs=true；重装后每事件仍各一条、用户字段保留。旧mock次数由实际最终配置和字节幂等承接。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "discovery_and_each_installed_event_control_real_deployment_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L118:C5",
+            "title": "returns true when any hook is not installed",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实路径不存在/存在分别发现；实际部署两事件后健康=false，删除一事件后needs=true；重装后每事件仍各一条、用户字段保留。旧mock次数由实际最终配置和字节幂等承接。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "discovery_and_each_installed_event_control_real_deployment_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L127:C5",
+            "title": "returns false when all hooks are installed",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实路径不存在/存在分别发现；实际部署两事件后健康=false，删除一事件后needs=true；重装后每事件仍各一条、用户字段保留。旧mock次数由实际最终配置和字节幂等承接。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "discovery_and_each_installed_event_control_real_deployment_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L135:C5",
+            "title": "returns true when Codex hooks.json has a stale version field",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐表覆盖Cursor缺失/空文档version1、已有version2保留、Codex缺失/空/旧version1全部无version；事件实际发布且健康复查。原Node独立初始化writeJsonFile次数被统一原子提交替代。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "cursor_and_codex_version_rules_hold_for_missing_empty_and_existing_documents"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L152:C5",
+            "title": "returns true when Codex hook exists but its trust state is invalid",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际安装group1/handler1、matcher *、timeout12/async/statusMessage被解析后写真实trust，health先因缺trust为true、写后false、handler timeout改13又true。非mock verifier。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "trust_health_uses_actual_nonzero_installed_indices_matcher_and_handler_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L184:C5",
+            "title": "verifies trust with the installed matcher and non-zero group/handler indices",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际安装group1/handler1、matcher *、timeout12/async/statusMessage被解析后写真实trust，health先因缺trust为true、写后false、handler timeout改13又true。非mock verifier。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "trust_health_uses_actual_nonzero_installed_indices_matcher_and_handler_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L237:C5",
+            "title": "refuses ambiguous duplicate installed commands instead of trusting index zero",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "两条完全相同owned command导致实际health需要修复且deploy显式拒绝；源配置字节不变、未落trust，不偷用index0。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "duplicate_owned_commands_are_not_silently_trusted_or_removed_during_deploy"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L264:C5",
+            "title": "builds correct hook definitions from agent config",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "直接核对生产definition完整agent/path/events/command/flat-nested/replacement/event matcher数据，替换旧hook同时保留用户handler由真实deploy补证。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "generated_definitions_preserve_event_shape_replacements_matchers_and_jsonc_syntax"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "configured_replacement_removes_only_owned_legacy_hook_and_preserves_user_handler"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L282:C5",
+            "title": "quotes Codex PowerShell hook paths and removes the previous Windows command",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "显式Windows序列化核对powershell.exe安全引号、空格路径和snake_case/as-is参数；旧alias清理有真正Windows部署回归。Linux已跑显式纯转换；Windows真实部署回归须中央Windows执行，不能以Linux结果冒充。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "explicit_windows_serialization_quotes_paths_and_preserves_grok_event_spelling"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "actual_windows_deployment_replaces_legacy_alias_and_keeps_declared_shell"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L313:C5",
+            "title": "quotes Grok Build PowerShell paths and preserves snake_case event names",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "显式Windows序列化核对powershell.exe安全引号、空格路径和snake_case/as-is参数；旧alias清理有真正Windows部署回归。Linux已跑显式纯转换；Windows真实部署回归须中央Windows执行，不能以Linux结果冒充。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "explicit_windows_serialization_quotes_paths_and_preserves_grok_event_spelling"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "actual_windows_deployment_replaces_legacy_alias_and_keeps_declared_shell"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L343:C5",
+            "title": "preserves the existing Windows command format for non-Codex hook agents",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧非Codex无引号powershell命令字面合同被已采用统一安全引用规则替代；当前Windows regression实际替换旧alias、不复制用户hook。此条只退役旧序列化格式，保留功能和升级兼容。 Linux仅运行平台无关序列化断言；Windows专用部署入口待CI。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "旧非Codex无引号powershell命令字面合同被已采用统一安全引用规则替代；当前Windows regression实际替换旧alias、不复制用户hook。此条只退役旧序列化格式，保留功能和升级兼容。",
+            "replacement": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "explicit_windows_serialization_quotes_paths_and_preserves_grok_event_spelling"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "actual_windows_deployment_replaces_legacy_alias_and_keeps_declared_shell"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L371:C5",
+            "title": "passes replaceHookCommands to hook definitions",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "直接核对生产definition完整agent/path/events/command/flat-nested/replacement/event matcher数据，替换旧hook同时保留用户handler由真实deploy补证。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "generated_definitions_preserve_event_shape_replacements_matchers_and_jsonc_syntax"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "configured_replacement_removes_only_owned_legacy_hook_and_preserves_user_handler"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L389:C5",
+            "title": "emits winShell as def.shell on Windows",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "生产definition按当前cfg选择winShell；无显式winShell的Codex始终None；Linux分支实跑，Windows分支有实际部署+字段断言等待平台运行。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "platform_shell_policy_never_invents_a_codex_shell_or_leaks_windows_shell_on_unix"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "actual_windows_deployment_replaces_legacy_alias_and_keeps_declared_shell"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L413:C5",
+            "title": "ignores winShell on non-Windows platforms",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "生产definition按当前cfg选择winShell；无显式winShell的Codex始终None；Linux分支实跑，Windows分支有实际部署+字段断言等待平台运行。",
+          "platforms": [
+            "linux",
+            "macos"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "platform_shell_policy_never_invents_a_codex_shell_or_leaks_windows_shell_on_unix"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "actual_windows_deployment_replaces_legacy_alias_and_keeps_declared_shell"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L437:C5",
+            "title": "leaves def.shell undefined when winShell is not set (e.g. codex)",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "生产definition按当前cfg选择winShell；无显式winShell的Codex始终None；Linux分支实跑，Windows分支有实际部署+字段断言等待平台运行。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "platform_shell_policy_never_invents_a_codex_shell_or_leaks_windows_shell_on_unix"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "actual_windows_deployment_replaces_legacy_alias_and_keeps_declared_shell"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L460:C5",
+            "title": "uses per-event matchers when configured",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "直接核对生产definition完整agent/path/events/command/flat-nested/replacement/event matcher数据，替换旧hook同时保留用户handler由真实deploy补证。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "generated_definitions_preserve_event_shape_replacements_matchers_and_jsonc_syntax"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "configured_replacement_removes_only_owned_legacy_hook_and_preserves_user_handler"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L475:C5",
+            "title": "passes JSONC settings syntax to Qwen hook definitions",
+            "suites": [
+              "HookStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "JSONC syntax进入真实定义；真实Qwen deploy保留两类注释和用户theme并通过installed health解析。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "generated_definitions_preserve_event_shape_replacements_matchers_and_jsonc_syntax"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "jsonc_hook_deployment_keeps_comments_and_user_fields_and_reports_installed_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L499:C5",
+            "title": "returns error when hook config is missing",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺配置显式错误；坏JSON、错误root/hooks形状与实际目录读取失败均返回failure且原始文件/目录保留；真实undeploy读取失败返回false，不依赖JS throw文本。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "missing_hook_corrupt_document_and_os_read_failure_are_explicit_and_preserve_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L506:C5",
+            "title": "creates settings file for hooks.json that does not exist",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐表覆盖Cursor缺失/空文档version1、已有version2保留、Codex缺失/空/旧version1全部无version；事件实际发布且健康复查。原Node独立初始化writeJsonFile次数被统一原子提交替代。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "cursor_and_codex_version_rules_hold_for_missing_empty_and_existing_documents"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L519:C5",
+            "title": "creates settings file with version for Cursor hooks.json",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐表覆盖Cursor缺失/空文档version1、已有version2保留、Codex缺失/空/旧version1全部无version；事件实际发布且健康复查。原Node独立初始化writeJsonFile次数被统一原子提交替代。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "cursor_and_codex_version_rules_hold_for_missing_empty_and_existing_documents"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L540:C5",
+            "title": "adds version field to existing Cursor hooks.json without one",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐表覆盖Cursor缺失/空文档version1、已有version2保留、Codex缺失/空/旧version1全部无version；事件实际发布且健康复查。原Node独立初始化writeJsonFile次数被统一原子提交替代。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "cursor_and_codex_version_rules_hold_for_missing_empty_and_existing_documents"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L561:C5",
+            "title": "does not add version to Codex hooks.json",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐表覆盖Cursor缺失/空文档version1、已有version2保留、Codex缺失/空/旧version1全部无version；事件实际发布且健康复查。原Node独立初始化writeJsonFile次数被统一原子提交替代。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "cursor_and_codex_version_rules_hold_for_missing_empty_and_existing_documents"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L579:C5",
+            "title": "removes stale version field from Codex hooks.json",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐表覆盖Cursor缺失/空文档version1、已有version2保留、Codex缺失/空/旧version1全部无version；事件实际发布且健康复查。原Node独立初始化writeJsonFile次数被统一原子提交替代。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "cursor_and_codex_version_rules_hold_for_missing_empty_and_existing_documents"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L600:C5",
+            "title": "creates Codex hooks.json without version when file does not exist",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐表覆盖Cursor缺失/空文档version1、已有version2保留、Codex缺失/空/旧version1全部无version；事件实际发布且健康复查。原Node独立初始化writeJsonFile次数被统一原子提交替代。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "cursor_and_codex_version_rules_hold_for_missing_empty_and_existing_documents"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L621:C5",
+            "title": "does not overwrite version on existing hooks.json that already has one",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐表覆盖Cursor缺失/空文档version1、已有version2保留、Codex缺失/空/旧version1全部无version；事件实际发布且健康复查。原Node独立初始化writeJsonFile次数被统一原子提交替代。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "cursor_and_codex_version_rules_hold_for_missing_empty_and_existing_documents"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L639:C5",
+            "title": "skips settings file creation for non-hooks.json paths",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "settings.json实际安装事件且无Cursor version；空白hooks.json安全初始化version1与事件，原空白快照经事务CAS。未把旧mock“初始化helper不写”误解为禁止最终hook写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "non_hooks_settings_are_created_once_without_cursor_version_and_whitespace_is_safe"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L657:C5",
+            "title": "does not replace an existing invalid strict hooks.json file",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺配置显式错误；坏JSON、错误root/hooks形状与实际目录读取失败均返回failure且原始文件/目录保留；真实undeploy读取失败返回false，不依赖JS throw文本。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "missing_hook_corrupt_document_and_os_read_failure_are_explicit_and_preserve_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L670:C5",
+            "title": "initializes an existing whitespace-only Cursor hooks.json safely",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "settings.json实际安装事件且无Cursor version；空白hooks.json安全初始化version1与事件，原空白快照经事务CAS。未把旧mock“初始化helper不写”误解为禁止最终hook写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "non_hooks_settings_are_created_once_without_cursor_version_and_whitespace_is_safe"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L697:C5",
+            "title": "installs only hooks not already installed",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实路径不存在/存在分别发现；实际部署两事件后健康=false，删除一事件后needs=true；重装后每事件仍各一条、用户字段保留。旧mock次数由实际最终配置和字节幂等承接。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "discovery_and_each_installed_event_control_real_deployment_health"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L710:C5",
+            "title": "removes retired hook events before installing the current definition",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实退休事件定义逐项核对path/subcommand/replacement；deploy仅移除owned退休handler，保留第三方；undeploy移除当前事件并保留用户设置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "retired_events_are_removed_without_removing_third_party_handlers_and_uninstall_covers_all_current_events"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L742:C5",
+            "title": "returns failure if installHook returns false",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧Node HookManager.installHook布尔false API已被纯内存Result规划和共同事务发布取代；实际非法hooks形状、规划异常以及只读companion发布失败均证明返回failure并不留部分hook，原生不保留旧mock专属错误字面量。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "旧Node HookManager.installHook布尔false API已被纯内存Result规划和共同事务发布取代；实际非法hooks形状、规划异常以及只读companion发布失败均证明返回failure并不留部分hook，原生不保留旧mock专属错误字面量。",
+            "replacement": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "missing_hook_corrupt_document_and_os_read_failure_are_explicit_and_preserve_input"
+              },
+              {
+                "file": "src/deployment/hook_strategy.rs",
+                "test": "hook_transaction_planning_failure_never_publishes_resources"
+              },
+              {
+                "file": "src/deployment/hook_strategy.rs",
+                "test": "hook_transaction_rolls_back_resources_config_and_backup_on_companion_failure"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L753:C5",
+            "title": "returns failure on exception",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺配置显式错误；坏JSON、错误root/hooks形状与实际目录读取失败均返回failure且原始文件/目录保留；真实undeploy读取失败返回false，不依赖JS throw文本。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "missing_hook_corrupt_document_and_os_read_failure_are_explicit_and_preserve_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L762:C5",
+            "title": "returns failure when Codex trust writing fails",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧逐文件trust写入/retired卸载调用顺序被共同事务替代；真实只读trust companion失败回滚settings/trust/resources/backup/state全部，正常重试恢复；实际退休事件移除及trust更新另有端到端旧测试。没有把mock uninstall=false接口当仍存在。 新增实际只读trust发布失败：当前与退休hooks及原TOML字节全部保留；恢复权限后正式重试完成退休清理且health通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy.rs",
+                "test": "hook_transaction_rolls_back_resources_config_and_backup_on_companion_failure"
+              },
+              {
+                "file": "src/deployment/hook_strategy.rs",
+                "test": "writes_codex_trust_before_removing_retired_hooks"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "readonly_trust_publication_keeps_current_and_retired_hooks_and_original_toml"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L797:C5",
+            "title": "reconciles Codex trust before removing retired hooks and checks removal",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧逐文件trust写入/retired卸载调用顺序被共同事务替代；真实只读trust companion失败回滚settings/trust/resources/backup/state全部，正常重试恢复；实际退休事件移除及trust更新另有端到端旧测试。没有把mock uninstall=false接口当仍存在。 新增实际只读trust发布失败：当前与退休hooks及原TOML字节全部保留；恢复权限后正式重试完成退休清理且health通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy.rs",
+                "test": "hook_transaction_rolls_back_resources_config_and_backup_on_companion_failure"
+              },
+              {
+                "file": "src/deployment/hook_strategy.rs",
+                "test": "writes_codex_trust_before_removing_retired_hooks"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "readonly_trust_publication_keeps_current_and_retired_hooks_and_original_toml"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L834:C5",
+            "title": "returns failure when Codex trust self-check fails",
+            "suites": [
+              "HookStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "一次性test-only seam仅损坏真实planner生成的TOML；运行真实verify_trust_content后deploy失败含selfcheck原因，settings/trust均未发布；下一正常重试成功且健康。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "trust_self_check_rejects_actual_corrupt_planned_content_before_any_publication"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L889:C5",
+            "title": "hook config without env → no settings write",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六组真实部署：env首次值、相同值、BUN完整token相同、superstring不算相同、用户preload追加、其他key覆盖；保留其它env/theme；每组第二次部署完整字节相同，无env声明保留原env。旧独立helper写次数不等价于最终hook配置不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_merge_preserves_exact_tokens_unrelated_settings_and_idempotent_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L902:C5",
+            "title": "first-time injection: value written as-is into a fresh env block",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六组真实部署：env首次值、相同值、BUN完整token相同、superstring不算相同、用户preload追加、其他key覆盖；保留其它env/theme；每组第二次部署完整字节相同，无env声明保留原env。旧独立helper写次数不等价于最终hook配置不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_merge_preserves_exact_tokens_unrelated_settings_and_idempotent_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L916:C5",
+            "title": "BUN_OPTIONS idempotency: existing value already contains our preload → skip write",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六组真实部署：env首次值、相同值、BUN完整token相同、superstring不算相同、用户preload追加、其他key覆盖；保留其它env/theme；每组第二次部署完整字节相同，无env声明保留原env。旧独立helper写次数不等价于最终hook配置不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_merge_preserves_exact_tokens_unrelated_settings_and_idempotent_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L926:C5",
+            "title": "BUN_OPTIONS token-boundary match: superstring is NOT treated as already injected",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六组真实部署：env首次值、相同值、BUN完整token相同、superstring不算相同、用户preload追加、其他key覆盖；保留其它env/theme；每组第二次部署完整字节相同，无env声明保留原env。旧独立helper写次数不等价于最终hook配置不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_merge_preserves_exact_tokens_unrelated_settings_and_idempotent_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L947:C5",
+            "title": "BUN_OPTIONS coexistence: append our preload alongside user's own",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六组真实部署：env首次值、相同值、BUN完整token相同、superstring不算相同、用户preload追加、其他key覆盖；保留其它env/theme；每组第二次部署完整字节相同，无env声明保留原env。旧独立helper写次数不等价于最终hook配置不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_merge_preserves_exact_tokens_unrelated_settings_and_idempotent_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L964:C5",
+            "title": "non-BUN_OPTIONS key overwrites existing value",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六组真实部署：env首次值、相同值、BUN完整token相同、superstring不算相同、用户preload追加、其他key覆盖；保留其它env/theme；每组第二次部署完整字节相同，无env声明保留原env。旧独立helper写次数不等价于最终hook配置不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_merge_preserves_exact_tokens_unrelated_settings_and_idempotent_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L977:C5",
+            "title": "preserves unrelated env keys and other top-level settings",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六组真实部署：env首次值、相同值、BUN完整token相同、superstring不算相同、用户preload追加、其他key覆盖；保留其它env/theme；每组第二次部署完整字节相同，无env声明保留原env。旧独立helper写次数不等价于最终hook配置不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_merge_preserves_exact_tokens_unrelated_settings_and_idempotent_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L997:C5",
+            "title": "same value re-deploy → no write (general idempotency)",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六组真实部署：env首次值、相同值、BUN完整token相同、superstring不算相同、用户preload追加、其他key覆盖；保留其它env/theme；每组第二次部署完整字节相同，无env声明保留原env。旧独立helper写次数不等价于最终hook配置不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_merge_preserves_exact_tokens_unrelated_settings_and_idempotent_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1007:C5",
+            "title": "env merge failure must not block hook deploy (returns success)",
+            "suites": [
+              "HookStrategy",
+              "env injection (settings.env merge)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧env合并错误仍success已在主迁移映射明确批准改为失败/回滚；真实非法env形状返回failure、原hooks/user/theme字节全部保留。不恢复吞disk-full，也不声称旧best-effort断言继续成立。 另实际只读settings的IO写失败也返回failure、原配置字节不变，恢复写权限后正式部署保留用户env。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "旧env合并错误仍success已在主迁移映射明确批准改为失败/回滚；真实非法env形状返回failure、原hooks/user/theme字节全部保留。不恢复吞disk-full，也不声称旧best-effort断言继续成立。",
+            "replacement": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "approved_env_failure_contract_rejects_deploy_and_keeps_previous_hooks_and_user_configuration"
+              },
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "env_write_io_failure_cannot_report_success_or_publish_partial_hook_configuration"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1020:C5",
+            "title": "uninstalls all hooks",
+            "suites": [
+              "HookStrategy",
+              "undeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实退休事件定义逐项核对path/subcommand/replacement；deploy仅移除owned退休handler，保留第三方；undeploy移除当前事件并保留用户设置。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "retired_events_are_removed_without_removing_third_party_handlers_and_uninstall_covers_all_current_events"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1028:C5",
+            "title": "returns false if any uninstall fails",
+            "suites": [
+              "HookStrategy",
+              "undeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺配置显式错误；坏JSON、错误root/hooks形状与实际目录读取失败均返回failure且原始文件/目录保留；真实undeploy读取失败返回false，不依赖JS throw文本。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "missing_hook_corrupt_document_and_os_read_failure_are_explicit_and_preserve_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1037:C5",
+            "title": "removes only exact Codex trust keys resolved before uninstall",
+            "suites": [
+              "HookStrategy",
+              "undeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实非零group1 owned key卸载前解析，卸载后只删该key；同hooks路径group0第三方trust、model设置和handler仍保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "uninstall_removes_only_the_exact_preinstalled_nonzero_codex_trust_key"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1090:C5",
+            "title": "sets chat.defaultAgent=pilot-kiro in cli.json when missing",
+            "suites": [
+              "HookStrategy",
+              "kiro agent default-agent config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有真实Kiro部署验证缺失默认值设置与用户现有默认值保留，新增无镜像重复。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy.rs",
+                "test": "sets_kiro_default_agent_only_when_missing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1104:C5",
+            "title": "does not override an existing chat.defaultAgent",
+            "suites": [
+              "HookStrategy",
+              "kiro agent default-agent config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有真实Kiro部署验证缺失默认值设置与用户现有默认值保留，新增无镜像重复。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy.rs",
+                "test": "sets_kiro_default_agent_only_when_missing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1139:C5",
+            "title": "installs interceptor hooks before the collection hook",
+            "suites": [
+              "HookStrategy",
+              "interceptor hook definitions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际Qoder与Qwen三独立interceptor分别15/10/10秒、head、nested、agent；真实写入时interceptor位于用户前且collection Stop独立；删一个/移离head均needs=true，重新部署恢复。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "qoder_and_qwen_interceptors_are_independent_head_hooks_and_health_requires_their_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1169:C5",
+            "title": "installs QwenWorkCN interceptor command hooks independently of collection Stop",
+            "suites": [
+              "HookStrategy",
+              "interceptor hook definitions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际Qoder与Qwen三独立interceptor分别15/10/10秒、head、nested、agent；真实写入时interceptor位于用户前且collection Stop独立；删一个/移离head均needs=true，重新部署恢复。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "qoder_and_qwen_interceptors_are_independent_head_hooks_and_health_requires_their_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1206:C5",
+            "title": "needs deploy when the interceptor hook is missing or not at head",
+            "suites": [
+              "HookStrategy",
+              "interceptor hook definitions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际Qoder与Qwen三独立interceptor分别15/10/10秒、head、nested、agent；真实写入时interceptor位于用户前且collection Stop独立；删一个/移离head均needs=true，重新部署恢复。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_strategy_contract_tests.rs",
+                "test": "qoder_and_qwen_interceptors_are_independent_head_hooks_and_health_requires_their_order"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "legacy": "tests/unit/deployment/persisted-deploy-paths.test.ts",
@@ -15516,7 +17010,7 @@
     },
     {
       "legacy": "tests/unit/deployment/codex-trust-writer.test.ts",
-      "coverage": "partial",
+      "coverage": "complete",
       "rust": [
         {
           "file": "src/deployment/codex_trust_writer.rs",
@@ -15543,7 +17037,1174 @@
           "test": "packaged_hook_companion_write_failure_rolls_back_and_retries"
         }
       ],
-      "note": "承接摘要自检、Windows key 转义、幂等和精确 key 清理；新增原子写入冲突、Unix 私有权限与链接拒绝。旧损坏 trust 修复、所有可编辑布局及 enabled 继承组合尚未全部迁移；Windows 转义单测不代表 Windows 实机验收。"
+      "note": "固定ef8953全部44声明，包含test.each每个旧参数实际执行；已有3个原生黄金测试核对语义后复用，新增公共API测试真实操作synthetic TOML文件。source/hash/params未改。仅Linux glibc2.34/Rust1.99.1实跑，显式Win32算法与Windows路径TOML在Linux验证；platforms表示适用，不表示Windows/macOS已跑。本批无生产正常语义修改。 主工作区01–03随全workspace2337通过，Trust目标27通过。此前无source-case的partial标记由本逐声明账本替代，既有额外事务测试保留。Windows新增专用部署回归待原生CI，platforms仅适用范围。",
+      "source_hash": "f74efa56356d72142099daf86f16190a4348e2ee06a0d8a1fa5d5decc5a4ba1d",
+      "cases": [
+        {
+          "source": {
+            "id": "L44:C3",
+            "title": "computeHookTrustHash 是确定性的",
+            "suites": [
+              "codex-trust-writer 算法"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有原生golden逐项核对：相同command确定性、小写64hex，异command不相等，事件state key、未知event错误、三个固定Codex SHA256向量、Stop/UserPromptSubmit忽略matcher、SessionStart absent/empty/*三hash不同。新增只补小写hex字符断言，不镜像hash实现。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "hash_is_deterministic_and_matches_codex_vectors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L51:C3",
+            "title": "command 不同 → hash 不同",
+            "suites": [
+              "codex-trust-writer 算法"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有原生golden逐项核对：相同command确定性、小写64hex，异command不相等，事件state key、未知event错误、三个固定Codex SHA256向量、Stop/UserPromptSubmit忽略matcher、SessionStart absent/empty/*三hash不同。新增只补小写hex字符断言，不镜像hash实现。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "hash_is_deterministic_and_matches_codex_vectors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L57:C3",
+            "title": "hookStateKey 格式 path:event_label:0:0",
+            "suites": [
+              "codex-trust-writer 算法"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有原生golden逐项核对：相同command确定性、小写64hex，异command不相等，事件state key、未知event错误、三个固定Codex SHA256向量、Stop/UserPromptSubmit忽略matcher、SessionStart absent/empty/*三hash不同。新增只补小写hex字符断言，不镜像hash实现。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "hash_is_deterministic_and_matches_codex_vectors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L62:C3",
+            "title": "未知 event 抛错",
+            "suites": [
+              "codex-trust-writer 算法"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有原生golden逐项核对：相同command确定性、小写64hex，异command不相等，事件state key、未知event错误、三个固定Codex SHA256向量、Stop/UserPromptSubmit忽略matcher、SessionStart absent/empty/*三hash不同。新增只补小写hex字符断言，不镜像hash实现。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "hash_is_deterministic_and_matches_codex_vectors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L66:C3",
+            "title": "matches Codex hashes for installed matcher-sensitive Pilot hooks",
+            "suites": [
+              "codex-trust-writer 算法"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有原生golden逐项核对：相同command确定性、小写64hex，异command不相等，事件state key、未知event错误、三个固定Codex SHA256向量、Stop/UserPromptSubmit忽略matcher、SessionStart absent/empty/*三hash不同。新增只补小写hex字符断言，不镜像hash实现。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "hash_is_deterministic_and_matches_codex_vectors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L79:C3",
+            "title": "ignores matcher for UserPromptSubmit and Stop",
+            "suites": [
+              "codex-trust-writer 算法"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有原生golden逐项核对：相同command确定性、小写64hex，异command不相等，事件state key、未知event错误、三个固定Codex SHA256向量、Stop/UserPromptSubmit忽略matcher、SessionStart absent/empty/*三hash不同。新增只补小写hex字符断言，不镜像hash实现。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "hash_is_deterministic_and_matches_codex_vectors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L88:C3",
+            "title": "distinguishes absent, empty, and wildcard matcher for matcher events",
+            "suites": [
+              "codex-trust-writer 算法"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有原生golden逐项核对：相同command确定性、小写64hex，异command不相等，事件state key、未知event错误、三个固定Codex SHA256向量、Stop/UserPromptSubmit忽略matcher、SessionStart absent/empty/*三hash不同。新增只补小写hex字符断言，不镜像hash实现。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "hash_is_deterministic_and_matches_codex_vectors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L97:C3",
+            "title": "normalizes installed handler fields and uses the real handler index",
+            "suites": [
+              "codex-trust-writer 算法"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有原生断言实际group2/handler3 key，Linux/Win32 command选择导致不同hash、statusMessage参与hash、2500上下文默认值与省略等效。显式平台算法在Linux实跑，不宣称Windows进程验收。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "normalizes_installed_handler_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L137:C3",
+            "title": "write 后 verify 通过",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有真实原生writer五事件write→verify valid/mismatches空，精确5段、BEGIN/END各1；重复write=false；Windows含空格中文backslash路径TOML安全转义、decoded key可verify，重复无额外段。补单marker精确计数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "write_then_verify_and_escape_windows_keys"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L158:C3",
+            "title": "文件含 5 个 [hooks.state.*] 段",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有真实原生writer五事件write→verify valid/mismatches空，精确5段、BEGIN/END各1；重复write=false；Windows含空格中文backslash路径TOML安全转义、decoded key可verify，重复无额外段。补单marker精确计数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "write_then_verify_and_escape_windows_keys"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L173:C3",
+            "title": "escapes Windows paths in TOML trust keys and verifies the decoded key",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有真实原生writer五事件write→verify valid/mismatches空，精确5段、BEGIN/END各1；重复write=false；Windows含空格中文backslash路径TOML安全转义、decoded key可verify，重复无额外段。补单marker精确计数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "write_then_verify_and_escape_windows_keys"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L202:C3",
+            "title": "repairs a legacy Windows trust key containing unescaped backslashes",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际写坏的旧Windows无转义trust key，公开writer修复后STALE消失、单段、双反斜杠TOML、解析key仍原始路径且verify与幂等通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "stale_unescaped_windows_key_is_repaired_and_decodes_to_exact_native_path"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L234:C3",
+            "title": "removes the unsupported legacy bypass_hook_trust field",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际bypass_hook_trust触发精确unsupported mismatch，write修复移除；实际WRONG/STALE hash诊断含hash mismatch，修复不伤第三方，verify valid和字节幂等。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "bypass_field_and_bare_stale_owned_entries_are_repaired_with_mismatch_diagnostics"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L255:C3",
+            "title": "幂等重写: 两次 write 不产生重复段",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有真实原生writer五事件write→verify valid/mismatches空，精确5段、BEGIN/END各1；重复write=false；Windows含空格中文backslash路径TOML安全转义、decoded key可verify，重复无额外段。补单marker精确计数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer.rs",
+                "test": "write_then_verify_and_escape_windows_keys"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L271:C3",
+            "title": "清裸残留 (老插件留下的 [hooks.state.\"<own>:event:0:0\"])",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "五个旧bare event trust key全部STALE，通过公开writer后全部清除，仅精确5个current state、BEGIN/END各1；每个固定event_label完整存在，重复write=false且字节不变。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "five_bare_legacy_stale_entries_become_one_marked_block_without_duplicates"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L294:C3",
+            "title": "removeTrustBlock 逐条精确删除 trust 条目 + marker 注释,不删用户数据",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实marker内owned trust旁夹marketplace用户表、同路径另一索引第三方enabled=false；removeTrustBlock只删精确ownedkey和marker，用户table/source与第三方完整原文、disable都保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "exact_removal_preserves_interleaved_user_tables_and_third_party_disabled_trust"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L323:C3",
+            "title": "removeTrustBlock 不删除 marker 范围内的第三方 hook trust",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实marker内owned trust旁夹marketplace用户表、同路径另一索引第三方enabled=false；removeTrustBlock只删精确ownedkey和marker，用户table/source与第三方完整原文、disable都保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "exact_removal_preserves_interleaved_user_tables_and_third_party_disabled_trust"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L348:C3",
+            "title": "verify 检测 hash 不一致",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际bypass_hook_trust触发精确unsupported mismatch，write修复移除；实际WRONG/STALE hash诊断含hash mismatch，修复不伤第三方，verify valid和字节幂等。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "bypass_field_and_bare_stale_owned_entries_are_repaired_with_mismatch_diagnostics"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L365:C3",
+            "title": "保留非 pilot path 的 [hooks.state] 条目",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实五事件安装trust用group[1,1,2,2,0]，SessionStart不存在错误0索引、PreToolUse为2、Stop为0；另一个hooks.json路径条目原文保留，verify与重复write严格通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "five_event_reconciliation_uses_real_group_indices_and_preserves_foreign_paths"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L384:C3",
+            "title": "groupIndex != 0 时 trust key 用实际 index (修复第三方 hook 挤占问题)",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实五事件安装trust用group[1,1,2,2,0]，SessionStart不存在错误0索引、PreToolUse为2、Stop为0；另一个hooks.json路径条目原文保留，verify与重复write严格通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "five_event_reconciliation_uses_real_group_indices_and_preserves_foreign_paths"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L417:C3",
+            "title": "does not inherit enabled from a different hook previously at the same key",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "两种真实修复：相同key但STALE不同handler不继承enabled=false且第三方不伤；相同key+正确hash在bypass修复时保留explicit disable；两组重复write=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "disabled_state_is_preserved_only_for_same_key_and_same_installed_handler_hash"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L452:C3",
+            "title": "preserves enabled only when key and trusted hash both match Pilot",
+            "suites": [
+              "writeTrustedHashes / verifyTrustHashes 闭环"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "两种真实修复：相同key但STALE不同handler不继承enabled=false且第三方不伤；相同key+正确hash在bypass修复时保留explicit disable；两组重复write=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "disabled_state_is_preserved_only_for_same_key_and_same_installed_handler_hash"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L508:C3",
+            "title": "recognizes equivalent header %s without rewriting",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each(headers)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "五个原始headers全参数逐一跑：fully quoted、mixed quote、literal path、spaces/comment、Unicode escape；合法hash+disable保持字节和write=false；STALE修复保留foreign原文、可解析、verify valid/幂等。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "all_five_equivalent_toml_headers_keep_valid_bytes_and_repair_stale_without_user_loss"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L517:C3",
+            "title": "repairs stale header %s and preserves third-party state",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each(headers)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "五个原始headers全参数逐一跑：fully quoted、mixed quote、literal path、spaces/comment、Unicode escape；合法hash+disable保持字节和write=false；STALE修复保留foreign原文、可解析、verify valid/幂等。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "all_five_equivalent_toml_headers_keep_valid_bytes_and_repair_stale_without_user_loss"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L527:C3",
+            "title": "repairs duplicates even with valid hashes (reversed=%s)",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each([false, true])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "两种duplicate顺序全跑，原文TOML确实非法且verify invalid；writer合并后恰2state、相同hash且false优先、foreign原文保留、重复不写。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "valid_duplicate_headers_collapse_with_explicit_disable_in_both_orders"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L544:C3",
+            "title": "removes marked Pilot duplicate and preserves valid $name representation",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each([\n    {\n      name: 'fully quoted table',\n      render: () => `[\"hooks\".\"state\".\"${key}\"]\\ntrusted_hash = \"${hash}\"\\n`,\n    },\n    {\n      name: 'root dotted key',\n      render: () => `hooks.state.\"${key}\".trusted_hash = \"${hash}\"\\n`,\n    },\n    {\n      name: 'relative dotted key under hooks.state',\n      render: () => `[hooks.state]\\n\"${key}\".trusted_hash = \"${hash}\"\\n`,\n    },\n    {\n      name: 'inline table',\n      render: () => `hooks = { state = { \"${key}\" = { trusted_hash = \"${hash}\" } } }\\n`,\n    },\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "四种原始retained forms全跑：quoted table、root dotted、relative dotted、inline table；仅移除marker duplicate，retained原文保留，无新canonical duplicate、parsed hash正确、verify/幂等。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "four_retained_toml_representations_survive_removing_only_the_marked_duplicate"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L582:C3",
+            "title": "does not preserve an uneditable duplicate with a stale hash",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实uneditable dotted stale hash或retained enabled=true与owned false冲突，公开writer显式uneditable错误并保持原始字节；不偷偷丢用户disable。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "stale_or_disabled_uneditable_dotted_duplicates_are_rejected_without_byte_changes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L598:C3",
+            "title": "does not lose an explicit disable when the retained representation enables the hook",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实uneditable dotted stale hash或retained enabled=true与owned false冲突，公开writer显式uneditable错误并保持原始字节；不偷偷丢用户disable。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "stale_or_disabled_uneditable_dotted_duplicates_are_rejected_without_byte_changes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L616:C3",
+            "title": "handles $name while reconciling other current keys",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each([\n    {\n      name: 'fully quoted table',\n      render: () => `[\"hooks\".\"state\".\"${key}\"]\\ntrusted_hash = \"${hash}\"\\n`,\n      extendable: true,\n    },\n    {\n      name: 'root dotted key',\n      render: () => `hooks.state.\"${key}\".trusted_hash = \"${hash}\"\\n`,\n      extendable: true,\n    },\n    {\n      name: 'relative dotted key under hooks.state',\n      render: () => `[hooks.state]\\n\"${key}\".trusted_hash = \"${hash}\"\\n`,\n      extendable: true,\n    },\n    {\n      name: 'inline table',\n      render: () => `hooks = { state = { \"${key}\" = { trusted_hash = \"${hash}\" } } }\\n`,\n      extendable: false,\n    },\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "四种retained forms与新增Stop一起协调：前三可扩展，保留current外部原文、只写Stop、重复字节相同；inline duplicate与单inline缺Stop均拒绝uneditable且原文不变，缺事件verify invalid。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "adding_other_current_keys_respects_three_extendable_forms_and_rejects_inline"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L678:C3",
+            "title": "reports an inline current entry as uneditable when a new event needs trust",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "四种retained forms与新增Stop一起协调：前三可扩展，保留current外部原文、只写Stop、重复字节相同；inline duplicate与单inline缺Stop均拒绝uneditable且原文不变，缺事件verify invalid。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "adding_other_current_keys_respects_three_extendable_forms_and_rejects_inline"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L697:C3",
+            "title": "removes retired table while preserving a valid dotted current key (marker duplicate=%s)",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each([false, true])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "marker duplicate=false/true两个参数都跑；retired table移除、dotted current原文/foreign原文及hash保留、无marker、verify与重复write通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "retired_tables_reconcile_dotted_current_keys_with_optional_duplicate_and_preserve_foreign_state"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L728:C3",
+            "title": "fallback preserves a valid dotted current key while removing a stale table duplicate",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "fallback确实移除STALE canonical duplicate保留valid dotted current与foreign原文；dotted退休键不可编辑时明确uneditable错误、原文不改。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "fallback_keeps_valid_dotted_current_but_refuses_uneditable_dotted_retired"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L744:C3",
+            "title": "refuses to remove an uneditable dotted retired key",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "fallback确实移除STALE canonical duplicate保留valid dotted current与foreign原文；dotted退休键不可编辑时明确uneditable错误、原文不改。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "fallback_keeps_valid_dotted_current_but_refuses_uneditable_dotted_retired"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L756:C3",
+            "title": "does not delete unrelated trust that a reserializer moved inside Pilot markers",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实第三方trust位于Pilot marker范围内，移除owned duplicate时保留quoted current原文及第三方canonical header/hash，解析enabled=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "unrelated_trust_inside_owned_markers_survives_duplicate_repair"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L777:C3",
+            "title": "preserves disabled state during repair of %s",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each(headers)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "五种header全部逐项：bypass修复仍保留disable；两种公开删除API均精确删ownedkey、保留foreign原文、输出TOML合法，重复remove=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "equivalent_headers_preserve_disable_and_support_both_precise_removal_apis"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L783:C3",
+            "title": "cleans up quoted tables through both removal paths: %s",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each(headers)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "五种header全部逐项：bypass修复仍保留disable；两种公开删除API均精确删ownedkey、保留foreign原文、输出TOML合法，重复remove=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "equivalent_headers_preserve_disable_and_support_both_precise_removal_apis"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L797:C3",
+            "title": "recognizes literal Windows paths without interpreting backslashes",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实literal Windows路径header含中文/空格/backslash；verify有效，write=false且整个原文不变；不把反斜杠转义解释为其他路径。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "literal_windows_trust_keys_preserve_backslashes_without_rewriting"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L808:C3",
+            "title": "ignores fake trust tables and markers inside %s strings",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each(['\"\"\"', \"'\".repeat(3)])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "两个原始multiline quote参数均跑；其中假owned tables/markers/bypass不构成真实trust；writer新增真实trust并完整保留instructions；remove只删真实owned，instructions/foreign原文继续保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "fake_owned_tables_and_markers_inside_both_multiline_string_forms_are_inert"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L820:C3",
+            "title": "does not overwrite unrelated malformed TOML: %s",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": [
+              "test.each([\n    'model = \"a\"\\nmodel = \"b\"\\n',\n    '[broken\\nvalue = 1\\n',\n    'model = \"unterminated\\n',\n    '[\"hooks\".\"state\".\"third-party\"]\\na = 1\\n[hooks.state.\"third-party\"]\\na = 1\\n',\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "四种原始malformed TOML+owned unterminated hash真实测试：verify invalid，writer报invalid Codex config.toml且字节保留；block清理不改，state-key清理false，不删被未闭合值遮住的重要用户projects。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "malformed_unrelated_toml_and_unterminated_owned_values_never_delete_user_configuration"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L839:C3",
+            "title": "does not delete user tables hidden by an unterminated owned value",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "四种原始malformed TOML+owned unterminated hash真实测试：verify invalid，writer报invalid Codex config.toml且字节保留；block清理不改，state-key清理false，不删被未闭合值遮住的重要用户projects。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "malformed_unrelated_toml_and_unterminated_owned_values_never_delete_user_configuration"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L848:C3",
+            "title": "preserves multiline values, arrays, escaped keys and large integers",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实i64::MAX、嵌套数组/inline object、Unicode escaped key、multiline hash、disabled用户选择；bypass修复保留prefix原文，parsed bigint不丢精度、嵌套内容与disable都精确。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "rewrite_preserves_large_integers_nested_arrays_escaped_keys_and_multiline_hash"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L862:C3",
+            "title": "reconciles duplicate retired and current trust in one write",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "duplicate退休+current与current合法但退休残留两类均跑：一次write去退休、保留correcthash、duplicate场景false优先、foreign原文保留、verify/幂等；current原本valid也不提前return。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "duplicate_current_and_retired_keys_reconcile_together_even_when_current_was_valid"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L879:C3",
+            "title": "does not return early when current trust is valid but retired trust remains",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "duplicate退休+current与current合法但退休残留两类均跑：一次write去退休、保留correcthash、duplicate场景false优先、foreign原文保留、verify/幂等；current原本valid也不提前return。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "duplicate_current_and_retired_keys_reconcile_together_even_when_current_was_valid"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L891:C3",
+            "title": "does not hide filesystem errors during retired-key cleanup",
+            "suites": [
+              "Codex TOML reserialization compatibility"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实config.toml路径实际为目录，removeTrustStateKeys返回IO错误，目录仍在；不使用mock异常或吞错。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/codex_trust_writer_contract_tests.rs",
+                "test": "retired_cleanup_surfaces_actual_filesystem_errors_and_preserves_directory"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "legacy": "tests/unit/deployment/plugin-inject-strategy.test.ts",
@@ -41619,6 +44280,2035 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "stable_blob_reuse_key_prevents_repeat_decode_across_partial_extractor_replay"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/deployment/plugin-probe-strategy.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "逐声明核对固定ef8953源断言；本批隔离Linux glibc2.34/Rust1.99.1验证。platforms仅合同适用，不代表三平台均执行。Windows cfg测试待中央原生CI；明确Win32参数分支在Linux是真实纯逻辑模拟，不替代实机进程/文件系统。仅逐条退役已移除Node机制或已批准旧策略，功能与失败保护有明确原生替代。 主工作区01–03随全workspace2337通过，Trust目标27通过。此前无source-case的partial标记由本逐声明账本替代，既有额外事务测试保留。Windows新增专用部署回归待原生CI，platforms仅适用范围。",
+      "source_hash": "8685c609f6a769ff5f8f512fa75e7ed03c9ffdaae3e3f1a40c0e2d10cbaf5915",
+      "cases": [
+        {
+          "source": {
+            "id": "L68:C5",
+            "title": "delegates to detectAgent",
+            "suites": [
+              "PluginProbeStrategy",
+              "detect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实声明目录不存在false、创建后true，不只stub检测调用。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "detects_real_declared_path_and_distinguishes_missing_agent"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L77:C5",
+            "title": "returns true when no record exists",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L81:C5",
+            "title": "returns true when pluginProbe config is missing",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L91:C5",
+            "title": "returns true when source hash differs",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L105:C5",
+            "title": "returns false when source hash matches",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L121:C5",
+            "title": "returns true when source hash matches but worker manifest should be ensured",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际manifest缺worker需要部署先于相同hash及远程间隔；真实存活PID则健康，避免仅比hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "worker_manifest_health_precedes_matching_hash_and_remote_interval"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L155:C5",
+            "title": "returns false when source hash matches and manifest worker is running",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际manifest缺worker需要部署先于相同hash及远程间隔；真实存活PID则健康，避免仅比hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "worker_manifest_health_precedes_matching_hash_and_remote_interval"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L192:C5",
+            "title": "returns true when destDir is missing even if hash matches",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L208:C5",
+            "title": "returns true when tarball does not exist",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L219:C5",
+            "title": "returns sha256 hash for existing file",
+            "suites": [
+              "PluginProbeStrategy",
+              "computeSourceHash"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L228:C5",
+            "title": "returns undefined for non-existent file",
+            "suites": [
+              "PluginProbeStrategy",
+              "computeSourceHash"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L233:C5",
+            "title": "returns undefined when no source provided",
+            "suites": [
+              "PluginProbeStrategy",
+              "computeSourceHash"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无record/无config/无dest/缺tar均需要部署；实际文件same-content与独立SHA256向量一致，相同hash且dest存在false、旧hashtrue，缺hash来源返回None。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "needs_deploy_checks_record_config_destination_and_exact_content_digest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L240:C5",
+            "title": "returns true when only url is set",
+            "suites": [
+              "PluginProbeStrategy",
+              "isRemoteOnly"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "url/remoteUrl/tarball四来源选择和无时间/2h/5h四小时检查各独立断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "remote_source_selection_and_four_hour_interval_have_independent_cases"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L244:C5",
+            "title": "returns true when only remoteUrl is set",
+            "suites": [
+              "PluginProbeStrategy",
+              "isRemoteOnly"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "url/remoteUrl/tarball四来源选择和无时间/2h/5h四小时检查各独立断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "remote_source_selection_and_four_hour_interval_have_independent_cases"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L248:C5",
+            "title": "returns false when tarball is set",
+            "suites": [
+              "PluginProbeStrategy",
+              "isRemoteOnly"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "url/remoteUrl/tarball四来源选择和无时间/2h/5h四小时检查各独立断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "remote_source_selection_and_four_hour_interval_have_independent_cases"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L252:C5",
+            "title": "returns false when neither url nor remoteUrl is set",
+            "suites": [
+              "PluginProbeStrategy",
+              "isRemoteOnly"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "url/remoteUrl/tarball四来源选择和无时间/2h/5h四小时检查各独立断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "remote_source_selection_and_four_hour_interval_have_independent_cases"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L258:C5",
+            "title": "returns true when lastRemoteCheckedAt is absent",
+            "suites": [
+              "PluginProbeStrategy",
+              "isRemoteCheckDue"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "url/remoteUrl/tarball四来源选择和无时间/2h/5h四小时检查各独立断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "remote_source_selection_and_four_hour_interval_have_independent_cases"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L266:C5",
+            "title": "returns false when checked less than 4 hours ago",
+            "suites": [
+              "PluginProbeStrategy",
+              "isRemoteCheckDue"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "url/remoteUrl/tarball四来源选择和无时间/2h/5h四小时检查各独立断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "remote_source_selection_and_four_hour_interval_have_independent_cases"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L275:C5",
+            "title": "returns true when checked more than 4 hours ago",
+            "suites": [
+              "PluginProbeStrategy",
+              "isRemoteCheckDue"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "url/remoteUrl/tarball四来源选择和无时间/2h/5h四小时检查各独立断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "remote_source_selection_and_four_hour_interval_have_independent_cases"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L286:C5",
+            "title": "skips remote check when within 4h interval",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy with remote interval guard"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实loopback HTTP计数：未到间隔不请求、到期拉取hash；本地tar变更不受fresh远程检查时间抑制。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "real_remote_guard_avoids_io_until_due_while_local_changes_are_never_skipped"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L312:C5",
+            "title": "redeploys remote package within interval when manifest worker is not running",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy with remote interval guard"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际manifest缺worker需要部署先于相同hash及远程间隔；真实存活PID则健康，避免仅比hash。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "worker_manifest_health_precedes_matching_hash_and_remote_interval"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L353:C5",
+            "title": "performs remote check when past 4h interval",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy with remote interval guard"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实loopback HTTP计数：未到间隔不请求、到期拉取hash；本地tar变更不受fresh远程检查时间抑制。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "real_remote_guard_avoids_io_until_due_while_local_changes_are_never_skipped"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L382:C5",
+            "title": "always checks local tarball regardless of interval",
+            "suites": [
+              "PluginProbeStrategy",
+              "needsDeploy with remote interval guard"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实loopback HTTP计数：未到间隔不请求、到期拉取hash；本地tar变更不受fresh远程检查时间抑制。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "real_remote_guard_avoids_io_until_due_while_local_changes_are_never_skipped"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L412:C5",
+            "title": "returns error when pluginProbe config is missing",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺pluginProbe返回精确错误；实际不存在tar失败且无dest；无uninstall/config undeploy=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "missing_config_or_source_has_explicit_failure_and_no_uninstall_is_false"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L419:C5",
+            "title": "keeps the existing local worker bundle when the worker cannot be stopped",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧bundle含实际损坏manifest，真实stop失败使local+instance部署显式拒绝且旧内容保留、新内容不发布。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "corrupt_local_manifest_stops_before_touching_the_old_bundle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L453:C5",
+            "title": "skips Unix install and uninstall scripts for Windows local worker bundles",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "显式Win32平台策略与supervisor实际跑：更新忽略Unix卸载/安装脚本、不写marker且安装数据；shell manifest拒绝启动，状态reason与失败消息精确。Linux模拟平台逻辑，不冒充Windows进程验收。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "windows_local_bundle_skips_unix_scripts_and_shell_worker_start_is_rejected"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L495:C5",
+            "title": "returns failure when a Windows local worker manifest cannot start",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "显式Win32平台策略与supervisor实际跑：更新忽略Unix卸载/安装脚本、不写marker且安装数据；shell manifest拒绝启动，状态reason与失败消息精确。Linux模拟平台逻辑，不冒充Windows进程验收。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "windows_local_bundle_skips_unix_scripts_and_shell_worker_start_is_rejected"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L532:C5",
+            "title": "extracts tarball and runs convention install script",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实tar解包与shell安装：约定脚本、wrapper优先覆盖失败约定脚本、无脚本成功、非零安装精确失败；每次实际提取数据仍正确。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "actual_tar_install_wrapper_precedence_and_script_failure_status_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L554:C5",
+            "title": "uses the existing external tar extractor for local worker bundles",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际tar嵌套包runtime模板安装；local无instance不生成worker状态/进程；有instance真实启动另测。 补充install.sh实际marker=installed、bundle/worker.pid与instance pid/log均不存在且容器根/worker.log不存在。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "local_runtime_templates_do_not_start_until_instance_and_generic_spawn_failure_is_best_effort"
+              },
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "installed_worker_receives_instance_arguments_environment_and_native_status"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L581:C5",
+            "title": "prefers pilot wrapper script over plugin install.sh",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实tar解包与shell安装：约定脚本、wrapper优先覆盖失败约定脚本、无脚本成功、非零安装精确失败；每次实际提取数据仍正确。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "actual_tar_install_wrapper_precedence_and_script_failure_status_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L608:C5",
+            "title": "passes environment variables to install script",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧Node process.execPath→PILOT_NODE_BIN注入机制不适用原生进程；替代实际shell读取PILOT_BIN=原生exe、PILOT_DATA_DIR、按agent日志路径、NODE_OPTIONS空，并保留用户显式PILOT_NODE_BIN不拿Rust二进制冒充Node。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "旧Node process.execPath→PILOT_NODE_BIN注入机制不适用原生进程；替代实际shell读取PILOT_BIN=原生exe、PILOT_DATA_DIR、按agent日志路径、NODE_OPTIONS空，并保留用户显式PILOT_NODE_BIN不拿Rust二进制冒充Node。",
+            "replacement": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "actual_install_environment_uses_native_pilot_without_inventing_node"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L637:C5",
+            "title": "runs uninstall script before update when present",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧uninstall真实写marker先于更新；更新完成new内容存在、old文件消失，无stale增量覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "uninstall_precedes_update_and_successful_replacement_removes_stale_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L671:C5",
+            "title": "replaces old package files instead of leaving stale files behind",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧uninstall真实写marker先于更新；更新完成new内容存在、old文件消失，无stale增量覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "uninstall_precedes_update_and_successful_replacement_removes_stale_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L699:C5",
+            "title": "restores old package files when package replacement fails",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "单次test-only seam仅令最后rename报普通IO错误；真实archive/staging/old→backup执行后失败恢复旧字节，新文件未出现。正常rename未改变。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "failed_final_publish_restores_old_package_and_never_publishes_new_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L739:C5",
+            "title": "returns failure when tarball does not exist and no remote URL",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺pluginProbe返回精确错误；实际不存在tar失败且无dest；无uninstall/config undeploy=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "missing_config_or_source_has_explicit_failure_and_no_uninstall_is_false"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L755:C5",
+            "title": "succeeds without install script",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实tar解包与shell安装：约定脚本、wrapper优先覆盖失败约定脚本、无脚本成功、非零安装精确失败；每次实际提取数据仍正确。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "actual_tar_install_wrapper_precedence_and_script_failure_status_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L776:C5",
+            "title": "returns failure when install script exits non-zero",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实tar解包与shell安装：约定脚本、wrapper优先覆盖失败约定脚本、无脚本成功、非零安装精确失败；每次实际提取数据仍正确。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "actual_tar_install_wrapper_precedence_and_script_failure_status_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L798:C5",
+            "title": "starts worker from worker.manifest.json after plugin install",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际tar install marker；真实worker捕获7项instance args/env/token/Unicode workDir/runtimeOptions；真实pid/status/log一致并stop后stopped且删pid。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "installed_worker_receives_instance_arguments_environment_and_native_status"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L925:C5",
+            "title": "kills remaining worker process group children after graceful stop timeout",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "策略真实启动忽略TERM的shell子进程；先真实发送SIGTERM证明子进程仍活，再策略stop后父子均停止、pid删除且status stopped；20秒外部预算不降低生产grace。普通树及该升级场景均实跑，不再用普通树冒充强制升级。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "strategy_stop_escalates_for_a_real_child_that_ignores_termination"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L993:C5",
+            "title": "installs local worker runtime templates without starting worker until an instance exists",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际tar嵌套包runtime模板安装；local无instance不生成worker状态/进程；有instance真实启动另测。 补充install.sh实际marker=installed、bundle/worker.pid与instance pid/log均不存在且容器根/worker.log不存在。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "local_runtime_templates_do_not_start_until_instance_and_generic_spawn_failure_is_best_effort"
+              },
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "installed_worker_receives_instance_arguments_environment_and_native_status"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1031:C5",
+            "title": "keeps deploy successful when worker manifest command cannot be spawned",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实缺worker executable，generic部署保持成功且落failed状态及实际OS错误；旧Node did-not-expose-pid消息不作为原生OS消息合同。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "local_runtime_templates_do_not_start_until_instance_and_generic_spawn_failure_is_best_effort"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1069:C5",
+            "title": "handles worker exit even when the process exits before pid and status writes finish",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实exit7进程，策略部署后真实状态最终exited7、pid不存在，不让较晚初始写覆盖exit。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "early_worker_exit_is_not_overwritten_by_late_initial_pid_or_status_publication"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1113:C5",
+            "title": "restarts worker when it exits from an unexpected signal",
+            "suites": [
+              "PluginProbeStrategy",
+              "deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实worker进程组SIGKILL后supervisor最终running/newpid/restartCount1，stop后状态与pid正确。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "unexpected_signal_restarts_the_strategy_worker_once_with_a_new_pid"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1177:C5",
+            "title": "runs uninstall script when present",
+            "suites": [
+              "PluginProbeStrategy",
+              "undeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际uninstall shell退出0/7逐项返回true/false且执行marker均证明运行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "real_script_undeploy_returns_exit_status_and_no_uninstall_is_false"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1201:C5",
+            "title": "returns false when no uninstall script",
+            "suites": [
+              "PluginProbeStrategy",
+              "undeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺pluginProbe返回精确错误；实际不存在tar失败且无dest；无uninstall/config undeploy=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "missing_config_or_source_has_explicit_failure_and_no_uninstall_is_false"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1215:C5",
+            "title": "returns false when no pluginProbe config",
+            "suites": [
+              "PluginProbeStrategy",
+              "undeploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺pluginProbe返回精确错误；实际不存在tar失败且无dest；无uninstall/config undeploy=false。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/plugin_probe_strategy_contract_tests.rs",
+                "test": "missing_config_or_source_has_explicit_failure_and_no_uninstall_is_false"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/updater/updater.test.ts",
+      "coverage": "partial",
+      "rust": [],
+      "note": "前两批28/58声明精确承接，其余保持未映射；固定ef8953 source/hash不变。基点native3d11568，保留容器capability门禁/最终安装路径pin/事务修复，不混旧runtime。platforms仅合同适用，当前仅Linux glibc2.34实测，Windows/macOS未实测。L245首检原60s延迟与原生立即差异另记pending，不靠Node计时器退役抹掉。L316/323原Promise不throw与Rust受控Result接口差异待daemon级回归补齐，未把本批guard测试当全部合同完成。 主工作区严格Clippy与真实updater目标43通过；本批仅28/58来源声明。健康确认、GC与heartbeat后安排handoff；失败handoff不回滚成功激活，恢复失败保留两个child诊断。其余30仍待审定。",
+      "source_hash": "4db0980f0bacb1fc16058a4f21a8c9c72f4b9b08334532bb6f01e1eb880996b0",
+      "cases": [
+        {
+          "source": {
+            "id": "L238:C5",
+            "title": "does not start timer when disabled",
+            "suites": [
+              "Updater",
+              "lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "disabled start与真实run_until均无fetch/service工作且不scheduled；两次stop无panic、不复活工作。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "disabled_scheduler_has_no_work_and_repeated_stop_is_safe"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L253:C5",
+            "title": "clears timer on stop",
+            "suites": [
+              "Updater",
+              "lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧Vitest stop后剩余1个initial timeout是Node timer队列结构，不保留泄漏任务；替代原生结构化取消：真实pending check进入后shutdown丢弃fetch future、清scheduled/checking，反复stop安全。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "旧Vitest stop后剩余1个initial timeout是Node timer队列结构，不保留泄漏任务；替代原生结构化取消：真实pending check进入后shutdown丢弃fetch future、清scheduled/checking，反复stop安全。",
+            "replacement": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "enabled_scheduler_owns_and_cancels_a_real_pending_check_and_supports_idempotent_stop"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L260:C5",
+            "title": "stop is idempotent",
+            "suites": [
+              "Updater",
+              "lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "disabled start与真实run_until均无fetch/service工作且不scheduled；两次stop无panic、不复活工作。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "disabled_scheduler_has_no_work_and_repeated_stop_is_safe"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L271:C5",
+            "title": "returns true when local is null (first deployment)",
+            "suites": [
+              "Updater",
+              "needsUpdate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六种固定stable判定逐一跑：local缺失、remote更高、禁止更低、同版本不同commit重建、同commit不更、remote空commit不更；不借canary逻辑替代stable原断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "all_six_historical_stable_version_decisions_are_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L276:C5",
+            "title": "returns true when remote version is higher",
+            "suites": [
+              "Updater",
+              "needsUpdate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六种固定stable判定逐一跑：local缺失、remote更高、禁止更低、同版本不同commit重建、同commit不更、remote空commit不更；不借canary逻辑替代stable原断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "all_six_historical_stable_version_decisions_are_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L282:C5",
+            "title": "returns false when remote version is lower (no downgrade)",
+            "suites": [
+              "Updater",
+              "needsUpdate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六种固定stable判定逐一跑：local缺失、remote更高、禁止更低、同版本不同commit重建、同commit不更、remote空commit不更；不借canary逻辑替代stable原断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "all_six_historical_stable_version_decisions_are_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L288:C5",
+            "title": "returns true when same version but different commit (rebuild)",
+            "suites": [
+              "Updater",
+              "needsUpdate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六种固定stable判定逐一跑：local缺失、remote更高、禁止更低、同版本不同commit重建、同commit不更、remote空commit不更；不借canary逻辑替代stable原断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "all_six_historical_stable_version_decisions_are_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L294:C5",
+            "title": "returns false when same version and same commit",
+            "suites": [
+              "Updater",
+              "needsUpdate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六种固定stable判定逐一跑：local缺失、remote更高、禁止更低、同版本不同commit重建、同commit不更、remote空commit不更；不借canary逻辑替代stable原断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "all_six_historical_stable_version_decisions_are_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L300:C5",
+            "title": "returns false when same version and remote commit is empty",
+            "suites": [
+              "Updater",
+              "needsUpdate"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "六种固定stable判定逐一跑：local缺失、remote更高、禁止更低、同版本不同commit重建、同commit不更、remote空commit不更；不借canary逻辑替代stable原断言。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "all_six_historical_stable_version_decisions_are_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L310:C5",
+            "title": "skips when manifest URL is not configured",
+            "suites": [
+              "Updater",
+              "check - manifest fetching"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实check无manifest URL：任何fetch或service执行都不发生、checking清零、failure不增。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "missing_manifest_url_does_not_fetch_or_spawn_any_service_command"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L330:C5",
+            "title": "skips update when already up to date",
+            "suites": [
+              "Updater",
+              "check - manifest fetching"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实完整原生current包与健康collector记录，公开check仅fetch一次manifest无download/服务命令；failure5和nextCheck清零、真实stale目录被GC移除、current保持。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "already_current_success_fetches_only_manifest_clears_backoff_and_runs_real_gc"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L361:C5",
+            "title": "repairs an unhealthy collector even when the target is already current",
+            "suites": [
+              "Updater",
+              "check - manifest fetching"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际当前原生包+缺失collector runtime，公开check经service boundary start写真实健康记录，先落success heartbeat/failure0再调用schedule-updater-restart；metrics实际JSONL collector_restarted/latest_version正确。调度handoff失败仍保持成功，不误记update_failure。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "already_current_recovery_handoff_waits_for_success_bookkeeping_and_is_best_effort"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1171:C5",
+            "title": "requires the target version, a fresh heartbeat, and a new PID for rebuilds",
+            "suites": [
+              "Updater",
+              "collector health validation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "复用已核对原生健康断言：target version/commit不符、时间旧于restart、rebuild相同PID都精确拒绝；本install进程身份校验额外加强，注入受控liveness后健康结果空。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater.rs",
+                "test": "health_requires_version_freshness_and_a_new_pid"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1201:C5",
+            "title": "passes Windows commands after -File and defers the updater handoff",
+            "suites": [
+              "Updater",
+              "collector command invocation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "调用公开run_collector_command三次、显式Win32平台，实际传入net执行边界program全部powershell.exe、File之后命令位置正确；仅restart带defer。另核90s预算、安装data/cache/config上下文与候选RESOURCE_ROOT/INSTALL_INPUT不泄漏。Linux验证显式平台逻辑，不宣称PowerShell实机。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "public_windows_service_commands_preserve_file_argv_and_native_environment"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1224:C5",
+            "title": "preserves child-process diagnostics when start-only recovery fails",
+            "suites": [
+              "Updater",
+              "collector command invocation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "调用公开start_collector_for_recovery而非仅拼formatter；失败Err完整保留两端stdout、恢复stderr/code/killed及首因signal，原有正则要求顺序全部实际断言。主restart_collector也新增真实失败传播回归，修前丢诊断、修后含Unknown command并落同一alarm。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "public_start_only_recovery_api_keeps_ordered_structured_diagnostics"
+              },
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "restart_failure_keeps_both_child_diagnostics_when_start_only_also_fails"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1403:C5",
+            "title": "returns immediately when another check is in progress",
+            "suites": [
+              "Updater",
+              "check - reentry protection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "启动真实挂起fetch获得checking guard，第二check在100ms预算内返回且首fetch未丢弃；随后stop实际取消首future并释放guard。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "an_actual_inflight_check_rejects_reentry_then_stop_releases_its_guard_and_future"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1413:C5",
+            "title": "resets checking flag after check completes",
+            "suites": [
+              "Updater",
+              "check - reentry protection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实loopback HTTP500及真实拒绝连接分别返回受控Result错误、checking guard清零；failure增1且current/previous均未发布，不使用伪setting flag。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "actual_manifest_http_and_connection_failures_release_guard_and_preserve_install_state"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1425:C5",
+            "title": "applies exponential backoff after failure",
+            "suites": [
+              "Updater",
+              "backoff and retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实manifest成功→download500后固定clock验证首次退避精确2×10s，窗口内第二check零新fetch；第10/100失败daemon仍scheduled且真实heartbeat degraded，6h上限精确不超出。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "exact_exponential_retry_gate_and_six_hour_cap_keep_degraded_daemon_alive"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1441:C5",
+            "title": "resets backoff counter on success",
+            "suites": [
+              "Updater",
+              "backoff and retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实完整原生current包与健康collector记录，公开check仅fetch一次manifest无download/服务命令；failure5和nextCheck清零、真实stale目录被GC移除、current保持。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "already_current_success_fetches_only_manifest_clears_backoff_and_runs_real_gc"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1476:C5",
+            "title": "keeps updater alive in degraded retry after MAX_CONSECUTIVE_FAILURES",
+            "suites": [
+              "Updater",
+              "backoff and retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实manifest成功→download500后固定clock验证首次退避精确2×10s，窗口内第二check零新fetch；第10/100失败daemon仍scheduled且真实heartbeat degraded，6h上限精确不超出。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "exact_exponential_retry_gate_and_six_hour_cap_keep_degraded_daemon_alive"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1500:C5",
+            "title": "backoff duration respects max cap (6 hours)",
+            "suites": [
+              "Updater",
+              "backoff and retry"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实manifest成功→download500后固定clock验证首次退避精确2×10s，窗口内第二check零新fetch；第10/100失败daemon仍scheduled且真实heartbeat degraded，6h上限精确不超出。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "exact_exponential_retry_gate_and_six_hour_cap_keep_degraded_daemon_alive"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1522:C5",
+            "title": "preserves current and previous while removing one stale version",
+            "suites": [
+              "Updater",
+              "gcOldVersions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实native valid stale包与实际目录mtime10/20，无current时均保留；current/previous设定后第一次仅删最旧、另一个仍在且两pointer目录/unknown用户目录保留；第二次才删另一个。遵守原生ownership UUID/resource验证，不把旧简名无校验清理带回。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "real_gc_preserves_current_previous_and_removes_exactly_the_oldest_owned_version"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1548:C5",
+            "title": "removes only the oldest stale version per cleanup run",
+            "suites": [
+              "Updater",
+              "gcOldVersions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实native valid stale包与实际目录mtime10/20，无current时均保留；current/previous设定后第一次仅删最旧、另一个仍在且两pointer目录/unknown用户目录保留；第二次才删另一个。遵守原生ownership UUID/resource验证，不把旧简名无校验清理带回。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "real_gc_preserves_current_previous_and_removes_exactly_the_oldest_owned_version"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1576:C5",
+            "title": "cleans stale versions during an already up-to-date check",
+            "suites": [
+              "Updater",
+              "gcOldVersions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实完整原生current包与健康collector记录，公开check仅fetch一次manifest无download/服务命令；failure5和nextCheck清零、真实stale目录被GC移除、current保持。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "already_current_success_fetches_only_manifest_clears_backoff_and_runs_real_gc"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1605:C5",
+            "title": "skips cleanup when current pointer is missing",
+            "suites": [
+              "Updater",
+              "gcOldVersions"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实native valid stale包与实际目录mtime10/20，无current时均保留；current/previous设定后第一次仅删最旧、另一个仍在且两pointer目录/unknown用户目录保留；第二次才删另一个。遵守原生ownership UUID/resource验证，不把旧简名无校验清理带回。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "real_gc_preserves_current_previous_and_removes_exactly_the_oldest_owned_version"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1627:C5",
+            "title": "returns version dir when current pointer is valid",
+            "suites": [
+              "Updater",
+              "resolveCurrentVersionDir"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实无current为None；只有legacy package/dist/index.js也明确None，Rust安装不接管Node布局；真实current pointer+存在version目录解析成精确路径。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "current_version_resolution_uses_real_pointer_and_explicitly_refuses_node_legacy_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1639:C5",
+            "title": "falls back to legacy package/ when current pointer missing",
+            "suites": [
+              "Updater",
+              "resolveCurrentVersionDir"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实无current为None；只有legacy package/dist/index.js也明确None，Rust安装不接管Node布局；真实current pointer+存在version目录解析成精确路径。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "真实无current为None；只有legacy package/dist/index.js也明确None，Rust安装不接管Node布局；真实current pointer+存在version目录解析成精确路径。",
+            "replacement": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "current_version_resolution_uses_real_pointer_and_explicitly_refuses_node_legacy_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1651:C5",
+            "title": "returns null when nothing is available",
+            "suites": [
+              "Updater",
+              "resolveCurrentVersionDir"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实无current为None；只有legacy package/dist/index.js也明确None，Rust安装不接管Node布局；真实current pointer+存在version目录解析成精确路径。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "current_version_resolution_uses_real_pointer_and_explicitly_refuses_node_legacy_fallback"
               }
             ]
           }

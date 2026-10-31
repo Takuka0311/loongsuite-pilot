@@ -438,6 +438,8 @@ pub struct HookStrategy {
     resource_roots: Option<(PathBuf, PathBuf)>,
     deployment_state: Option<(PathBuf, Option<crate::types::InstalledBy>)>,
     preserve_runtime_assets: bool,
+    #[cfg(test)]
+    corrupt_next_planned_trust: std::sync::atomic::AtomicBool,
 }
 
 impl HookStrategy {
@@ -447,6 +449,8 @@ impl HookStrategy {
             resource_roots: None,
             deployment_state: None,
             preserve_runtime_assets: false,
+            #[cfg(test)]
+            corrupt_next_planned_trust: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -824,6 +828,15 @@ impl HookStrategy {
                 let next =
                     plan_trusted_hashes(&TrustOpts::Installed(opts.clone()), original.as_deref())
                         .map_err(|err| err.to_string())?;
+                #[cfg(test)]
+                let next = if self
+                    .corrupt_next_planned_trust
+                    .swap(false, std::sync::atomic::Ordering::SeqCst)
+                {
+                    Some(String::new())
+                } else {
+                    next
+                };
                 let verify = verify_trust_content(
                     next.as_deref().or(original.as_deref()).unwrap_or(""),
                     &opts,
@@ -2225,3 +2238,7 @@ mod tests {
         assert_eq!(event_to_subcommand("PreToolUse"), "pre-tool-use");
     }
 }
+
+#[cfg(test)]
+#[path = "hook_strategy_contract_tests.rs"]
+mod migration_contract_tests;

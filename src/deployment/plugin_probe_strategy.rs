@@ -33,6 +33,8 @@ pub struct PluginProbeStrategy {
     pilot_dir: String,
     platform: String,
     workers: WorkerManifestSupervisor,
+    #[cfg(test)]
+    fail_next_publish: std::sync::atomic::AtomicBool,
 }
 
 impl PluginProbeStrategy {
@@ -47,6 +49,8 @@ impl PluginProbeStrategy {
             pilot_dir,
             workers: WorkerManifestSupervisor::new(),
             platform,
+            #[cfg(test)]
+            fail_next_publish: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -297,7 +301,7 @@ impl PluginProbeStrategy {
         if tokio::fs::rename(&source.dest_dir, &backup).await.is_ok() {
             backup_used = true;
         }
-        if let Err(err) = tokio::fs::rename(&staging_path, &source.dest_dir).await {
+        if let Err(err) = self.publish_staging(&staging_path, &source.dest_dir).await {
             if backup_used {
                 let _ = tokio::fs::remove_dir_all(&source.dest_dir).await;
                 let _ = tokio::fs::rename(&backup, &source.dest_dir).await;
@@ -309,6 +313,17 @@ impl PluginProbeStrategy {
         }
         let _ = tokio::fs::remove_dir_all(&staging_path).await;
         Ok(true)
+    }
+
+    async fn publish_staging(&self, staging: &Path, destination: &str) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self
+            .fail_next_publish
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(std::io::Error::other("injected staged publication failure"));
+        }
+        tokio::fs::rename(staging, destination).await
     }
 
     async fn acquire_package(
@@ -606,3 +621,7 @@ mod tests {
         };
     }
 }
+
+#[cfg(test)]
+#[path = "plugin_probe_strategy_contract_tests.rs"]
+mod migration_contract_tests;

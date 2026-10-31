@@ -913,6 +913,9 @@ impl Updater {
                 .unwrap_or_else(|err| err.into_inner()) = 0;
             self.gc_old_versions().await;
             self.write_heartbeat().await?;
+            if recovered {
+                self.schedule_updater_restart().await;
+            }
             return Ok(true);
         }
         self.emit(
@@ -988,6 +991,7 @@ impl Updater {
         );
         self.gc_old_versions().await;
         self.write_heartbeat().await?;
+        self.schedule_updater_restart().await;
         Ok(true)
     }
 
@@ -1416,16 +1420,16 @@ impl Updater {
         let mut recovery_attempted = false;
         if let Err(err) = self.run_collector_command("restart-collector").await {
             let info = self.diagnose_collector_restart_failure(started, &err).await;
-            if self.run_collector_command("start-collector").await.is_err() {
+            if let Err(recovery) = self.start_collector_for_recovery(&err).await {
                 self.alarm(
                     "UPDATER_FAILURE_ALARM",
                     "2",
                     &format!(
-                        "collector restart command failed: {} | {}",
+                        "collector restart command failed: {} | {}; {recovery}",
                         info.detail, info.diagnosis
                     ),
                 );
-                return Err(err.to_string());
+                return Err(recovery);
             }
             diagnosed = Some(info);
             recovery_attempted = true;
@@ -1457,6 +1461,16 @@ impl Updater {
             .await?;
         }
         Ok(())
+    }
+
+    /// Handoff follows health confirmation and durable success bookkeeping.
+    /// Scheduling failure is best effort: the activated collector remains healthy.
+    async fn schedule_updater_restart(&self) {
+        if let Err(error) = self.run_collector_command("schedule-updater-restart").await {
+            let meta = json!({"error": format_command_failure(&error)});
+            crate::utils::create_logger("Updater")
+                .warn("failed to schedule updater restart", meta.as_object());
+        }
     }
 
     pub async fn start_collector_for_recovery(&self, cause: &CommandFailure) -> Result<(), String> {
@@ -3553,4 +3567,5 @@ mod tests {
         quiet.start();
         assert!(!quiet.is_scheduled());
     }
+    include!("updater_contract_tests.rs");
 }
