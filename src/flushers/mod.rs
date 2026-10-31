@@ -5,6 +5,8 @@ mod base_flusher;
 mod codex_turn_converter;
 mod codex_turn_journal;
 mod delegated_turn_converter;
+mod doubao_work_converter;
+mod doubao_work_round_converter;
 mod event_log_converter;
 mod http_flusher;
 mod jsonl_flusher;
@@ -28,6 +30,7 @@ pub use base_flusher::{
 pub use codex_turn_converter::convert_codex_turn;
 pub use codex_turn_journal::{codex_turn_journal_group_key, CodexJournalReplay, CodexTurnJournal};
 pub use delegated_turn_converter::convert_delegated_turn;
+pub use doubao_work_converter::convert_doubao_work_turn;
 pub use event_log_converter::GenAiEventLogConverter;
 pub use http_flusher::HttpFlusher;
 pub use jsonl_flusher::JsonlFlusher;
@@ -35,7 +38,7 @@ pub use multi_flusher::MultiFlusher;
 pub use otlp_http_exporter::OtlpHttpExporter;
 pub use otlp_json_serializer::{
     create_readable_span_to_otlp_span_json_array, estimate_span_size, hr_time_to_nano,
-    ConvertOptions, ConvertResult, EventLogConverter, ReadableSpan,
+    ConvertOptions, ConvertResult, EventLogConverter, ReadableSpan, SpanEvent,
 };
 pub use otlp_trace_flusher::{
     apply_qoder_work_step_timing, ExporterOpts, OtlpEndpointCounter, OtlpTraceFlusher,

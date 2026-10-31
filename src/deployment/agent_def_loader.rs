@@ -288,7 +288,29 @@ impl AgentDefLoader {
             .unwrap_or_else(|| "~/.hermes".into());
         let hermes_cli = self.resolve_hermes_cli(&hermes_home);
         let env = self.env.as_ref();
+        let platform = match std::env::consts::OS {
+            "macos" => "darwin",
+            "windows" => "win32",
+            other => other,
+        };
+        let home = if platform == "win32" {
+            self.env_get("USERPROFILE")
+                .filter(|home| !home.is_empty())
+                .or_else(|| self.env_get("HOME").filter(|home| !home.is_empty()))
+        } else {
+            self.env_get("HOME").filter(|home| !home.is_empty())
+        }
+        .unwrap_or_else(|| resolve_home("~"));
+        let local_app_data = self.env_get("LOCALAPPDATA");
+        let doubao_data = crate::inputs::doubao_work::resolve_doubao_work_paths_with(
+            platform,
+            &home,
+            local_app_data.as_deref(),
+        )
+        .user_data_root
+        .unwrap_or_else(|| "$DOUBAO_WORK_DATA".into());
         let mut result = input
+            .replace("$DOUBAO_WORK_DATA", &doubao_data)
             .replace("$PILOT_DIR", &self.opts.pilot_dir)
             .replace("$PILOT_DATA", &self.opts.data_dir)
             .replace("$HERMES_CLI", &hermes_cli)
@@ -466,5 +488,59 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let defs = loader(root.path()).load().await;
         assert!(defs.is_empty());
+    }
+    #[tokio::test]
+    async fn doubao_builtin_detection_expands_only_supported_platform_data_roots() {
+        let root = tempfile::tempdir().unwrap();
+        let source = include_str!("../../agents.d/doubao-work.json");
+        let json: Value = serde_json::from_str(source).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "id":"doubao-work","displayName":"Doubao Work (experimental)",
+                "deployMode":"detection-only","detection":{"paths":["$DOUBAO_WORK_DATA/sdk_storage/log"],"commands":[]},
+                "input":{"type":"doubao-work-client-log"}
+            })
+        );
+        write_def(&root.path().join("builtin"), "doubao-work.json", source);
+        let home = root
+            .path()
+            .join("synthetic-home")
+            .to_string_lossy()
+            .into_owned();
+        let local = root
+            .path()
+            .join("synthetic-local")
+            .to_string_lossy()
+            .into_owned();
+        let env = HashMap::from([
+            ("HOME".into(), home.clone()),
+            ("USERPROFILE".into(), home.clone()),
+            ("LOCALAPPDATA".into(), local.clone()),
+            ("HERMES_CLI".into(), "fixture-hermes".into()),
+            // This marker is owned by the platform resolver, not a custom root override.
+            ("DOUBAO_WORK_DATA".into(), "/must-not-relocate".into()),
+        ]);
+        let loaded = loader(root.path()).with_env(env).load().await;
+        assert_eq!(loaded.len(), 1);
+        let def = &loaded[0];
+        assert_eq!(def.id, "doubao-work");
+        assert_eq!(def.display_name, "Doubao Work (experimental)");
+        assert_eq!(def.deploy_mode, crate::types::DeployMode::DetectionOnly);
+        assert!(def.detection.commands.is_empty());
+        assert_eq!(
+            def.input.as_ref().unwrap().input_type,
+            "doubao-work-client-log"
+        );
+        let expected = if cfg!(target_os = "macos") {
+            format!("{home}/Library/Application Support/DoubaoWork/sdk_storage/log")
+        } else if cfg!(windows) {
+            format!("{local}/DoubaoWork/User Data/sdk_storage/log").replace('\\', "/")
+        } else {
+            "$DOUBAO_WORK_DATA/sdk_storage/log".into()
+        };
+        assert_eq!(def.detection.paths, [expected]);
+        assert!(!root.path().join("synthetic-home").exists());
+        assert!(!root.path().join("synthetic-local").exists());
     }
 }

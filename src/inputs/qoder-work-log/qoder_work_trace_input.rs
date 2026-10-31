@@ -94,6 +94,10 @@ impl QoderWorkLogTraceInput {
 
 #[async_trait]
 impl InputBody for QoderWorkLogTraceBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(Vec::new())
+    }
+
     fn id(&self) -> &str {
         &self.id
     }

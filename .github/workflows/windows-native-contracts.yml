@@ -90,6 +90,10 @@ jobs:
           failures=0
           for filter in \
             inputs::base::tests \
+            inputs::doubao_work:: \
+            hook_process::cursor:: \
+            hook_process::cursor_assemble:: \
+            hook_process::claude_code:: \
             core::orchestrator::watchdog_contract_tests \
             core::legacy_sls_failed_log_cleanup::tests \
             flushers:: \
@@ -117,4 +121,4 @@ jobs:
           test "$failures" -eq 0
       - name: Native interceptor, upstream context, and Hook timing
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-        run: cargo test --locked -p loongsuite-pilot --test interceptor_native --test upstream_context --test hook_timing --test grok_output_contracts --test runtime_snapshot_allocation -- --nocapture
+        run: cargo test --locked -p loongsuite-pilot --test interceptor_native --test upstream_context --test hook_timing --test grok_output_contracts --test runtime_snapshot_allocation --test doubao_delivery --test hosted_collect_durability -- --nocapture

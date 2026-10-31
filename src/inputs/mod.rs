@@ -37,6 +37,8 @@ pub mod codex_transcript;
 pub mod copilot_log;
 #[path = "cursor-hook/mod.rs"]
 pub mod cursor_hook;
+#[path = "doubao-work/mod.rs"]
+pub mod doubao_work;
 #[path = "dsh/mod.rs"]
 pub mod dsh;
 #[path = "dsh-log/mod.rs"]

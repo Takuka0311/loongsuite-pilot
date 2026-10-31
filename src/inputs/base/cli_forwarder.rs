@@ -20,6 +20,9 @@ pub struct ForwarderPaths {
 
 #[async_trait]
 pub trait CliForwarderBody: Send + Sync + 'static {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        None
+    }
     fn id(&self) -> &str;
     fn agent_type(&self) -> ClientType;
     fn paths(&self) -> &ForwarderPaths;
@@ -43,6 +46,10 @@ impl<T: CliForwarderBody> CliForwarderAdapter<T> {
 
 #[async_trait]
 impl<T: CliForwarderBody> InputBody for CliForwarderAdapter<T> {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        self.inner.checkpoint_namespaces()
+    }
+
     fn id(&self) -> &str {
         self.inner.id()
     }

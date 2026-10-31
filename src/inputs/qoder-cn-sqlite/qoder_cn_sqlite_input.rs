@@ -110,6 +110,10 @@ pub fn resolve_qoder_cn_db_path(data_root: &str) -> String {
 
 #[async_trait]
 impl SqliteBody for QoderCnSqliteBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "qoder-cn-sqlite"
     }

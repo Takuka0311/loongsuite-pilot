@@ -137,6 +137,10 @@ impl CodexAbortedTurnInput {
 
 #[async_trait]
 impl InputBody for CodexAbortedTurnBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "codex-aborted-turn"
     }

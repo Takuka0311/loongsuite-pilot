@@ -972,6 +972,26 @@ fn build_http_config(file: Option<&Value>, sources: &ConfigSources<'_>) -> HttpF
     }
 }
 
+fn resolve_listener_log_dir(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let expanded = std::path::PathBuf::from(resolve_home(trimmed));
+    let absolute = std::path::absolute(&expanded).unwrap_or(expanded);
+    let mut normalized = std::path::PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    Some(normalized.to_string_lossy().into_owned())
+}
+
 fn build_listeners(
     file: Option<&Value>,
     sources: &ConfigSources<'_>,
@@ -998,11 +1018,13 @@ fn build_listeners(
         "opencode-log",
         "pi-coding-agent-log",
         "workbuddy",
+        "doubao-work",
         "hermes-agent-log",
     ] {
         result.insert(
             key.to_string(),
             ListenerConfig {
+                log_dir: None,
                 enabled: true,
                 poll_interval: DEFAULT_POLL_INTERVAL_MS,
             },
@@ -1017,6 +1039,9 @@ fn build_listeners(
             result.insert(
                 key.clone(),
                 ListenerConfig {
+                    log_dir: (key == "doubao-work")
+                        .then(|| json_str(value.get("logDir")).and_then(resolve_listener_log_dir))
+                        .flatten(),
                     enabled: json_bool(value.get("enabled"))
                         .or(previous.as_ref().map(|item| item.enabled))
                         .unwrap_or(true),
@@ -1035,12 +1060,14 @@ fn build_listeners(
                     .get("codex-transcript")
                     .cloned()
                     .unwrap_or(ListenerConfig {
+                        log_dir: None,
                         enabled: true,
                         poll_interval: DEFAULT_POLL_INTERVAL_MS,
                     });
                 result.insert(
                     "codex-transcript".into(),
                     ListenerConfig {
+                        log_dir: None,
                         enabled: json_bool(legacy.get("enabled")).unwrap_or(defaults.enabled),
                         poll_interval: json_u64(legacy.get("pollInterval"))
                             .unwrap_or(defaults.poll_interval),
@@ -3173,5 +3200,121 @@ mod migration_config_edge_tests {
             assert_eq!(config.dashboard.port, expected);
             assert_eq!(file, before);
         }
+    }
+}
+
+#[cfg(test)]
+mod doubao_listener_wiring_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn config(file: &Value, global_poll_ms: Option<u64>) -> AnalyticsConfig {
+        let env = HashMap::new();
+        assemble_config(
+            Some(file),
+            None,
+            &ConfigSources {
+                env: &env,
+                platform: Platform::current(),
+                hostname: "synthetic",
+                config_path: "not-read.json",
+                global_poll_ms,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn doubao_listener_defaults_on_and_older_serialized_listeners_remain_compatible() {
+        let built = config(&json!({}), None);
+        let listener = &built.listeners["doubao-work"];
+        assert!(listener.enabled);
+        assert_eq!(listener.poll_interval, DEFAULT_POLL_INTERVAL_MS);
+        assert_eq!(listener.log_dir, None);
+        let encoded = serde_json::to_value(listener).unwrap();
+        assert_eq!(
+            encoded,
+            json!({"enabled":true,"pollInterval":DEFAULT_POLL_INTERVAL_MS})
+        );
+        let decoded: ListenerConfig = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, listener.clone());
+    }
+
+    #[test]
+    fn only_doubao_accepts_trimmed_absolute_log_override_without_mutating_source() {
+        let root = tempfile::tempdir().unwrap();
+        let expected = root.path().join("native-logs");
+        let raw = format!("  {}/unused/../native-logs  ", root.path().display());
+        let file = json!({"listeners":{
+            "doubao-work":{"enabled":false,"pollInterval":1777,"logDir":raw},
+            "workbuddy":{"logDir":"/must-not-relocate"},
+            "codex-log":{"logDir":"/must-not-propagate"},
+            "unknown-agent":{"logDir":"/must-not-enable-arbitrary-overrides"}
+        }});
+        let before = file.clone();
+        let built = config(&file, None);
+        assert_eq!(file, before);
+        let listener = &built.listeners["doubao-work"];
+        assert!(!listener.enabled);
+        assert_eq!(listener.poll_interval, 1777);
+        assert_eq!(
+            listener.log_dir.as_deref(),
+            Some(expected.to_str().unwrap())
+        );
+        for name in [
+            "workbuddy",
+            "codex-log",
+            "codex-transcript",
+            "unknown-agent",
+        ] {
+            assert_eq!(built.listeners[name].log_dir, None, "{name}");
+        }
+        assert_eq!(
+            serde_json::to_value(listener).unwrap()["logDir"],
+            expected.to_str().unwrap()
+        );
+        assert!(
+            !expected.exists(),
+            "resolving configuration must not create source directories"
+        );
+    }
+
+    #[test]
+    fn blank_and_nonstring_log_overrides_are_ignored_and_global_poll_is_preserved() {
+        for raw in [
+            json!(null),
+            json!(""),
+            json!(" \t\r\n "),
+            json!(false),
+            json!(42),
+            json!([]),
+            json!({}),
+        ] {
+            let built = config(
+                &json!({"listeners":{"doubao-work":{"logDir":raw}}}),
+                Some(2468),
+            );
+            let listener = &built.listeners["doubao-work"];
+            assert_eq!(listener.log_dir, None);
+            assert!(listener.enabled);
+            assert_eq!(listener.poll_interval, 2468);
+        }
+        let cwd = std::env::current_dir().unwrap();
+        let built = config(
+            &json!({"listeners":{"doubao-work":{"logDir":" ./unused/../relative-logs "}}}),
+            None,
+        );
+        assert_eq!(
+            built.listeners["doubao-work"].log_dir,
+            Some(cwd.join("relative-logs").to_string_lossy().into_owned())
+        );
+        let built = config(
+            &json!({"listeners":{"doubao-work":{"logDir":" ~/pilot-fixture-log "}}}),
+            None,
+        );
+        assert_eq!(
+            built.listeners["doubao-work"].log_dir,
+            Some(resolve_home("~/pilot-fixture-log"))
+        );
     }
 }

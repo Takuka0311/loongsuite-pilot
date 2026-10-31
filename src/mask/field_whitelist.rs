@@ -25,6 +25,11 @@ pub const FIELDS_TO_MASK: &[&str] = &[
     "tool.result.payload",
     "system_instructions",
     "tool.definitions",
+    // Native Doubao content is projected into TASK/round/tool spans after masking.
+    "agent.doubao_work.tool_observations",
+    "agent.doubao_work.task_input",
+    "agent.doubao_work.task_output",
+    "agent.doubao_work.assistant_rounds",
     "agent._cinput",
     "agent._ctext",
     "agent._ccontent",

@@ -20,6 +20,7 @@ pub const AGENT_SYSTEM_MAP: &[(&str, &str)] = &[
     ("hermes", "hermes"),
     ("wukong", "wukong"),
     ("workbuddy", "workbuddy"),
+    ("doubao-work", "doubao"),
     ("dsh", "dsh"),
 ];
 
@@ -94,6 +95,20 @@ mod tests {
     }
 
     #[test]
+    fn maps_doubao_work_to_doubao() {
+        assert_eq!(resolve_agent_system("doubao-work"), "doubao");
+        let client: crate::types::ClientType = "doubao-work".parse().unwrap();
+        assert_eq!(client, crate::types::ClientType::DoubaoWork);
+        assert_eq!(client.as_str(), "doubao-work");
+        assert_eq!(serde_json::to_value(client).unwrap(), "doubao-work");
+        assert_eq!(
+            serde_json::from_str::<crate::types::ClientType>("\"doubao-work\"").unwrap(),
+            client
+        );
+        assert!(crate::types::ClientType::ALL.contains(&client));
+    }
+
+    #[test]
     fn maps_dsh_to_dsh() {
         assert_eq!(resolve_agent_system("dsh"), "dsh");
     }
@@ -129,6 +144,7 @@ mod tests {
             "mimo-code",
             "pi-coding-agent",
             "workbuddy",
+            "doubao-work",
             "hermes",
             "dsh",
         ];

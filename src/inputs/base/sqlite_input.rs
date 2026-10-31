@@ -8,6 +8,9 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait SqliteBody: Send + Sync + 'static {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        None
+    }
     fn id(&self) -> &str;
     fn agent_type(&self) -> ClientType;
     fn db_path(&self) -> &str;
@@ -42,6 +45,10 @@ impl<T: SqliteBody> SqliteAdapter<T> {
 
 #[async_trait]
 impl<T: SqliteBody> InputBody for SqliteAdapter<T> {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        self.inner.checkpoint_namespaces()
+    }
+
     fn id(&self) -> &str {
         self.inner.id()
     }

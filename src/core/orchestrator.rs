@@ -31,6 +31,7 @@ use crate::inputs::codex_aborted_turn::{CodexAbortedTurnInput, CodexAbortedTurnI
 use crate::inputs::codex_transcript::{CodexTranscriptInput, CodexTranscriptInputOptions};
 use crate::inputs::copilot_log::{CopilotLogInput, CopilotLogInputOptions};
 use crate::inputs::cursor_hook::CursorHookInput;
+use crate::inputs::doubao_work::{DoubaoWorkInput, DoubaoWorkInputOptions};
 use crate::inputs::dsh_log::{ensure_dsh_log_dir, DshLogInput};
 use crate::inputs::grok_build_log::GrokBuildLogInput;
 use crate::inputs::hermes_log::HermesLogInput;
@@ -1870,6 +1871,31 @@ impl Orchestrator {
             || WorkBuddyInput::check_availability(None),
         )
         .await;
+        let doubao_log_dir = self
+            .config
+            .listeners
+            .get("doubao-work")
+            .and_then(|listener| listener.log_dir.clone());
+        let available_log_dir = doubao_log_dir.clone();
+        let mut doubao_options = DoubaoWorkInputOptions::new(Arc::clone(state_store));
+        doubao_options.log_dir = doubao_log_dir.clone();
+        doubao_options.poll_interval_ms = self.poll("doubao-work");
+        self.add_hosted(
+            &mut entries,
+            HostedInputSpec::new(
+                "doubao-work",
+                "doubao-work",
+                CollectionMethod::SessionFilePolling.as_str(),
+                1,
+            ),
+            DoubaoWorkInput::new(doubao_options),
+            DoubaoWorkInput::watch_paths(doubao_log_dir.as_deref()),
+            move || {
+                let log_dir = available_log_dir.clone();
+                async move { DoubaoWorkInput::check_availability(log_dir.as_deref()).await }
+            },
+        )
+        .await;
         self.register_remaining(&mut entries, state_store).await;
         entries
     }
@@ -3066,6 +3092,7 @@ hosted_surface!(CopilotLogInput);
 hosted_surface!(CodexAbortedTurnInput);
 hosted_surface!(WukongInput);
 hosted_surface!(WorkBuddyInput);
+hosted_surface!(DoubaoWorkInput);
 
 trait HookSurface: Send + Sync {
     fn runtime_info(&self) -> crate::inputs::base::InputRuntimeInfo;
@@ -3840,6 +3867,7 @@ mod tests {
         config.listeners.insert(
             "fixture-listener".into(),
             crate::types::ListenerConfig {
+                log_dir: None,
                 enabled: true,
                 poll_interval: 1234,
             },
@@ -4114,6 +4142,7 @@ mod tests {
                 "dsh",
                 "wukong",
                 "workbuddy",
+                "doubao-work",
             ] {
                 agents.insert(agent.into(), serde_json::json!({"enabled":false}));
             }
@@ -4140,14 +4169,28 @@ mod tests {
             } else {
                 None
             };
-            for id in ["cursor-hook", "codex-transcript", "qoder-cn-sqlite"] {
+            for id in [
+                "cursor-hook",
+                "codex-transcript",
+                "qoder-cn-sqlite",
+                "doubao-work",
+            ] {
                 config.listeners.insert(
                     id.into(),
                     crate::types::ListenerConfig {
+                        log_dir: None,
                         enabled: false,
                         poll_interval: 30_000,
                     },
                 );
+            }
+            let doubao_fixture = home.join("doubao-fixture/log");
+            {
+                let listener = config.listeners.get_mut("doubao-work").unwrap();
+                listener.log_dir = Some(doubao_fixture.to_string_lossy().into_owned());
+                listener.poll_interval = 7331;
+                assert!(!listener.enabled);
+                assert_eq!(config.agents["doubao-work"].enabled, Some(false));
             }
             for (id, interval) in [
                 ("opencode-log", 1000),
@@ -4157,6 +4200,7 @@ mod tests {
                 config.listeners.insert(
                     id.into(),
                     crate::types::ListenerConfig {
+                        log_dir: None,
                         enabled: false,
                         poll_interval: interval,
                     },
@@ -4166,6 +4210,7 @@ mod tests {
                 config.listeners.insert(
                     "fixture-listener".into(),
                     crate::types::ListenerConfig {
+                        log_dir: None,
                         enabled: false,
                         poll_interval: 300_000,
                     },
@@ -4375,6 +4420,7 @@ mod tests {
                 "qwen-work-cn-trace",
                 "qwen-work-cn-hook",
                 "openclaw-plugin-log",
+                "doubao-work",
             ] {
                 assert!(
                     orchestrator.inputs.get_input(id).is_some(),
@@ -4388,6 +4434,7 @@ mod tests {
                 ("opencode-log", 1000),
                 ("qoder-cn-trace", 1000),
                 ("openclaw-plugin-log", 1234),
+                ("doubao-work", 7331),
             ] {
                 let live = orchestrator.inputs.get_input(id).unwrap();
                 let actual = live
@@ -4398,6 +4445,21 @@ mod tests {
                     actual.poll_interval_ms, expected,
                     "real constructor interval for {id}"
                 );
+                if id == "doubao-work" {
+                    assert_eq!(
+                        actual.source_paths,
+                        [doubao_fixture.to_string_lossy().into_owned()]
+                    );
+                    assert_eq!(live.agent_type, "doubao-work");
+                    assert_eq!(
+                        live.collection_method,
+                        CollectionMethod::SessionFilePolling.as_str()
+                    );
+                    assert!(
+                        !doubao_fixture.exists(),
+                        "disabled full-start must not create or read a real Doubao source"
+                    );
+                }
                 if id == "openclaw-plugin-log" {
                     assert_eq!(
                         actual.source_paths,
@@ -4415,6 +4477,19 @@ mod tests {
             let mut registration_config = orchestrator.config.clone();
             registration_config
                 .agents
+                .get_mut("doubao-work")
+                .unwrap()
+                .enabled = Some(true);
+            {
+                let listener = registration_config
+                    .listeners
+                    .get_mut("doubao-work")
+                    .unwrap();
+                listener.enabled = true;
+                listener.poll_interval = 7331;
+            }
+            registration_config
+                .agents
                 .get_mut("qwen-work-cn")
                 .unwrap()
                 .enabled = Some(true);
@@ -4428,6 +4503,7 @@ mod tests {
                 registration_config.listeners.insert(
                     listener.into(),
                     crate::types::ListenerConfig {
+                        log_dir: None,
                         enabled,
                         poll_interval,
                     },
@@ -4440,6 +4516,64 @@ mod tests {
                 )))
                 .await;
             let find = |id: &str| entries.iter().find(|entry| entry.id() == id).unwrap();
+            let doubao = find("doubao-work");
+            assert_eq!(
+                doubao.watch_paths(),
+                [doubao_fixture.to_string_lossy().into_owned()]
+            );
+            assert_eq!(
+                doubao.type_name(),
+                CollectionMethod::SessionFilePolling.as_str()
+            );
+            assert_eq!(doubao.poll_interval_ms(), 7331);
+            assert!(doubao.enabled());
+            assert!(!doubao.is_available().await);
+            std::fs::create_dir_all(&doubao_fixture).unwrap();
+            std::fs::write(doubao_fixture.join("unrelated.log"), "").unwrap();
+            assert!(!doubao.is_available().await);
+            std::fs::write(doubao_fixture.join("saman_2026.1031.001.log"), "").unwrap();
+            assert!(doubao.is_available().await);
+            assert!(!registration
+                .inputs
+                .get_input("doubao-work")
+                .unwrap()
+                .running());
+            // The registered closure must re-evaluate actual scope/control changes.
+            let original_gate_bits = {
+                let bits = registration.bits.lock().unwrap();
+                (bits.scope, bits.recorded.clone(), bits.modes.clone())
+            };
+            {
+                let mut bits = registration.bits.lock().unwrap();
+                bits.scope = DeploymentScopeMode::Recorded;
+                bits.recorded.clear();
+            }
+            assert!(!doubao.enabled());
+            registration
+                .bits
+                .lock()
+                .unwrap()
+                .recorded
+                .insert("doubao-work".into());
+            assert!(doubao.enabled());
+            registration
+                .bits
+                .lock()
+                .unwrap()
+                .modes
+                .insert("doubao-work".into(), crate::types::AgentControlMode::Off);
+            assert!(!doubao.enabled());
+            registration
+                .bits
+                .lock()
+                .unwrap()
+                .modes
+                .insert("doubao-work".into(), crate::types::AgentControlMode::On);
+            assert!(doubao.enabled());
+            {
+                let mut bits = registration.bits.lock().unwrap();
+                (bits.scope, bits.recorded, bits.modes) = original_gate_bits;
+            }
             let history = data
                 .join("logs/qwen-work-cn/history")
                 .to_string_lossy()
@@ -5070,5 +5204,42 @@ mod tests {
             if component == "flusher" && error.contains("shutdown refusal"))
         );
         assert_eq!(events.last(), Some(&OrchestratorEvent::Stopped));
+    }
+    #[test]
+    fn doubao_listener_override_cannot_bypass_agent_disable_or_recorded_scope() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = isolated_orchestrator(root.path()).config.clone();
+        config.agents =
+            serde_json::from_value(serde_json::json!({"doubao-work":{"enabled":true}})).unwrap();
+        let mut bits = GateBits {
+            scope: DeploymentScopeMode::Auto,
+            recorded: HashSet::new(),
+            modes: HashMap::new(),
+        };
+        let enabled = |config: &AnalyticsConfig, bits: &GateBits| {
+            listener_on(config, &config.agents, bits, "doubao-work", "doubao-work")
+        };
+        assert!(enabled(&config, &bits));
+        config.listeners.get_mut("doubao-work").unwrap().enabled = false;
+        assert!(!enabled(&config, &bits));
+        bits.modes
+            .insert("doubao-work".into(), crate::types::AgentControlMode::On);
+        assert!(enabled(&config, &bits));
+        config.agents.get_mut("doubao-work").unwrap().enabled = Some(false);
+        assert!(
+            !enabled(&config, &bits),
+            "explicit agent disable wins over a forced listener"
+        );
+        config.agents.get_mut("doubao-work").unwrap().enabled = Some(true);
+        bits.scope = DeploymentScopeMode::Recorded;
+        assert!(
+            !enabled(&config, &bits),
+            "forced listener cannot escape the recorded scope"
+        );
+        bits.recorded.insert("doubao-work".into());
+        assert!(enabled(&config, &bits));
+        bits.modes
+            .insert("doubao-work".into(), crate::types::AgentControlMode::Off);
+        assert!(!enabled(&config, &bits));
     }
 }

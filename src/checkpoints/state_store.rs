@@ -280,6 +280,28 @@ struct Waiter {
     tx: oneshot::Sender<Result<(), String>>,
 }
 
+struct ActiveCollect {
+    token: u64,
+    namespaces: Option<Vec<String>>,
+    dirty: bool,
+}
+fn mark_collect_mutation(data: &mut StoreData, key: Option<&str>) {
+    for active in &mut data.active_collects {
+        if key.is_none()
+            || active.namespaces.as_ref().is_none_or(|namespaces| {
+                namespaces.iter().any(|namespace| {
+                    let key = key.unwrap();
+                    key == namespace.as_str()
+                        || key
+                            .strip_prefix(namespace)
+                            .is_some_and(|suffix| suffix.starts_with(':'))
+                })
+            })
+        {
+            active.dirty = true;
+        }
+    }
+}
 #[derive(Default)]
 struct StoreData {
     states: OrderedMap<InputState>,
@@ -289,6 +311,8 @@ struct StoreData {
     waiters: Vec<Waiter>,
     output_holds: usize,
     output_failure: Option<String>,
+    active_collects: Vec<ActiveCollect>,
+    collect_sequence: u64,
 }
 
 /// In-memory input checkpoints backed by one JSON file.
@@ -309,6 +333,18 @@ impl std::fmt::Debug for StateStore {
 }
 
 impl StateStore {
+    /// Source recovery metadata is scoped to this canonical checkpoint file.
+    pub(crate) fn file_path(&self) -> &Path {
+        &self.file_path
+    }
+}
+
+impl StateStore {
+    /// Cheap mutation token for adapter caches; source progress remains owned by StateStore.
+    pub fn revision(&self) -> u64 {
+        self.mu.lock().unwrap().revision
+    }
+
     pub fn new(file_path: impl AsRef<Path>) -> Self {
         Self {
             file_path: file_path.as_ref().to_path_buf(),
@@ -323,6 +359,7 @@ impl StateStore {
     pub async fn load(&self) {
         let parsed = json_file::read_json(&self.file_path).await;
         let mut data = self.mu.lock().unwrap();
+        mark_collect_mutation(&mut data, None);
         data.states.clear();
         data.revision = 0;
         data.persisted_revision = 0;
@@ -353,6 +390,41 @@ impl StateStore {
 
     /// Register before mutating source progress. A dropped acceptance guard
     /// freezes the cursor, so cancellation cannot silently advance offsets.
+    /// Registrations live only for the current collect, never for retired file keys.
+    pub(crate) fn begin_collect(
+        self: &Arc<Self>,
+        namespaces: Option<Vec<String>>,
+    ) -> CollectOutputHold {
+        let token = {
+            let mut data = self.mu.lock().unwrap();
+            data.collect_sequence += 1;
+            let token = data.collect_sequence;
+            let namespaces = namespaces.filter(|values| values.iter().all(|v| !v.is_empty()));
+            data.active_collects.push(ActiveCollect {
+                token,
+                namespaces,
+                dirty: false,
+            });
+            token
+        };
+        CollectOutputHold {
+            store: self.clone(),
+            token,
+            hold: Some(self.begin_output()),
+        }
+    }
+    fn end_collect(&self, token: u64) -> bool {
+        let mut data = self.mu.lock().unwrap();
+        if let Some(index) = data
+            .active_collects
+            .iter()
+            .position(|active| active.token == token)
+        {
+            data.active_collects.swap_remove(index).dirty
+        } else {
+            true
+        }
+    }
     pub fn begin_output(self: &Arc<Self>) -> CheckpointOutputHold {
         self.mu.lock().unwrap().output_holds += 1;
         CheckpointOutputHold {
@@ -431,6 +503,7 @@ impl StateStore {
     pub fn set(&self, input_id: &str, mut state: InputState) {
         state.normalize();
         let mut data = self.mu.lock().unwrap();
+        mark_collect_mutation(&mut data, Some(input_id));
         data.states.insert(input_id.to_owned(), state);
         data.revision += 1;
     }
@@ -439,6 +512,7 @@ impl StateStore {
         let mut data = self.mu.lock().unwrap();
         let mut state = data.states.get(input_id).cloned().unwrap_or_default();
         apply_patch(&mut state, patch);
+        mark_collect_mutation(&mut data, Some(input_id));
         data.states.insert(input_id.to_owned(), state);
         data.revision += 1;
     }
@@ -447,6 +521,7 @@ impl StateStore {
         let mut data = self.mu.lock().unwrap();
         let removed = data.states.remove(input_id).is_some();
         if removed {
+            mark_collect_mutation(&mut data, Some(input_id));
             data.revision += 1;
         }
         removed
@@ -1114,5 +1189,111 @@ mod output_acceptance_tests {
             .unwrap();
         assert!(!store.save_failed());
         assert!(!store.waiting_for_output());
+    }
+}
+
+/// A successful return releases collection gating only after emit callbacks have
+/// registered acceptance. Ordinary read errors stay retryable without owned progress.
+pub(crate) struct CollectOutputHold {
+    store: Arc<StateStore>,
+    token: u64,
+    hold: Option<CheckpointOutputHold>,
+}
+impl CollectOutputHold {
+    pub(crate) fn finish(mut self, result: Result<(), String>) {
+        let changed = self.store.end_collect(self.token);
+        let result = match result {
+            Err(error) if changed => Err(format!(
+                "collection failed after checkpoint mutation; rebuild required: {error}"
+            )),
+            _ => Ok(()),
+        };
+        self.hold
+            .take()
+            .expect("live collection guard")
+            .finish(result);
+    }
+}
+impl Drop for CollectOutputHold {
+    fn drop(&mut self) {
+        if self.hold.is_some() {
+            self.store.end_collect(self.token);
+            drop(self.hold.take());
+        }
+    }
+}
+
+#[cfg(test)]
+mod active_collect_scope_tests {
+    use super::*;
+    #[tokio::test]
+    async fn deleted_child_key_is_observed_and_canonical_progress_stays_on_disk_after_error() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("state.json");
+        let store = Arc::new(StateStore::new(&path));
+        store.set_offset("session:file-a", 5.0);
+        store.save().await.unwrap();
+        let hold = store.begin_collect(Some(vec!["session".into()]));
+        assert!(store.delete("session:file-a"));
+        assert!(!store.keys().iter().any(|k| k == "session:file-a"));
+        hold.finish(Err("ordinary collection failed".into()));
+        assert!(store.save_failed());
+        assert!(store.save().await.is_err());
+        let fresh = StateStore::new(&path);
+        fresh.load().await;
+        assert_eq!(fresh.get_offset("session:file-a"), 5.0);
+        assert!(store.mu.lock().unwrap().active_collects.is_empty());
+    }
+    #[tokio::test]
+    async fn aliases_are_explicit_and_other_id_prefixes_do_not_freeze_no_progress_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("state.json");
+        let store = Arc::new(StateStore::new(&path));
+        let hold = store.begin_collect(Some(vec!["qoder".into(), "qoder-tracker".into()]));
+        store.set_offset("qoder-cn-tracker:file", 8.0);
+        store.set_offset("qoder-other:file", 9.0);
+        hold.finish(Err("read unavailable without owned progress".into()));
+        assert!(!store.save_failed());
+        store.save().await.unwrap();
+        let hold = store.begin_collect(Some(vec!["qoder".into(), "qoder-tracker".into()]));
+        store.set_offset("qoder-tracker:file", 10.0);
+        hold.finish(Err("read failed after tracker advance".into()));
+        assert!(store.save_failed());
+        let fresh = StateStore::new(path);
+        fresh.load().await;
+        assert_eq!(fresh.get_offset("qoder-tracker:file"), 0.0);
+        assert_eq!(fresh.get_offset("qoder-cn-tracker:file"), 8.0);
+    }
+    #[test]
+    fn tracking_is_bounded_by_active_collects_not_retired_file_names() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Arc::new(StateStore::new(root.path().join("state.json")));
+        for i in 0..10_000 {
+            let hold = store.begin_collect(Some(vec!["session".into()]));
+            let key = format!("session:{i}");
+            store.set_offset(&key, 1.0);
+            assert!(store.delete(&key));
+            assert_eq!(store.mu.lock().unwrap().active_collects.len(), 1);
+            hold.finish(Ok(()));
+            assert!(store.mu.lock().unwrap().active_collects.is_empty());
+        }
+        assert!(store.keys().is_empty());
+        assert_eq!(store.mu.lock().unwrap().output_holds, 0);
+        assert!(!store.save_failed());
+    }
+    #[test]
+    fn unknown_extension_remains_conservative_and_cancel_drops_active_registration() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Arc::new(StateStore::new(root.path().join("state.json")));
+        let hold = store.begin_collect(None);
+        store.set_offset("arbitrary-extension-key", 1.0);
+        hold.finish(Err("unknown checkpoint scope".into()));
+        assert!(store.save_failed());
+        assert!(store.mu.lock().unwrap().active_collects.is_empty());
+        let other = Arc::new(StateStore::new(root.path().join("other.json")));
+        let hold = other.begin_collect(Some(vec!["known".into()]));
+        drop(hold);
+        assert!(other.save_failed());
+        assert!(other.mu.lock().unwrap().active_collects.is_empty());
     }
 }

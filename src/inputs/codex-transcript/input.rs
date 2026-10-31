@@ -302,6 +302,10 @@ pub fn default_span_context_dir() -> String {
 
 #[async_trait]
 impl InputBody for CodexTranscriptBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "codex-transcript"
     }

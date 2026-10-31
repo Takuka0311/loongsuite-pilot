@@ -115,6 +115,10 @@ pub fn resolve_qwen_work_cn_root() -> String {
 
 #[async_trait]
 impl InputBody for QwenWorkCnSqliteBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "qwen-work-cn-sqlite"
     }

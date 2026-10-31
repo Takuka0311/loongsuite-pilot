@@ -16,6 +16,9 @@ pub struct SessionPaths {
 
 #[async_trait]
 pub trait SessionBody: Send + Sync + 'static {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        None
+    }
     fn id(&self) -> &str;
     fn agent_type(&self) -> ClientType;
     fn paths(&self) -> &SessionPaths;
@@ -54,6 +57,10 @@ impl<T: SessionBody> SessionAdapter<T> {
 
 #[async_trait]
 impl<T: SessionBody> InputBody for SessionAdapter<T> {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        self.inner.checkpoint_namespaces()
+    }
+
     fn id(&self) -> &str {
         self.inner.id()
     }

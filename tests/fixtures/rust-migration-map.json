@@ -36320,10 +36320,10 @@
     },
     {
       "legacy": "tests/unit/hooks/claude-code/entry-allowlist.test.mjs",
-      "coverage": "partial",
+      "coverage": "complete",
       "rust": [],
       "source_hash": "65f6f0150a079ae9d0f07ccf6e804c79aba86ef05de15b3f78bad5b4eb2ac401",
-      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "note": "固定ef8953历史3条声明，shell入口在Linux实际通过，PS5.1入口在Windows x64/ARM64实际通过（run41196091183）；平台执行证据与映射来源分别核验。",
       "cases": [
         {
           "source": {
@@ -36385,8 +36385,8 @@
             ],
             "parameters": []
           },
-          "coverage": "partial",
-          "behavior": ".ps1 allowlist covers every declared event；新增真实组件/临时fixture断言，rustfmt及隔离git apply --check通过，尚未由root运行Cargo；Windows/macOS未执行。 直接运行未改动的实际入口脚本；共享bridge仅捕获argv，无真实Agent或服务副作用。 Windows PowerShell5.1实际执行尚待，绝不以Linux或源码存在代验。",
+          "coverage": "complete",
+          "behavior": "通过真实PS5.1入口和受控argv bridge逐个验证agents.d全部声明事件，拒绝未知事件；Windows Native Contracts run41196091183，commit66f5796，x64 job124522432713及ARM64 job124522432841均实际通过powershell_51_entry_routes_every_declared_event_to_bridge_and_rejects_unknown_event。",
           "platforms": [
             "windows"
           ],

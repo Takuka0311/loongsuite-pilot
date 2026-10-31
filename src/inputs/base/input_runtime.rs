@@ -24,6 +24,11 @@ const OWNERSHIP_WARN_CAP: usize = 512;
 
 #[async_trait]
 pub trait InputBody: Send + Sync + 'static {
+    /// Exact key namespaces this body mutates: id and every id:child.
+    /// Include helper/legacy namespaces. None is conservative for unknown extensions.
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        None
+    }
     fn id(&self) -> &str;
     fn agent_type(&self) -> ClientType;
     fn collection_method(&self) -> CollectionMethod;
@@ -710,8 +715,10 @@ impl<T: InputBody> HostedInput<T> {
             .accumulator
             .lock()
             .unwrap_or_else(|err| err.into_inner()) = Some(InputRuntimeAccumulator::new());
-        let collect_hold = (self.runtime.agent_type.as_str() == "codex")
-            .then(|| self.runtime.state_store.begin_output());
+        let collect_hold = self
+            .runtime
+            .state_store
+            .begin_collect(self.body.checkpoint_namespaces());
         let produced = async {
             let entries = self.body.collect(&self.runtime).await?;
             let filtered = self.runtime.with_workspace_policy(|policy| {
@@ -735,11 +742,9 @@ impl<T: InputBody> HostedInput<T> {
             Ok::<(), anyhow::Error>(())
         }
         .await;
-        // Reading errors remain retryable. The separate output acceptance
-        // guards, registered by the emit callbacks, own durability failures.
-        if let Some(hold) = collect_hold {
-            hold.finish(Ok(()));
-        }
+        // Known no-progress read errors stay retryable; changed checkpoints
+        // cannot become durable after an un-emitted partial collection failed.
+        collect_hold.finish(produced.as_ref().map(|_| ()).map_err(ToString::to_string));
         let cycle_result = async {
             produced?;
             let released = self.runtime.checkpoint_release.notified();

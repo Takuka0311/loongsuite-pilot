@@ -91,6 +91,10 @@ impl QwenWorkCnInput {
 
 #[async_trait]
 impl HookBody for QwenWorkCnBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "qwen-work-cn-hook"
     }

@@ -154,6 +154,10 @@ pub fn resolve_qoder_allowed_root_paths(user_paths: &[String]) -> Vec<String> {
 
 #[async_trait]
 impl InputBody for QoderTraceBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "qoder-trace"
     }

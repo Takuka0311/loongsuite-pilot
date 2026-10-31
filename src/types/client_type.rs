@@ -54,6 +54,7 @@ str_enum!(ClientType {
     LingmaVscode = "lingma-vscode",
     Wukong = "wukong",
     WorkBuddy = "workbuddy",
+    DoubaoWork = "doubao-work",
     GeminiCli = "gemini-cli",
     YkCli = "ykcli",
     QwenCodeCli = "qwen-code-cli",

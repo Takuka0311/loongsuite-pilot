@@ -380,6 +380,10 @@ impl QoderWorkLogInput {
 
 #[async_trait]
 impl InputBody for QoderWorkLogBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         &self.id
     }

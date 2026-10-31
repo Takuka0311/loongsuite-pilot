@@ -98,6 +98,10 @@ pub fn resolve_qoder_cn_root() -> String {
 
 #[async_trait]
 impl IdeBody for QoderCnBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned(), "qoder-cn-tracker".into()])
+    }
+
     fn id(&self) -> &str {
         "qoder-cn"
     }

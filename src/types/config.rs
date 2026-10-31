@@ -46,6 +46,9 @@ macro_rules! str_enum {
 pub struct ListenerConfig {
     pub enabled: bool,
     pub poll_interval: u64,
+    /// Only the Doubao Work listener accepts a log-directory override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_dir: Option<String>,
 }
 
 str_enum!(CanaryPolicy {

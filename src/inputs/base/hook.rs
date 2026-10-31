@@ -22,6 +22,9 @@ pub struct HookPaths {
 
 #[async_trait]
 pub trait HookBody: Send + Sync + 'static {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        None
+    }
     fn id(&self) -> &str;
     fn agent_type(&self) -> ClientType;
     fn paths(&self) -> &HookPaths;
@@ -52,6 +55,10 @@ impl<T: HookBody> HookAdapter<T> {
 
 #[async_trait]
 impl<T: HookBody> InputBody for HookAdapter<T> {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        self.inner.checkpoint_namespaces()
+    }
+
     fn id(&self) -> &str {
         self.inner.id()
     }

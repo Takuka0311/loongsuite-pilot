@@ -84,7 +84,10 @@ impl BaseFlusher for HttpFlusher {
         entry: AgentActivityEntry,
         _logical_bytes: Option<f64>,
     ) -> Result<(), FlushError> {
-        if crate::utils::normalize_agent_type(&entry.agent_type) == "codex" {
+        if matches!(
+            crate::utils::normalize_agent_type(&entry.agent_type).as_str(),
+            "codex" | "doubao-work"
+        ) {
             return self.send_batch(vec![entry], None).await;
         }
         let serialized = serialise_log_entry(&entry, &SerialiseLogEntryOptions::default());
@@ -112,7 +115,10 @@ impl BaseFlusher for HttpFlusher {
         let mut ordinary = Vec::new();
         for entry in entries {
             let serialized = serialise_log_entry(&entry, &SerialiseLogEntryOptions::default());
-            if crate::utils::normalize_agent_type(&entry.agent_type) == "codex" {
+            if matches!(
+                crate::utils::normalize_agent_type(&entry.agent_type).as_str(),
+                "codex" | "doubao-work"
+            ) {
                 codex.push(serialized);
             } else {
                 ordinary.push(serialized);

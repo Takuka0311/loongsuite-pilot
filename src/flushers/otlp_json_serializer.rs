@@ -11,7 +11,9 @@ use crate::types::AgentActivityEntry;
 #[derive(Clone, Debug)]
 pub struct SpanEvent {
     pub name: String,
+    pub time: [i64; 2],
     pub attributes: Map<String, Value>,
+    pub dropped_attributes_count: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -98,6 +100,37 @@ pub fn span_to_json(span: &ReadableSpan) -> String {
         Value::Object(span.attributes.clone()),
     );
     obj.insert("status".to_string(), Value::Object(span.status.clone()));
+    if !span.events.is_empty() {
+        obj.insert("events".into(), Value::Array(span.events.iter().map(|event| serde_json::json!({
+            "name": event.name, "timeUnixNano": hr_time_to_nano(event.time),
+            "attributes": event.attributes, "droppedAttributesCount": event.dropped_attributes_count,
+        })).collect()));
+    }
+    if !span.links.is_empty() {
+        obj.insert(
+            "links".into(),
+            Value::Array(
+                span.links
+                    .iter()
+                    .map(|link| {
+                        let context = link.get("context").unwrap_or(link);
+                        let mut value = Map::new();
+                        for key in ["traceId", "spanId", "traceState"] {
+                            if let Some(v) = context.get(key) {
+                                value.insert(key.into(), v.clone());
+                            }
+                        }
+                        for key in ["attributes", "droppedAttributesCount"] {
+                            if let Some(v) = link.get(key) {
+                                value.insert(key.into(), v.clone());
+                            }
+                        }
+                        Value::Object(value)
+                    })
+                    .collect(),
+            ),
+        );
+    }
     if let Some(resource) = &span.resource_attributes {
         obj.insert("resource".to_string(), Value::Object(resource.clone()));
     }

@@ -114,6 +114,7 @@ impl LiveInput {
 }
 
 struct QueueGate {
+    output_owner: &'static str,
     lock: AsyncMutex<()>,
     inflight: AtomicUsize,
     cancellation: Mutex<Option<watch::Sender<bool>>>,
@@ -274,11 +275,19 @@ impl InputManager {
         self.queues.lock().expect("queues").insert(
             input.id.clone(),
             Arc::new(QueueGate {
+                output_owner: if crate::utils::normalize_agent_type(&input.agent_type) == "codex" {
+                    "Codex"
+                } else {
+                    "Doubao Work"
+                },
                 lock: AsyncMutex::new(()),
                 inflight: AtomicUsize::new(0),
                 cancellation: Mutex::new(
-                    (crate::utils::normalize_agent_type(&input.agent_type) == "codex")
-                        .then(|| watch::channel(false).0),
+                    matches!(
+                        crate::utils::normalize_agent_type(&input.agent_type).as_str(),
+                        "codex" | "doubao-work"
+                    )
+                    .then(|| watch::channel(false).0),
                 ),
             }),
         );
@@ -305,7 +314,10 @@ impl InputManager {
             return Ok(None);
         };
         if store.save_failed() {
-            return Err("Codex checkpoint is frozen after output failure".into());
+            return Err(format!(
+                "{} checkpoint is frozen after output failure",
+                gate.output_owner
+            ));
         }
         Ok(Some(store.begin_output()))
     }
@@ -329,7 +341,7 @@ impl InputManager {
         if let Some(receiver) = cancellation {
             tokio::select! {
                 biased;
-                _=wait_output_cancellation(receiver)=>Err("Codex output acceptance cancelled".into()),
+                _=wait_output_cancellation(receiver)=>Err(format!("{} output acceptance cancelled", gate.output_owner)),
                 result=processing=>result,
             }
         } else {

@@ -112,6 +112,10 @@ pub fn resolve_qoder_root() -> String {
 
 #[async_trait]
 impl IdeBody for QoderBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned(), "qoder-tracker".into()])
+    }
+
     fn id(&self) -> &str {
         "qoder"
     }

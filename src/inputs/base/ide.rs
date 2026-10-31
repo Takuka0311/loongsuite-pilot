@@ -8,6 +8,9 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait IdeBody: Send + Sync + 'static {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        None
+    }
     fn id(&self) -> &str;
     fn agent_type(&self) -> ClientType;
     fn data_root(&self) -> &str;
@@ -54,6 +57,10 @@ impl<T: IdeBody> IdeAdapter<T> {
 
 #[async_trait]
 impl<T: IdeBody> InputBody for IdeAdapter<T> {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        self.inner.checkpoint_namespaces()
+    }
+
     fn id(&self) -> &str {
         self.inner.id()
     }

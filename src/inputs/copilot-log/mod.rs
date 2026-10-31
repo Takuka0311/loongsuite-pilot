@@ -347,6 +347,10 @@ fn collect_sources(
 }
 #[async_trait]
 impl InputBody for CopilotLogBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "copilot-log"
     }

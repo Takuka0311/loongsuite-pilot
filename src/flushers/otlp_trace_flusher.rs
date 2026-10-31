@@ -778,6 +778,9 @@ impl OtlpInner {
         if super::trace_event_compat::is_agent_audit_event(&entry)
             || (normalize_agent_type(&entry.agent_type) == "copilot"
                 && entry.get("gen_ai.copilot.session_summary") == Some(&Value::Bool(true)))
+            || (entry.agent_type == "doubao-work"
+                && entry_str(&entry, "loongsuite.doubao_work.trace_role").as_deref()
+                    == Some("log_only"))
         {
             return Ok(());
         }
@@ -800,7 +803,7 @@ impl OtlpInner {
             }
             let mut preempt = Vec::new();
             for (buf_key, buffer) in &state.buffers {
-                if agent_type == "codex" {
+                if agent_type == "codex" || agent_type == "doubao-work" {
                     break;
                 }
                 if buffer.agent_type != agent_type || buf_key == &key || buffer.completed {
@@ -1143,7 +1146,13 @@ impl OtlpInner {
         }
         let prepared = prepare_records(self, agent_type, &records);
         let trace_records = super::trace_event_compat::prepare_trace_events(&prepared.records);
-        let sanitized = drop_orphan_pairs(&trace_records);
+        // Doubao validates native pairs itself; retain incomplete/ambiguous facts so
+        // transcript tools cannot bypass a rejected native observation.
+        let sanitized = if agent_type == "doubao-work" {
+            trace_records
+        } else {
+            drop_orphan_pairs(&trace_records)
+        };
         let started = self.conversion_instant();
         let result = route_convert(agent_type, &sanitized, &prepared.passthrough, converter);
         let succeeded = result.is_ok();
@@ -1683,6 +1692,8 @@ fn route_convert(
     };
     if agent_type == "codex" {
         super::convert_codex_turn(records, &options, converter)
+    } else if agent_type == "doubao-work" {
+        super::convert_doubao_work_turn(records, &options, converter)
     } else if agent_type == "qwen-code-cli" {
         convert_qwen_subagents(records, &options, converter)
     } else if agent_type == "hermes" || agent_type == "openclaw" {
@@ -1742,6 +1753,34 @@ fn convert_state_key(
 }
 
 fn resolve_group_key(entry: &AgentActivityEntry) -> (KeySource, String, String) {
+    if entry.agent_type == "doubao-work" {
+        if entry_str(entry, "loongsuite.doubao_work.observation_scope").as_deref()
+            == Some("native_sandbox_execution")
+        {
+            if let Some(id) =
+                entry_str(entry, "loongsuite.doubao_work.native_execution_id").filter(|id| {
+                    !id.is_empty()
+                        && id.len() <= 128
+                        && id
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c))
+                })
+            {
+                return (
+                    KeySource::TurnId,
+                    id.clone(),
+                    format!("doubao-local-execution:{id}"),
+                );
+            }
+        }
+        if let Some(trace) = entry_str(entry, "trace_id").filter(|id| TRACE_ID_RE.is_match(id)) {
+            return (
+                KeySource::TraceId,
+                trace.clone(),
+                format!("doubao-request:{trace}"),
+            );
+        }
+    }
     if let Some(turn_id) = entry_str(entry, "gen_ai.turn.id") {
         if normalize_agent_type(&entry.agent_type) == "codex" {
             let parts = [
@@ -1787,6 +1826,17 @@ fn resolve_group_key(entry: &AgentActivityEntry) -> (KeySource, String, String) 
 
 fn is_terminal_event(entry: &AgentActivityEntry) -> bool {
     let agent_type = normalize_agent_type(&entry.agent_type);
+    if agent_type == "doubao-work" {
+        return entry_str(entry, "event.name").as_deref() == Some("other")
+            && if entry_str(entry, "loongsuite.doubao_work.observation_scope").as_deref()
+                == Some("native_sandbox_execution")
+            {
+                entry_str(entry, "loongsuite.doubao_work.local_execution_phase").as_deref()
+                    == Some("end")
+            } else {
+                entry_bool(entry, "gen_ai.turn.end") == Some(true)
+            };
+    }
     if agent_type == "copilot"
         && entry_str(entry, "gen_ai.copilot.source").as_deref() == Some("hybrid-v2")
     {
@@ -6285,5 +6335,1058 @@ mod legacy_runtime_contracts {
             assert!(state.convert_states.values().all(|state| state.active == 0));
         }
         flusher.shutdown().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod doubao_contract_tests {
+    use super::*;
+    use crate::types::{OtlpEndpoint, OtlpProtocol};
+    use async_trait::async_trait;
+    use serde_json::json;
+    const EPOCH: i128 = 1_760_000_000_000_000_000;
+    fn time(ms: i128) -> String {
+        (EPOCH + ms * 1_000_000).to_string()
+    }
+    fn ns(t: [i64; 2]) -> i128 {
+        i128::from(t[0]) * 1_000_000_000 + i128::from(t[1])
+    }
+    fn kind(s: &ReadableSpan) -> &str {
+        s.attributes
+            .get("gen_ai.span.kind")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+    }
+    fn records(trace: &str) -> Vec<AgentActivityEntry> {
+        let mut start=entry_from_map(json!({"event.id":format!("{trace}-start"),"event.name":"other","time_unix_nano":time(0),"user.id":"synthetic-user","trace_id":trace,"gen_ai.agent.type":"doubao-work","gen_ai.agent.id":"synthetic-actor","gen_ai.agent.name":"Doubao Work","gen_ai.provider.name":"bytedance.doubao","gen_ai.session.id":"reused-session","gen_ai.turn.id":"reused-turn","gen_ai.turn.start":true,"gen_ai.framework":"doubao-work","loongsuite.doubao_work.observation_scope":"client_message","loongsuite.doubao_work.business_outcome":"unknown","loongsuite.doubao_work.client_outcome":"received","resourceAttributes":{"loongsuite.doubao_work.business_outcome":"unknown","loongsuite.doubao_work.observation_scope":"client_message"}}).as_object().unwrap().clone());
+        // main's native producer marks an evidenced content-free client input
+        // boundary explicitly. This is not a fabricated user prompt.
+        start.input_messages_delta = Some(json!([]));
+        let mut end = start.clone();
+        end.event_id = format!("{trace}-end");
+        end.time_unix_nano = (EPOCH + 10_000_123_000).to_string();
+        end.turn_start = None;
+        end.turn_end = Some(true);
+        start.turn_end = None;
+        vec![start, end]
+    }
+    fn tools(
+        root: &AgentActivityEntry,
+        specs: &[(&str, i128, i128, &str)],
+    ) -> Vec<AgentActivityEntry> {
+        let mut out = Vec::new();
+        for (id, a, b, status) in specs {
+            let mut call = root.clone();
+            call.event_id = format!("{}-{id}-call", root.event_id);
+            call.turn_start = None;
+            call.turn_end = None;
+            call.event_name = Some(crate::types::AgentEventName::ToolCall);
+            call.time_unix_nano = time(*a);
+            call.tool_call_id = Some((*id).into());
+            call.tool_name = Some("Read".into());
+            call.span_id = Some(super::super::doubao_work_converter::digest(
+                &format!("observed:{id}"),
+                16,
+            ));
+            let mut result = call.clone();
+            result.event_id = format!("{}-{id}-result", root.event_id);
+            result.event_name = Some(crate::types::AgentEventName::ToolResult);
+            result.time_unix_nano = time(*b);
+            result
+                .extra
+                .insert("tool.result.status".into(), (*status).into());
+            out.extend([call, result]);
+        }
+        out
+    }
+    fn with_tools(specs: &[(&str, i128, i128, &str)]) -> Vec<AgentActivityEntry> {
+        let mut rows = records(&"a".repeat(32));
+        let t = tools(&rows[0], specs);
+        rows.splice(1..1, t);
+        rows
+    }
+    fn round(
+        ordinal: usize,
+        ids: &[(&str, &str, bool, Option<&str>)],
+        inputs: Value,
+        outputs: Value,
+    ) -> Value {
+        json!({"id":format!("{ordinal:064x}"),"ordinal":ordinal,"inputMessages":inputs,"outputMessages":outputs,"callIds":ids.iter().map(|x|x.0).collect::<Vec<_>>(),"tools":ids.iter().map(|x| { let mut value=json!({"callId":x.0,"name":x.1,"completed":x.2}); if let Some(result)=x.3 {value["result"]=json!(result);} value }).collect::<Vec<_>>()})
+    }
+    fn rounds(rows: &mut [AgentActivityEntry], values: Vec<Value>) {
+        rows[0].extra.insert(
+            "agent.doubao_work.assistant_rounds".into(),
+            json!({"rounds":values,"omittedRounds":0,"duplicateAssistantRows":0}),
+        );
+    }
+    fn task(id: &str, start: i128, end: i128, parent: Option<&str>) -> Vec<AgentActivityEntry> {
+        let mut rows = records(&"a".repeat(32));
+        for (i, row) in rows.iter_mut().enumerate() {
+            row.event_id = format!("{id}-{i}");
+            row.turn_start = None;
+            row.turn_end = None;
+            row.time_unix_nano = time(if i == 0 { start } else { end });
+            row.agent_id = Some(id.into());
+            row.extra.extend(json!({"loongsuite.doubao_work.observation_scope":"native_sandbox_execution","loongsuite.doubao_work.local_execution_phase":if i==0 {"start"} else {"end"},"loongsuite.doubao_work.native_execution_id":id,"loongsuite.doubao_work.local_execution_span_id":super::super::doubao_work_converter::digest(id,16),"loongsuite.doubao_work.root_request_start_unix_nano":time(0),"loongsuite.doubao_work.root_request_end_unix_nano":time(10_000),"loongsuite.doubao_work.root_turn_id":"reused-turn"}).as_object().unwrap().clone());
+            if let Some(parent) = parent {
+                row.parent_span_id = Some(parent.into());
+                row.extra.insert(
+                    "loongsuite.doubao_work.parent_resolution".into(),
+                    "same_query_native_execution".into(),
+                );
+                row.extra.insert(
+                    "loongsuite.doubao_work.native_parent_in_request".into(),
+                    true.into(),
+                );
+            }
+        }
+        rows
+    }
+    #[derive(Default)]
+    struct Capture(Mutex<Vec<ReadableSpan>>);
+    #[async_trait]
+    impl TraceExporter for Capture {
+        async fn export(&self, spans: Vec<ReadableSpan>) -> Result<(), String> {
+            self.0.lock().unwrap().extend(spans);
+            Ok(())
+        }
+        async fn shutdown(&self) {}
+    }
+    fn collector() -> (OtlpTraceFlusher, Arc<Capture>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let capture = Arc::new(Capture::default());
+        let sink = capture.clone();
+        let factory: ExporterFactory = Arc::new(move |_| sink.clone());
+        let cfg = OtlpTraceFlusherConfig {
+            enabled: true,
+            endpoints: vec![OtlpEndpoint {
+                name: "synthetic".into(),
+                endpoint: "http://127.0.0.1:1".into(),
+                headers: None,
+                compression: None,
+                service_name: None,
+            }],
+            protocol: OtlpProtocol::HttpProtobuf,
+            service_name: "doubao-contract".into(),
+            append_agent_type_to_service_name: None,
+            resource_attributes: None,
+            capture_message_content: None,
+            debug: None,
+            turn_idle_timeout_ms: None,
+            resource_attribute_keys: None,
+            span_attribute_passthrough_prefixes: None,
+            max_export_batch_bytes: None,
+            data_dir: Some(dir.path().to_string_lossy().into_owned()),
+            span_enricher_paths: None,
+        };
+        (
+            OtlpTraceFlusher::with_parts(cfg, None, Some(factory), None).unwrap(),
+            capture,
+            dir,
+        )
+    }
+    async fn convert(rows: Vec<AgentActivityEntry>) -> Vec<ReadableSpan> {
+        let (f, s, _dir) = collector();
+        f.send_batch(rows, None).await.unwrap();
+        f.flush().await.unwrap();
+        f.shutdown().await.unwrap();
+        let spans = s.0.lock().unwrap().clone();
+        spans
+    }
+    fn ids(spans: &[ReadableSpan]) -> Vec<String> {
+        spans
+            .iter()
+            .filter(|s| kind(s) != "ENTRY")
+            .map(|s| s.span_id.clone())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn passive_boundaries_preserve_precision_parent_outcomes_and_no_provider_fabrication() {
+        for (outcome, code, parent) in [
+            ("received", 0, None),
+            ("error", 2, None),
+            ("cancelled", 2, None),
+            ("received", 0, Some("1234567890abcdef")),
+        ] {
+            let mut rows = records(&"a".repeat(32));
+            for row in &mut rows {
+                row.parent_span_id = parent.map(str::to_owned);
+                row.extra.insert(
+                    "loongsuite.doubao_work.client_outcome".into(),
+                    outcome.into(),
+                );
+            }
+            rows[1].extra.insert(
+                "loongsuite.doubao_work.selected_skills".into(),
+                json!(["synthetic-skill"]),
+            );
+            let spans = convert(rows).await;
+            assert_eq!(spans.len(), 2);
+            let entry = spans.iter().find(|s| kind(s) == "ENTRY").unwrap();
+            let agent = spans.iter().find(|s| kind(s) == "AGENT").unwrap();
+            assert_eq!(entry.parent_span_id.as_deref(), parent);
+            assert_eq!(
+                agent.parent_span_id.as_deref(),
+                Some(entry.span_id.as_str())
+            );
+            assert_eq!(
+                agent.span_id,
+                super::super::doubao_work_converter::root_agent_span_id(&"a".repeat(32))
+            );
+            for s in &spans {
+                assert_eq!(ns(s.start_time), EPOCH);
+                assert_eq!(ns(s.end_time), EPOCH + 10_000_123_000);
+                assert_eq!(ns(s.duration), 10_000_123_000);
+                assert_eq!(s.status["code"], code);
+                assert_eq!(s.attributes["gen_ai.framework"], "doubao-work");
+                assert_eq!(
+                    s.attributes["loongsuite.doubao_work.selected_skills"],
+                    json!(["synthetic-skill"])
+                );
+                assert!(!s
+                    .attributes
+                    .keys()
+                    .any(|k| k.starts_with("gen_ai.usage.") || k == "gen_ai.request.model"));
+                assert_eq!(
+                    s.resource_attributes.as_ref().unwrap()
+                        ["loongsuite.doubao_work.business_outcome"],
+                    "unknown"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_same_name_tools_keep_real_identity_bounds_content_and_cancel_status() {
+        let mut rows = with_tools(&[("a", 1000, 1500, "success"), ("b", 1100, 1400, "error")]);
+        rows[0].input_messages_delta = Some(
+            json!([{"role":"user","parts":[{"type":"text","content":"synthetic user input"}]}]),
+        );
+        rows.last_mut().unwrap().output_messages = Some(
+            json!([{"role":"assistant","parts":[{"type":"text","content":"synthetic final answer"}]}]),
+        );
+        rows[1].tool_call_arguments = Some(json!({"file_path":"synthetic-a"}));
+        rows[2].tool_call_result = Some(json!("synthetic-result"));
+        let mut mark = rows[0].clone();
+        mark.event_id = "first-output".into();
+        mark.turn_start = None;
+        mark.extra.insert(
+            "loongsuite.doubao_work.observation_scope".into(),
+            "native_first_model_output".into(),
+        );
+        mark.extra.insert(
+            "loongsuite.doubao_work.client_time_to_first_cot_ms".into(),
+            1000.into(),
+        );
+        rows.insert(1, mark);
+        let spans = convert(rows.clone()).await;
+        let agent = spans.iter().find(|s| kind(s) == "AGENT").unwrap();
+        assert_eq!(spans.len(), 4);
+        assert!(agent.attributes["gen_ai.input.messages"]
+            .as_str()
+            .unwrap()
+            .contains("synthetic user input"));
+        assert!(agent.attributes["gen_ai.output.messages"]
+            .as_str()
+            .unwrap()
+            .contains("synthetic final answer"));
+        assert!(agent.events.is_empty());
+        assert_eq!(
+            agent.attributes["loongsuite.doubao_work.client_time_to_first_cot_ms"],
+            json!(1000.0)
+        );
+        for (id, a, b, code) in [("a", 1000, 1500, 0), ("b", 1100, 1400, 2)] {
+            let s = spans
+                .iter()
+                .find(|s| s.attributes.get("gen_ai.tool.call.id") == Some(&json!(id)))
+                .unwrap();
+            assert_eq!(s.parent_span_id.as_deref(), Some(agent.span_id.as_str()));
+            assert_eq!(
+                (ns(s.start_time), ns(s.end_time)),
+                (EPOCH + a * 1_000_000, EPOCH + b * 1_000_000)
+            );
+            assert_eq!(s.status["code"], code);
+        }
+        assert!(spans.iter().all(|s| !matches!(kind(s), "LLM" | "STEP")));
+        assert_eq!(
+            spans
+                .iter()
+                .find(|s| s.attributes.get("gen_ai.tool.call.id") == Some(&json!("a")))
+                .unwrap()
+                .attributes["gen_ai.tool.call.result"],
+            "synthetic-result"
+        );
+        assert_eq!(ids(&spans), ids(&convert(rows.clone()).await));
+        let result = rows
+            .iter_mut()
+            .find(|r| {
+                r.tool_call_id.as_deref() == Some("a")
+                    && r.event_name == Some(crate::types::AgentEventName::ToolResult)
+            })
+            .unwrap();
+        let exact = result.time_unix_nano.clone();
+        result
+            .extra
+            .insert("tool.result.status".into(), "cancelled".into());
+        let spans = convert(rows).await;
+        let s = spans
+            .iter()
+            .find(|s| s.attributes.get("gen_ai.tool.call.id") == Some(&json!("a")))
+            .unwrap();
+        assert_eq!(s.attributes["error.type"], "doubao.local_tool_cancelled");
+        assert_eq!(s.status["code"], 2);
+        assert_eq!(hr_time_to_nano(s.end_time), exact);
+    }
+
+    #[tokio::test]
+    async fn rejects_ambiguous_wrong_owner_and_invalid_tool_boundaries_without_transcript_bypass() {
+        for failure in [
+            "duplicate",
+            "wrong-name",
+            "wrong-actor",
+            "different-owner",
+            "wrong-trace",
+            "outside-owner",
+            "nonpositive",
+            "log-only",
+            "collision",
+            "bad-status",
+        ] {
+            let mut rows =
+                with_tools(&[("a", 1000, 1500, "success"), ("b", 1100, 1400, "success")]);
+            match failure {
+                "duplicate" => {
+                    let mut extra = rows[2].clone();
+                    extra.event_id = "ambiguous-result".into();
+                    extra.time_unix_nano = time(1501);
+                    rows.insert(3, extra);
+                }
+                "wrong-name" => rows[2].tool_name = Some("Write".into()),
+                "wrong-actor" => rows[2].agent_id = Some("other".into()),
+                "different-owner" => {
+                    rows[1].agent_id = Some("other".into());
+                    rows[2].agent_id = Some("other".into());
+                }
+                "wrong-trace" => rows[2].trace_id = Some("b".repeat(32)),
+                "outside-owner" => rows[2].time_unix_nano = time(20_000),
+                "nonpositive" => rows[2].time_unix_nano = rows[1].time_unix_nano.clone(),
+                "log-only" => {
+                    rows[2].extra.insert(
+                        "loongsuite.doubao_work.trace_role".into(),
+                        "log_only".into(),
+                    );
+                }
+                "collision" => {
+                    rows[3].span_id = rows[1].span_id.clone();
+                    rows[4].span_id = rows[1].span_id.clone();
+                }
+                "bad-status" => {
+                    rows[2]
+                        .extra
+                        .insert("tool.result.status".into(), "maybe".into());
+                }
+                _ => unreachable!(),
+            }
+            rounds(
+                &mut rows,
+                vec![round(
+                    1,
+                    &[
+                        ("a", "Read", true, Some("cannot bypass")),
+                        ("b", "Read", true, None),
+                    ],
+                    json!([]),
+                    json!([]),
+                )],
+            );
+            let spans = convert(rows).await;
+            let tools: Vec<_> = spans
+                .iter()
+                .filter(|s| kind(s) == "TOOL")
+                .map(|s| s.attributes["gen_ai.tool.call.id"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                tools,
+                if failure == "collision" {
+                    vec![]
+                } else {
+                    vec!["b"]
+                },
+                "{failure}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn local_tool_spans_are_bounded_and_absent_content_is_not_invented() {
+        let specs: Vec<_> = (0..65)
+            .map(|n| (format!("call-{n}"), 1000 + n * 2, 1001 + n * 2, "success"))
+            .collect();
+        let borrowed: Vec<_> = specs
+            .iter()
+            .map(|s| (s.0.as_str(), s.1, s.2, s.3))
+            .collect();
+        let spans = convert(with_tools(&borrowed)).await;
+        assert_eq!(spans.iter().filter(|s| kind(s) == "TOOL").count(), 64);
+        let owner = spans.iter().find(|s| kind(s) == "AGENT").unwrap();
+        assert_eq!(
+            owner.attributes["loongsuite.doubao_work.tool_observations_count"],
+            64
+        );
+        assert_eq!(
+            owner.attributes["loongsuite.doubao_work.tool_observations_not_in_span"],
+            1
+        );
+        for tool in spans.iter().filter(|s| kind(s) == "TOOL") {
+            assert!(!tool.attributes.contains_key("gen_ai.tool.call.arguments"));
+            assert!(!tool.attributes.contains_key("gen_ai.tool.call.result"));
+        }
+    }
+
+    #[tokio::test]
+    async fn request_identity_survives_reused_session_interleaving_other_agents_and_replay() {
+        let (f, s, _dir) = collector();
+        let a = records(&"a".repeat(32));
+        let b = records(&"b".repeat(32));
+        f.send_batch(vec![a[0].clone(), b[0].clone()], None)
+            .await
+            .unwrap();
+        assert!(s.0.lock().unwrap().is_empty());
+        f.send_batch(vec![a[1].clone(), b[1].clone()], None)
+            .await
+            .unwrap();
+        assert_eq!(s.0.lock().unwrap().len(), 4);
+        f.send_batch(a.clone(), None).await.unwrap();
+        f.send_batch(b.clone(), None).await.unwrap();
+        assert_eq!(s.0.lock().unwrap().len(), 4);
+        let mut c = records(&"c".repeat(32));
+        for row in &mut c {
+            row.agent_type = "claude-code".into();
+            row.input_messages = Some(json!([]));
+        }
+        f.send_batch(c, None).await.unwrap();
+        assert_eq!(s.0.lock().unwrap().len(), 6);
+        f.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_execution_and_log_only_facts_do_not_preempt_active_client_request() {
+        let (f, s, _dir) = collector();
+        let rows = records(&"a".repeat(32));
+        f.send(rows[0].clone(), None).await.unwrap();
+        let mut audit = rows[0].clone();
+        audit.event_id = "audit".into();
+        audit.extra.insert(
+            "loongsuite.doubao_work.trace_role".into(),
+            "log_only".into(),
+        );
+        audit.event_name = Some(crate::types::AgentEventName::ToolCall);
+        f.send(audit, None).await.unwrap();
+        f.send_batch(task("organizer", 4000, 9000, None), None)
+            .await
+            .unwrap();
+        assert_eq!(
+            s.0.lock().unwrap().iter().map(kind).collect::<Vec<_>>(),
+            ["TASK"]
+        );
+        f.send(rows[1].clone(), None).await.unwrap();
+        assert_eq!(s.0.lock().unwrap().len(), 3);
+        f.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_task_parent_links_nested_tool_ownership_and_background_replay_are_exact() {
+        for end in [9000, 12_000] {
+            let mut rows = task("child", 4000, end, Some("1234567890abcdef"));
+            rows[0].extra.insert(
+                "agent.doubao_work.task_input".into(),
+                "visible task input".into(),
+            );
+            rows[0].extra.insert(
+                "agent.doubao_work.task_output".into(),
+                "visible task output".into(),
+            );
+            rows[0].extra.insert("agent.doubao_work.tool_observations".into(),json!([{"callId":"child-read","name":"Read","startNano":time(5000),"endNano":time(6000),"status":"success","arguments":{"file_path":"child.txt"},"result":"child result","decisionId":"decision","executorName":"sandbox"}]));
+            let spans = convert(rows.clone()).await;
+            assert_eq!(spans.len(), 2);
+            let task = spans.iter().find(|s| kind(s) == "TASK").unwrap();
+            let tool = spans.iter().find(|s| kind(s) == "TOOL").unwrap();
+            assert_eq!(tool.parent_span_id.as_deref(), Some(task.span_id.as_str()));
+            assert_eq!(tool.trace_id, task.trace_id);
+            assert_eq!(task.attributes["input.value"], "visible task input");
+            assert_eq!(task.attributes["output.mime_type"], "text/plain");
+            assert_eq!(
+                task.links[0]["context"]["spanId"],
+                super::super::doubao_work_converter::root_agent_span_id(&"a".repeat(32))
+            );
+            assert_eq!(ns(task.end_time), EPOCH + end * 1_000_000);
+            if end > 10_000 {
+                assert!(task.parent_span_id.is_none());
+                assert_ne!(task.trace_id, "a".repeat(32));
+                assert_eq!(
+                    task.attributes["loongsuite.doubao_work.trace_parent_resolution"],
+                    "linked_client_request"
+                );
+            } else {
+                assert_eq!(task.parent_span_id.as_deref(), Some("1234567890abcdef"));
+                assert_eq!(task.trace_id, "a".repeat(32));
+            }
+            assert_eq!(ids(&spans), ids(&convert(rows).await));
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_legacy_fragments_or_unproved_request_boundaries_export_nothing() {
+        for failure in [
+            "fragment",
+            "missing-end",
+            "same-time",
+            "bad-time",
+            "wrong-session",
+            "wrong-turn",
+            "extra-boundary",
+        ] {
+            let mut rows = records(&"a".repeat(32));
+            match failure {
+                "fragment" => {
+                    for row in &mut rows {
+                        row.extra.insert(
+                            "loongsuite.doubao_work.observation_scope".into(),
+                            "native_local_tool_fragment".into(),
+                        );
+                    }
+                }
+                "missing-end" => {
+                    rows.pop();
+                }
+                "same-time" => rows[1].time_unix_nano = rows[0].time_unix_nano.clone(),
+                "bad-time" => rows[0].time_unix_nano = "123".into(),
+                "wrong-session" => rows[1].session_id = "other".into(),
+                "wrong-turn" => rows[1].turn_id = Some("other".into()),
+                "extra-boundary" => {
+                    let mut more = rows[0].clone();
+                    more.event_id = "extra-start".into();
+                    rows.insert(1, more);
+                }
+                _ => unreachable!(),
+            }
+            assert!(convert(rows).await.is_empty(), "{failure}");
+        }
+        for failure in ["root-before", "no-root", "bad-span"] {
+            let mut rows = task("invalid", 4000, 9000, None);
+            match failure {
+                "root-before" => {
+                    rows[0].extra.insert(
+                        "loongsuite.doubao_work.root_request_start_unix_nano".into(),
+                        time(5000).into(),
+                    );
+                }
+                "no-root" => {
+                    rows[0]
+                        .extra
+                        .remove("loongsuite.doubao_work.root_request_end_unix_nano");
+                }
+                "bad-span" => {
+                    rows[0].extra.insert(
+                        "loongsuite.doubao_work.local_execution_span_id".into(),
+                        "bad".into(),
+                    );
+                }
+                _ => unreachable!(),
+            }
+            assert!(convert(rows).await.is_empty(), "{failure}");
+        }
+    }
+
+    #[tokio::test]
+    async fn four_visible_rounds_preserve_parallel_tool_anchors_exact_messages_and_stable_ids() {
+        let mut rows = with_tools(&[
+            ("write", 1000, 1100, "success"),
+            ("a", 2000, 2300, "success"),
+            ("b", 2100, 2400, "success"),
+            ("c", 2200, 2500, "error"),
+            ("recover", 5000, 5200, "success"),
+        ]);
+        rounds(
+            &mut rows,
+            vec![
+                round(
+                    1,
+                    &[("write", "Read", true, None)],
+                    json!([{"role":"user","parts":[{"type":"text","content":"VISIBLE_INPUT"}]}]),
+                    json!([{"role":"assistant","parts":[{"type":"tool_call","id":"write"}]}]),
+                ),
+                round(
+                    2,
+                    &[
+                        ("a", "Read", true, None),
+                        ("b", "Read", true, None),
+                        ("c", "Read", true, None),
+                    ],
+                    json!([{"role":"tool","parts":[{"type":"text","content":"write result"}]}]),
+                    json!([{"role":"assistant","parts":[{"type":"tool_call","id":"a"},{"type":"tool_call","id":"b"},{"type":"tool_call","id":"c"}]}]),
+                ),
+                round(3, &[("recover", "Read", true, None)], json!([]), json!([])),
+                round(
+                    4,
+                    &[],
+                    json!([]),
+                    json!([{"role":"assistant","parts":[{"type":"text","content":"visible final"}]}]),
+                ),
+            ],
+        );
+        let spans = convert(rows.clone()).await;
+        assert_eq!(spans.len(), 15);
+        let llms: Vec<_> = spans.iter().filter(|s| kind(s) == "LLM").collect();
+        assert_eq!(llms.len(), 4);
+        let originals = rows[0].extra["agent.doubao_work.assistant_rounds"]["rounds"]
+            .as_array()
+            .unwrap();
+        for (span, original) in llms.iter().zip(originals) {
+            assert_eq!(
+                span.attributes["gen_ai.input.messages"],
+                original["inputMessages"].to_string()
+            );
+            assert_eq!(
+                span.attributes["gen_ai.output.messages"],
+                original["outputMessages"].to_string()
+            );
+        }
+
+        assert_eq!(
+            llms.iter()
+                .map(|s| (ns(s.start_time) - EPOCH, ns(s.end_time) - EPOCH))
+                .collect::<Vec<_>>(),
+            [
+                (0, 1_000_000_000),
+                (1_100_000_000, 2_000_000_000),
+                (2_500_000_000, 5_000_000_000),
+                (5_200_000_000, 10_000_123_000)
+            ]
+        );
+        assert!(llms[0].attributes["gen_ai.input.messages"]
+            .as_str()
+            .unwrap()
+            .contains("VISIBLE_INPUT"));
+        let output: Value = serde_json::from_str(
+            llms[1].attributes["gen_ai.output.messages"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(output[0]["parts"].as_array().unwrap().len(), 3);
+        for tool in spans.iter().filter(|s| kind(s) == "TOOL") {
+            let step = spans
+                .iter()
+                .find(|s| Some(s.span_id.as_str()) == tool.parent_span_id.as_deref())
+                .unwrap();
+            assert_eq!(kind(step), "STEP");
+            assert!(
+                ns(step.start_time) <= ns(tool.start_time)
+                    && ns(step.end_time) >= ns(tool.end_time)
+            );
+        }
+        for llm in llms {
+            assert_eq!(llm.name, "chat");
+            assert_eq!(llm.status["code"], 0);
+            assert!(
+                !llm.attributes.keys().any(|k| k.starts_with("gen_ai.usage.")
+                    || matches!(
+                        k.as_str(),
+                        "gen_ai.request.model" | "gen_ai.response.id" | "gen_ai.response.model"
+                    ))
+            );
+        }
+        assert_eq!(ids(&spans), ids(&convert(rows).await));
+        assert_eq!(
+            spans
+                .iter()
+                .map(|s| &s.span_id)
+                .collect::<HashSet<_>>()
+                .len(),
+            15
+        );
+    }
+
+    #[tokio::test]
+    async fn untimed_coordination_is_interpolated_between_native_anchors_and_error_is_preserved() {
+        let mut rows = with_tools(&[("local", 6000, 6500, "success")]);
+        rounds(
+            &mut rows,
+            vec![
+                round(
+                    1,
+                    &[(
+                        "create",
+                        "create_agent",
+                        true,
+                        Some("create_agent failed: capacity limit"),
+                    )],
+                    json!([]),
+                    json!([]),
+                ),
+                round(
+                    2,
+                    &[("send", "send_message", true, Some("send_message ok"))],
+                    json!([]),
+                    json!([]),
+                ),
+                round(3, &[("local", "Read", true, None)], json!([]), json!([])),
+                round(4, &[], json!([]), json!([])),
+            ],
+        );
+        let spans = convert(rows).await;
+        let create = spans
+            .iter()
+            .find(|s| s.attributes.get("gen_ai.tool.call.id") == Some(&json!("create")))
+            .unwrap();
+        assert_eq!(
+            (ns(create.start_time) - EPOCH, ns(create.end_time) - EPOCH),
+            (1_200_000_000, 2_400_000_000)
+        );
+        assert_eq!(create.status["code"], 2);
+        assert_eq!(
+            create.attributes["gen_ai.tool.call.result"],
+            "create_agent failed: capacity limit"
+        );
+        let send = spans
+            .iter()
+            .find(|s| s.attributes.get("gen_ai.tool.call.id") == Some(&json!("send")))
+            .unwrap();
+        assert_eq!(
+            (ns(send.start_time) - EPOCH, ns(send.end_time) - EPOCH),
+            (3_600_000_000, 4_800_000_000)
+        );
+        assert!(!send.attributes.contains_key("tool.result.status"));
+    }
+
+    #[tokio::test]
+    async fn explicit_native_wait_interval_is_excluded_from_estimated_model_latency() {
+        let mut rows = with_tools(&[("local", 9000, 9100, "success")]);
+        let wait=json!({"started_at":"2025-10-09T08:53:24Z","ended_at":"2025-10-09T08:53:28Z","actual_waited_seconds":4}).to_string();
+        // Derive RFC3339 from the isolated synthetic epoch instead of a wall clock.
+        let start =
+            chrono::DateTime::from_timestamp(((EPOCH + 4_000_000_000) / 1_000_000_000) as i64, 0)
+                .unwrap()
+                .to_rfc3339();
+        let end =
+            chrono::DateTime::from_timestamp(((EPOCH + 8_000_000_000) / 1_000_000_000) as i64, 0)
+                .unwrap()
+                .to_rfc3339();
+        let mut parsed: Value = serde_json::from_str(&wait).unwrap();
+        parsed["started_at"] = json!(start);
+        parsed["ended_at"] = json!(end);
+        let wait = parsed.to_string();
+        rounds(
+            &mut rows,
+            vec![
+                round(
+                    1,
+                    &[("wait", "Wait", true, Some(&wait))],
+                    json!([]),
+                    json!([]),
+                ),
+                round(2, &[("local", "Read", true, None)], json!([]), json!([])),
+                round(3, &[], json!([]), json!([])),
+            ],
+        );
+        let spans = convert(rows).await;
+        let first = spans.iter().find(|s| kind(s) == "LLM").unwrap();
+        assert_eq!(ns(first.end_time), EPOCH + 4_000_000_000);
+        let wait = spans
+            .iter()
+            .find(|s| s.attributes.get("gen_ai.tool.call.id") == Some(&json!("wait")))
+            .unwrap();
+        assert_eq!(
+            (ns(wait.start_time), ns(wait.end_time)),
+            (EPOCH + 4_000_000_000, EPOCH + 8_000_000_000)
+        );
+    }
+
+    #[tokio::test]
+    async fn orphan_intent_and_inconsistent_round_order_keep_native_facts_without_fabrication() {
+        let mut rows = records(&"a".repeat(32));
+        rounds(
+            &mut rows,
+            vec![
+                round(
+                    1,
+                    &[("unfinished", "Read", false, None)],
+                    json!([]),
+                    json!([]),
+                ),
+                round(2, &[], json!([]), json!([])),
+            ],
+        );
+        let spans = convert(rows).await;
+        assert_eq!(spans.iter().filter(|s| kind(s) == "LLM").count(), 2);
+        assert!(!spans.iter().any(|s| kind(s) == "TOOL"));
+        let mut rows = with_tools(&[
+            ("late", 6000, 6500, "success"),
+            ("early", 2000, 2500, "success"),
+        ]);
+        rounds(
+            &mut rows,
+            vec![
+                round(1, &[("late", "Read", true, None)], json!([]), json!([])),
+                round(2, &[("early", "Read", true, None)], json!([]), json!([])),
+            ],
+        );
+        let spans = convert(rows).await;
+        assert_eq!(spans.iter().filter(|s| kind(s) == "TOOL").count(), 2);
+        assert!(!spans.iter().any(|s| matches!(kind(s), "LLM" | "STEP")));
+        let owner = spans.iter().find(|s| kind(s) == "AGENT").unwrap();
+        assert_eq!(
+            owner.attributes["loongsuite.doubao_work.assistant_rounds_not_in_span"],
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn contained_and_background_task_rounds_keep_exact_owner_turn_fallback_and_time_bounds() {
+        for (start, end) in [(5000, 8000), (2000, 12000), (11000, 15000)] {
+            let mut rows = task("child-rounds", start, end, None);
+            for row in &mut rows {
+                row.turn_id = None;
+            }
+            let a = start + 1000;
+            let b = start + 1500;
+            rows[0].extra.insert("agent.doubao_work.tool_observations".into(),json!([{"callId":"child-read","name":"Read","startNano":time(a),"endNano":time(b),"status":"success","arguments":{"file_path":"child.txt"},"result":"CHILD_RESULT"}]));
+            let input = json!([{"role":"user","parts":[{"type":"text","content":"CHILD_INPUT"}]}]);
+            let intermediate = json!([{"role":"assistant","parts":[{"type":"tool_call","id":"child-read","name":"Read"}]}]);
+            rounds(
+                &mut rows,
+                vec![
+                    round(
+                        1,
+                        &[("child-read", "Read", true, None)],
+                        input.clone(),
+                        intermediate.clone(),
+                    ),
+                    round(
+                        2,
+                        &[],
+                        json!([{"role":"tool","parts":[{"type":"text","content":"CHILD_RESULT"}]}]),
+                        json!([{"role":"assistant","parts":[{"type":"text","content":"CHILD_FINAL"}]}]),
+                    ),
+                ],
+            );
+            let facts = rows.clone();
+            let spans = convert(rows).await;
+            assert_eq!(spans.len(), 6);
+            let owner = spans.iter().find(|s| kind(s) == "TASK").unwrap();
+            let llms: Vec<_> = spans.iter().filter(|s| kind(s) == "LLM").collect();
+            assert_eq!(llms.len(), 2);
+            assert_eq!(
+                llms.iter()
+                    .map(|s| (ns(s.start_time), ns(s.end_time)))
+                    .collect::<Vec<_>>(),
+                [
+                    (EPOCH + start * 1_000_000, EPOCH + a * 1_000_000),
+                    (EPOCH + b * 1_000_000, EPOCH + end * 1_000_000)
+                ]
+            );
+            assert_eq!(
+                llms[0].attributes["gen_ai.input.messages"],
+                input.to_string()
+            );
+            assert_eq!(
+                llms[0].attributes["gen_ai.output.messages"],
+                intermediate.to_string()
+            );
+            assert!(llms[1].attributes["gen_ai.input.messages"]
+                .as_str()
+                .unwrap()
+                .contains("CHILD_RESULT"));
+            assert!(llms[1].attributes["gen_ai.output.messages"]
+                .as_str()
+                .unwrap()
+                .contains("CHILD_FINAL"));
+            for span in spans
+                .iter()
+                .filter(|s| matches!(kind(s), "LLM" | "STEP" | "TOOL"))
+            {
+                assert_eq!(span.trace_id, owner.trace_id);
+                assert_eq!(span.attributes["gen_ai.agent.id"], "child-rounds");
+                assert_eq!(span.attributes["gen_ai.turn.id"], "reused-turn");
+                assert!(
+                    ns(span.start_time) >= ns(owner.start_time)
+                        && ns(span.end_time) <= ns(owner.end_time)
+                );
+            }
+            for step in spans.iter().filter(|s| kind(s) == "STEP") {
+                assert_eq!(step.parent_span_id.as_deref(), Some(owner.span_id.as_str()));
+            }
+            let tool = spans.iter().find(|s| kind(s) == "TOOL").unwrap();
+            let step = spans
+                .iter()
+                .find(|s| Some(s.span_id.as_str()) == tool.parent_span_id.as_deref())
+                .unwrap();
+            assert_eq!(kind(step), "STEP");
+
+            if end > 10_000 {
+                assert!(owner.parent_span_id.is_none());
+                assert_ne!(owner.trace_id, "a".repeat(32));
+            } else {
+                assert_eq!(
+                    owner.parent_span_id.as_deref(),
+                    Some(
+                        super::super::doubao_work_converter::root_agent_span_id(&"a".repeat(32))
+                            .as_str()
+                    )
+                );
+            }
+            assert_eq!(ids(&spans), ids(&convert(facts).await));
+        }
+    }
+
+    #[tokio::test]
+    async fn mask_native_task_tool_and_round_content_before_real_span_and_json_projection() {
+        let secret = format!("sk-{}", "x".repeat(24));
+        let mut rows = task("masked-child", 4000, 9000, None);
+        rows[0]
+            .extra
+            .insert("agent.doubao_work.task_input".into(), secret.clone().into());
+        rows[0].extra.insert(
+            "agent.doubao_work.task_output".into(),
+            secret.clone().into(),
+        );
+        rows[0].extra.insert("agent.doubao_work.tool_observations".into(),json!([{"callId":"masked-read","name":"Read","startNano":time(5000),"endNano":time(6000),"status":"success","arguments":{"key":secret},"result":secret}]));
+        rounds(
+            &mut rows,
+            vec![round(
+                1,
+                &[("masked-read", "Read", true, Some(&secret))],
+                json!([{"role":"user","parts":[{"type":"text","content":secret}]}]),
+                json!([{"role":"assistant","parts":[{"type":"text","content":secret}]}]),
+            )],
+        );
+        let config = crate::types::MaskConfig {
+            mode: crate::types::MaskMode::All,
+            types: vec![],
+            replacement_mode: None,
+        };
+        let rows: Vec<_> = rows
+            .iter()
+            .map(|entry| {
+                crate::mask::mask_agent_activity_entry(entry, &config, None, None).into_owned()
+            })
+            .collect();
+        assert!(!serde_json::to_string(&rows).unwrap().contains(&secret));
+        assert!(rows[0]
+            .extra
+            .get("agent.doubao_work.tool_observations")
+            .unwrap()
+            .is_array());
+        let spans = convert(rows).await;
+        assert_eq!(spans.len(), 4);
+        assert!(spans.iter().any(|s| kind(s) == "TASK"));
+        assert!(spans.iter().any(|s| kind(s) == "TOOL"));
+        assert!(spans.iter().any(|s| kind(s) == "LLM"));
+        let projected = create_readable_span_to_otlp_span_json_array(&spans).join("\n");
+        assert!(!projected.contains(&secret));
+        let owner = spans.iter().find(|s| kind(s) == "TASK").unwrap();
+        assert_ne!(owner.attributes["input.value"], secret);
+        assert_ne!(owner.attributes["output.value"], secret);
+        let tool = spans.iter().find(|s| kind(s) == "TOOL").unwrap();
+        assert!(
+            tool.attributes.contains_key("gen_ai.tool.call.arguments")
+                && tool.attributes.contains_key("gen_ai.tool.call.result")
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_round_ids_call_ids_and_invalid_round_payload_cannot_create_synthetic_models()
+    {
+        for failure in [
+            "round-id",
+            "call-id",
+            "invalid-tool",
+            "invalid-messages",
+            "too-many",
+        ] {
+            let mut rows = with_tools(&[("local", 1000, 1500, "success")]);
+            let mut values = vec![
+                round(1, &[("local", "Read", true, None)], json!([]), json!([])),
+                round(2, &[], json!([]), json!([])),
+            ];
+            match failure {
+                "round-id" => values[1]["id"] = values[0]["id"].clone(),
+                "call-id" => {
+                    values[1] = round(2, &[("local", "Read", true, None)], json!([]), json!([]))
+                }
+                "invalid-tool" => values[0]["tools"][0]["completed"] = json!("yes"),
+                "invalid-messages" => values[0]["inputMessages"] = json!({}),
+                "too-many" => {
+                    values = (1..=65)
+                        .map(|n| round(n, &[], json!([]), json!([])))
+                        .collect()
+                }
+                _ => unreachable!(),
+            }
+            rounds(&mut rows, values);
+            let spans = convert(rows).await;
+            assert_eq!(spans.iter().filter(|s| kind(s) == "TOOL").count(), 1);
+            assert!(
+                !spans.iter().any(|s| matches!(kind(s), "LLM" | "STEP")),
+                "{failure}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn root_client_nested_tasks_and_background_links_do_not_stretch_or_duplicate_invocations()
+    {
+        let (f, capture, _dir) = collector();
+        let request = records(&"a".repeat(32));
+        let root_end = request[1].time_unix_nano.clone();
+        f.send_batch(request, None).await.unwrap();
+        let organizer = task("organizer", 4000, 9000, None);
+        let organizer_id = super::super::doubao_work_converter::digest("organizer", 16);
+        f.send_batch(organizer, None).await.unwrap();
+        let child = task("child", 5000, 8000, Some(&organizer_id));
+        f.send_batch(child, None).await.unwrap();
+        let background = task("background", 5000, 12_000, None);
+        f.send_batch(background, None).await.unwrap();
+        let spans = capture.0.lock().unwrap().clone();
+        assert_eq!(spans.len(), 5);
+        assert_eq!(spans.iter().filter(|s| kind(s) == "AGENT").count(), 1);
+        assert_eq!(spans.iter().filter(|s| kind(s) == "ENTRY").count(), 1);
+        let agent = spans.iter().find(|s| kind(s) == "AGENT").unwrap();
+        let organizer = spans
+            .iter()
+            .find(|s| s.attributes.get("gen_ai.agent.id") == Some(&json!("organizer")))
+            .unwrap();
+        let child = spans
+            .iter()
+            .find(|s| s.attributes.get("gen_ai.agent.id") == Some(&json!("child")))
+            .unwrap();
+        let background = spans
+            .iter()
+            .find(|s| s.attributes.get("gen_ai.agent.id") == Some(&json!("background")))
+            .unwrap();
+        assert_eq!(
+            organizer.parent_span_id.as_deref(),
+            Some(agent.span_id.as_str())
+        );
+        assert_eq!(organizer.links[0]["context"]["spanId"], agent.span_id);
+        assert_eq!(
+            child.parent_span_id.as_deref(),
+            Some(organizer.span_id.as_str())
+        );
+        assert_eq!(background.links[0]["context"]["traceId"], agent.trace_id);
+        assert_eq!(background.links[0]["context"]["spanId"], agent.span_id);
+        assert!(background.parent_span_id.is_none());
+        assert_ne!(background.trace_id, agent.trace_id);
+        for root in spans
+            .iter()
+            .filter(|s| matches!(kind(s), "AGENT" | "ENTRY"))
+        {
+            assert_eq!(hr_time_to_nano(root.end_time), root_end);
+        }
+        f.flush().await.unwrap();
+        assert_eq!(capture.0.lock().unwrap().len(), 5);
+        f.shutdown().await.unwrap();
     }
 }

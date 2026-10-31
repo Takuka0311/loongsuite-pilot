@@ -250,6 +250,10 @@ pub fn default_hook_event_dir() -> String {
 
 #[async_trait]
 impl InputBody for WorkBuddyBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "workbuddy"
     }

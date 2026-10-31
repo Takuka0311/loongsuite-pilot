@@ -7,6 +7,7 @@
 //! on `crate::utils`.
 
 mod snapshot_store;
+pub(crate) mod source_ownership;
 mod state_store;
 
 pub use snapshot_store::{SnapshotEntry, SnapshotStatus, SnapshotStore};

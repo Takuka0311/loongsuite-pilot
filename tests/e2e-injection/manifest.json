@@ -8,6 +8,7 @@
     {"id":"copilot","deployMode":"copilot-plugin","extraScenarios":["jsonc-comments", "shell-env-ownership", "legacy-install-adoption", "partial-deploy-cleanup", "native-hook-wakeup", "windows-auto-deploy-disabled"]},
     {"id":"cursor","deployMode":"hook","extraScenarios":["cursor-alias-dedup"]},
     {"id":"cursor-cli","deployMode":"hook","extraScenarios":["cli-only-discovery", "cursor-alias-dedup"]},
+    {"id":"doubao-work","deployMode":"detection-only","extraScenarios":[]},
     {"id":"dsh","deployMode":"dsh-yaml-patch","extraScenarios":["environment-directory", "managed-yaml"]},
     {"id":"grok-build","deployMode":"hook","extraScenarios":["multiple-settings"]},
     {"id":"hermes-agent","deployMode":"directory-plugin","extraScenarios":["activation-success", "activation-failure-rollback", "deactivation-failure"]},

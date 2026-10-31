@@ -189,13 +189,17 @@ fn encode_span(source: &ReadableSpan) -> Result<Span, String> {
                 .and_then(Value::as_object)
                 .map(attributes)
                 .unwrap_or_default(),
+            dropped_attributes_count: count(
+                link.get("droppedAttributesCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+            ),
             flags: context
                 .get("traceFlags")
                 .and_then(Value::as_u64)
                 .map(count)
                 .unwrap_or(0)
                 & 0xff,
-            ..Default::default()
         });
     }
     Ok(Span {
@@ -229,13 +233,15 @@ fn encode_span(source: &ReadableSpan) -> Result<Span, String> {
         events: source
             .events
             .iter()
-            .map(|event| span::Event {
-                time_unix_nano: end,
-                name: event.name.clone(),
-                attributes: attributes(&event.attributes),
-                ..Default::default()
+            .map(|event| {
+                Ok(span::Event {
+                    time_unix_nano: nanos(event.time)?,
+                    name: event.name.clone(),
+                    attributes: attributes(&event.attributes),
+                    dropped_attributes_count: count(event.dropped_attributes_count),
+                })
             })
-            .collect(),
+            .collect::<Result<Vec<_>, String>>()?,
         links,
         flags: 1,
         dropped_attributes_count: count(source.dropped_attributes_count),
@@ -336,5 +342,65 @@ mod tests {
         let error = exporter.export(vec![span]).await.unwrap_err();
         assert!(error.contains("超时"));
         assert!(!error.contains("do-not-log"));
+    }
+}
+
+#[cfg(test)]
+mod observation_serialization_contracts {
+    use super::*;
+    use crate::flushers::otlp_json_serializer::{span_to_json, SpanEvent};
+    use serde_json::json;
+
+    #[test]
+    fn observed_event_time_and_origin_link_survive_json_and_real_protobuf_encoding() {
+        let mut span = ReadableSpan::minimal("run_task", &"a".repeat(32), &"b".repeat(16));
+        span.start_time = [1_760_000_000, 123];
+        span.end_time = [1_760_000_005, 987];
+        span.events.push(SpanEvent {
+            name: "gen_ai.tool.result".into(),
+            time: [1_760_000_002, 456],
+            attributes: json!({"gen_ai.tool.call.id":"observed-call"})
+                .as_object()
+                .unwrap()
+                .clone(),
+            dropped_attributes_count: 3,
+        });
+        span.links.push(json!({"context":{"traceId":"c".repeat(32),"spanId":"d".repeat(16),"traceState":"sample=1","traceFlags":1},"attributes":{"loongsuite.link.type":"origin_client_request"},"droppedAttributesCount":2}));
+        let json: Value = serde_json::from_str(&span_to_json(&span)).unwrap();
+        assert_eq!(json["events"][0]["timeUnixNano"], "1760000002000000456");
+        assert_eq!(json["events"][0]["droppedAttributesCount"], 3);
+        assert_eq!(json["links"][0]["traceId"], "c".repeat(32));
+        assert_eq!(json["links"][0]["spanId"], "d".repeat(16));
+        assert_eq!(json["links"][0]["traceState"], "sample=1");
+        assert_eq!(
+            json["links"][0]["attributes"]["loongsuite.link.type"],
+            "origin_client_request"
+        );
+        let request = encode_request(&[span]).unwrap();
+        let bytes = request.encode_to_vec();
+        let decoded = ExportTraceServiceRequest::decode(bytes.as_slice()).unwrap();
+        let actual = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(actual.events[0].time_unix_nano, 1_760_000_002_000_000_456);
+        assert_ne!(actual.events[0].time_unix_nano, actual.end_time_unix_nano);
+        assert_eq!(actual.events[0].dropped_attributes_count, 3);
+        assert_eq!(actual.links[0].trace_id, vec![0xcc; 16]);
+        assert_eq!(actual.links[0].span_id, vec![0xdd; 8]);
+        assert_eq!(actual.links[0].dropped_attributes_count, 2);
+        assert_eq!(actual.links[0].trace_state, "sample=1");
+        assert_eq!(actual.links[0].flags, 1);
+    }
+
+    #[test]
+    fn absent_observations_stay_absent_and_invalid_event_time_fails_encoding() {
+        let mut span = ReadableSpan::minimal("empty", &"a".repeat(32), &"b".repeat(16));
+        let json: Value = serde_json::from_str(&span_to_json(&span)).unwrap();
+        assert!(json.get("events").is_none() && json.get("links").is_none());
+        span.events.push(SpanEvent {
+            name: "invalid".into(),
+            time: [-1, 0],
+            attributes: Map::new(),
+            dropped_attributes_count: 0,
+        });
+        assert!(encode_request(&[span]).is_err());
     }
 }

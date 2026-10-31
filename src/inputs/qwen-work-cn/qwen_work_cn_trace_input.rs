@@ -148,6 +148,10 @@ impl QwenWorkCnTraceInput {
 
 #[async_trait]
 impl InputBody for QwenWorkCnTraceBody {
+    fn checkpoint_namespaces(&self) -> Option<Vec<String>> {
+        Some(vec![self.id().to_owned()])
+    }
+
     fn id(&self) -> &str {
         "qwen-work-cn-trace"
     }
