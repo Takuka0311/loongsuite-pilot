@@ -1448,7 +1448,12 @@ Cmd-Install
                     "{scenario}: {}",
                     String::from_utf8_lossy(&output.stderr)
                 );
-                assert_eq!(stop.exists(), scenario == "new");
+                assert_eq!(
+                    stop.exists(),
+                    matches!(scenario, "new" | "supported-enricher"),
+                    "{scenario}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 assert!(!fixture.root.path().join("cache/current").exists());
                 assert!(!fixture.root.path().join(".local").exists());
                 if let Some(original) = original {

@@ -365,7 +365,7 @@ fn native_argument_probe_fixture() {
     let mut input = Vec::new();
     std::io::stdin().read_to_end(&mut input).unwrap();
     fs::write(
-        std::env::current_dir().unwrap().join("argv-probe.json"),
+        std::env::var_os("PILOT_ARGV_PROBE_OUTPUT").expect("isolated probe output"),
         serde_json::to_vec(&json!({"args":args,"input":input})).unwrap(),
     )
     .unwrap();
@@ -419,7 +419,17 @@ fn powershell_bridge_preserves_raw_bytes_and_native_argument_boundaries() {
             } else {
                 ""
             };
-            let body = format!("{mode}. ($PSScriptRoot + '\\shared\\native.ps1')\nInvoke-PilotNative -HookDir $PSScriptRoot -Arguments @({array}) -EmptyResult ''\n");
+            let body = format!(
+                "{mode}. ($PSScriptRoot + '\\shared\\native.ps1')\n\
+                $initialErrors = $Error.Count\n\
+                Invoke-PilotNative -HookDir $PSScriptRoot -Arguments @({array}) -EmptyResult ''\n\
+                $probeErrors = $Error.Count - $initialErrors\n\
+                $probeRecords = @($Error)\n\
+                for ($i = 0; $i -lt $probeErrors -and $i -lt 3; $i++) {{\n\
+                    $record = $probeRecords[$i]\n\
+                    Write-Error ('argv fixture: ' + [string]$record.FullyQualifiedErrorId + ': ' + [string]$record.Exception.Message) -ErrorAction Continue\n\
+                }}\n"
+            );
             // Windows PowerShell 5.1 needs a BOM for literal Unicode in scripts.
             let mut source = vec![0xef, 0xbb, 0xbf];
             source.extend(body.as_bytes());
@@ -433,7 +443,8 @@ fn powershell_bridge_preserves_raw_bytes_and_native_argument_boundaries() {
                     "Bypass",
                     "-File",
                 ])
-                .arg(&script);
+                .arg(&script)
+                .env("PILOT_ARGV_PROBE_OUTPUT", &output_path);
             let output = execute(command, root.path(), &input);
             assert!(
                 output.status.success(),

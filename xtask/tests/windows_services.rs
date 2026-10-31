@@ -157,7 +157,10 @@ fn both_shells_preserve_empty_quotes_unicode_and_exit_codes_including_clm() {
             let fixture = Fixture::new();
             success(&fixture.invoke(&shell, r#"
 Invoke-Pilot -Arguments @('span-attr', 'set', '自定义', '', 'a"b', 'C:\space end\', 'O''Brien 🚀', '\\"')
-if ($script:PilotExitCode -ne 0) { throw 'native invocation failed' }
+if ($script:PilotExitCode -ne 0) {
+    $diagnostics = @($Error | ForEach-Object { [string]$_.FullyQualifiedErrorId + ': ' + [string]$_.Exception.Message })
+    throw ('native invocation failed: exit=' + $script:PilotExitCode + ' last=' + $global:LASTEXITCODE + ' | ' + ($diagnostics -join ' | '))
+}
 $env:PILOT_FIXTURE_MODE = 'fail'
 Invoke-Pilot -Arguments @('probe') 2>$null
 if ($script:PilotExitCode -eq 0) { throw 'failure hidden' }
@@ -249,7 +252,22 @@ exit $LASTEXITCODE
                 .map(|part| u16::from_le_bytes([part[0], part[1]]))
                 .collect();
             let source = String::from_utf16(&words).unwrap();
-            assert!(source.contains(fixture.binary.to_str().unwrap()));
+            // Join-Path can expand the temp directory's Windows 8.3 alias.
+            // Check that the actual VBS command names the same binary.
+            let invocation = source
+                .lines()
+                .find(|line| line.starts_with("WScript.Quit sh.Run("))
+                .unwrap();
+            let emitted_binary = invocation
+                .strip_prefix("WScript.Quit sh.Run(\"\"\"")
+                .unwrap()
+                .split("\"\" ")
+                .next()
+                .unwrap();
+            assert_eq!(
+                fs::canonicalize(emitted_binary).unwrap(),
+                fs::canonicalize(&fixture.binary).unwrap()
+            );
             assert!(!source.contains("daemon.js"));
             let records = fixture.records();
             let last = records.last().unwrap();

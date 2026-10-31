@@ -370,9 +370,11 @@ fn packaged_deploy_reports_gate_results_and_never_publishes_hook_scope() {
     assert!(first.status.success(), "{first:?}");
     let report: Value = serde_json::from_slice(&first.stdout).unwrap();
     assert_eq!(report["dataDir"], data.to_str().unwrap());
+    // The native CLI resolves its installation root. Windows may spell the
+    // temporary base using an 8.3 alias while the report uses its long path.
     assert_eq!(
-        report["pilotDir"],
-        binary.parent().unwrap().parent().unwrap().to_str().unwrap()
+        fs::canonicalize(report["pilotDir"].as_str().unwrap()).unwrap(),
+        fs::canonicalize(binary.parent().unwrap().parent().unwrap()).unwrap()
     );
     assert_eq!(report["required"], serde_json::json!(["cursor"]));
     assert_eq!(report["unmet"], serde_json::json!([]));
