@@ -83,6 +83,7 @@ jobs:
       - name: Both-shell services, arguments, and restart diagnostics
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: cargo test --locked -p xtask --test windows_services -- --nocapture
+      # Hashed recovery metadata must also persist beyond classic MAX_PATH.
       - name: Platform process, deployment, archive, and diagnostic regressions
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: |

@@ -392,6 +392,11 @@ async fn persist_small_record_inner(
             return Err(io::Error::other("recovery record exceeds budget"));
         }
         strict_components(&directory, true)?;
+        // tempfile's Windows persist path calls Win32 directly. Canonicalize
+        // only after validating every component, retaining the extended-length
+        // prefix for our deeply nested identity/scope/hash metadata paths.
+        #[cfg(windows)]
+        let directory = fs::canonicalize(&directory)?;
         let target = directory.join(name);
         match fs::symlink_metadata(&target) {
             Ok(meta) if link_or_reparse(&meta) || !meta.is_file() => {
@@ -487,6 +492,39 @@ mod tests {
         let opened = open_source_strict(source).await.unwrap();
         assert_eq!(opened.metadata().await.unwrap().len(), 3);
     }
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn recovery_records_persist_beyond_classic_windows_max_path() {
+        let root = tempfile::tempdir().unwrap();
+        // Use the same three hash components as real Doubao recovery, starting
+        // from a normal non-verbatim temp path.
+        let directory = root
+            .path()
+            .join(".pilot-source-ownership")
+            .join("a".repeat(64))
+            .join("doubao-work")
+            .join("b".repeat(64));
+        let name = format!("{}.json", "c".repeat(64));
+        let target = directory.join(&name);
+        use std::os::windows::ffi::OsStrExt;
+        assert!(target.as_os_str().encode_wide().count() > 260);
+        let record = serde_json::json!({"schema": 1, "marker": "synthetic"});
+        assert!(
+            create_small_record(directory.clone(), name.clone(), record.clone())
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            read_small_record(target.clone()).await.unwrap(),
+            Some(record)
+        );
+        let updated = serde_json::json!({"schema": 1, "marker": "updated"});
+        persist_small_record(directory, name, updated.clone())
+            .await
+            .unwrap();
+        assert_eq!(read_small_record(target).await.unwrap(), Some(updated));
+    }
+
     #[test]
     fn proof_survives_append_without_body_or_acknowledged_progress() {
         let root = tempfile::tempdir().unwrap();
