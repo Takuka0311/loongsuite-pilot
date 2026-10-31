@@ -37691,6 +37691,2602 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/hooks/claude-code/hook-processor.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "51f457074797d45b669b7156da8ad653d3ce914283d632e7c6e86adc6ed3a17e",
+      "note": "固定ef8953逐声明49+25+24；基于7854e0448f225ad2e24c33c76d1dec000b533c1d+已交verified95隔离树。Rust1.99.1/glibc2.34/network-none：strict Clippy通过，全workspace2011pass/0fail，2项既有doc忽略。所有target函数核对实际通过日志；Windows/macOS未执行。 新23真实native子进程测试+7既有目标承接49声明；真实父链路回归已修，合成数据/env_clear/有界stdout-stderr/内存OTLP；L511配置路径与L1815 toMatchObject适配见逐条行为说明。",
+      "cases": [
+        {
+          "source": {
+            "id": "L266:C3",
+            "title": "StopFailure 导出带结构化错误的 llm.response，重放不重复",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "StopFailure request/response counts, unknown models, terminal/error finish, request/status/error fields, private-body exclusion and replay dedup.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_stop_failure_exports_structured_error_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L305:C3",
+            "title": "accepts invocation-scoped GenAI identity from env",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Invocation identity remains in dedicated fields while transcript session wins and forbidden agent-name override is rejected.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_accepts_invocation_identity_and_agentteams_resources"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L344:C3",
+            "title": "PreToolUse 注入 per-tool traceparent，Stop 复用其 span id",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "One JSON hook output preserves updated input fields; upstream trace and sampling flags are injected; tool pair claims reserved span; later prompt remains consumed.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_pretool_injects_traceparent_and_stop_reuses_span"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L416:C3",
+            "title": "没有上游时按 hook prompt 生成 trace，并在 transcript 缺 promptId 时保持一致",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Per-prompt local trace seed survives transcript missing promptId; resource quote escaping, reserved tool span and later trace independence.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_generates_local_trace_and_quotes_resource_attributes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L474:C3",
+            "title": "resource attributes can propagate without upstream or local trace generation",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Resource-only Bash propagation writes OTEL_RESOURCE_ATTRIBUTES without TRACEPARENT.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_pretool_defaults_off_and_can_export_resource_attributes_only"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L491:C3",
+            "title": "PreToolUse 默认关闭，并跳过子 Agent Bash",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Default-disabled propagation and explicit child-agent Bash both return the empty hook object.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_pretool_defaults_off_and_can_export_resource_attributes_only"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L511:C3",
+            "title": "PreToolUse 为后台 Bash 注入上下文，并复用即时 tool_result 的 TOOL span id",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Background Bash input flag and launch result survive injection; immediate tool pair reuses reserved span.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 测试适配明确：AGENT_DATA_COLLECTION_CONFIG与真实写入的temp data/config.json指向同一路径，避免错误配置路径把传播禁用。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "background_bash_reserves_span_and_preserves_launch_result"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L559:C3",
+            "title": "AgentTeams 环境变量会进入 hook record resourceAttributes",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "All AgentTeams environment inputs are supplied; only worker/instance resource keys are emitted, none leak as root attributes, worker names agent.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "basic_records_have_valid_hex_trace_and_agentteams_only_allowed_resources"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L593:C3",
+            "title": "单 turn、单 LLM、单 tool — Stop 产出正确 JSONL",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual stop emits required event families, native agent/session fields and one lowercase-hex 32-character trace.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_stop_builds_tool_steps_and_parallel_tools_share_a_step"
+              },
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "basic_records_have_valid_hex_trace_and_agentteams_only_allowed_resources"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L624:C3",
+            "title": "单 turn、多 LLM、每 LLM 1 tool — STEP 数 == LLM 数",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Three LLM steps/two tools, exact tool-call/result deltas and per-tool declaring step.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_stop_builds_tool_steps_and_parallel_tools_share_a_step"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L684:C3",
+            "title": "LLM 声明 3 个并行 tool — 全部归属到声明方 step（核心场景）",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Streaming three-tool fixture keeps all calls/results on first declaring step; supplemental native assertion checks every matched pair shares span.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_stop_builds_tool_steps_and_parallel_tools_share_a_step"
+              },
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "multiple_tools_survive_end_turn_and_pairs_keep_declaring_step_and_span"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L723:C3",
+            "title": "end_turn 后有 tool 执行（多 LLM 各声明多 tool）— 不丢失",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Two declared tools survive final end_turn; both calls/results remain on first step.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "multiple_tools_survive_end_turn_and_pairs_keep_declaring_step_and_span"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L747:C3",
+            "title": "Cursor 调用方早返回,不写 state",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Cursor-caller stop returns without writing session state.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_cursor_caller_missing_session_offset_and_turns"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L752:C3",
+            "title": "缺 session_id 不崩溃",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Missing session exits successfully and creates zero session files.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "missing_session_creates_no_session_files_and_synthetic_replay_stays_empty"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L759:C3",
+            "title": "transcript_offset 增量持久化",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Native transcript byte offset advances, events clear and unchanged transcript replay adds no logs.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_cursor_caller_missing_session_offset_and_turns"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L777:C3",
+            "title": "synthetic-only transcript 会推进 offset 但不产生日志",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Synthetic-only transcript advances durable offset while first export and replay both remain empty.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "missing_session_creates_no_session_files_and_synthetic_replay_stays_empty"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L792:C3",
+            "title": "多 turn session — turn_count 递增",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Append second turn; turn_count becomes two and traces stay distinct.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_cursor_caller_missing_session_offset_and_turns"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L820:C3",
+            "title": "未注册的 subcommand 静默返回",
+            "suites": [
+              "claude-code-hook-processor v2 端到端"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Unregistered historical subcommand exits zero without state.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::claude_cursor_caller_missing_session_offset_and_turns"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L828:C3",
+            "title": "后台子 Agent 完成前不导出，SubagentStop 后导出完整父子链路",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Incomplete child defers parent; append real tool-result/final child then completion emits one parent call, full child body/tokens, clears pending and ignores duplicate; real OTLP exporter verifies child-agent -> tool -> step parent IDs, contained end times, attributes/output and globally unique span IDs.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "background_subagent_defers_then_exports_complete_chain_once_with_contained_times"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L981:C3",
+            "title": "SubagentStop 早于父 Stop 时仍只导出一次完整链路",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Early SubagentStop emits nothing; later parent Stop emits one complete child chain and clears completion/pending state.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "subagent_completion_before_parent_stop_keeps_one_complete_chain"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1030:C3",
+            "title": "多个后台子 Agent 的重复完成通知不会留下陈旧完成标记",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Two background children wait for both completions; duplicate first notification creates no stale marker, final export has two calls/two children and empty state maps.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "multiple_background_completions_do_not_reintroduce_stale_markers"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1100:C3",
+            "title": "子 transcript 记录继承父 turn 链路并挂到 Agent tool call",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Child inherits trace/session/turn/agent scope/depth/name/tool parent; three requests pair to responses with positive bounded physical times and exact child request timestamp.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "child_records_inherit_parent_chain_and_keep_real_request_boundaries"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1162:C3",
+            "title": "父子 Agent attempt 交错时，retry span 仍归属子 Agent",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Parent/child attempts interleave; retry retains child scope/id/provider request/error/finish.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "child_retries_keep_ownership_across_parent_interleaving_and_hash_groups"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1227:C3",
+            "title": "父成功交错在子 retry 与子成功之间时，按 request_hash 分组不丢子 retry",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Different parent hash interleaves before child success; child still has exactly independent failed retry plus healthy success.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "child_retries_keep_ownership_across_parent_interleaving_and_hash_groups"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1308:C3",
+            "title": "background child error owns only its anchored retries when the parent error lacks a request ID",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Unanchored parent attempts remain on disk; only child anchored group is consumed, emits four physical responses with correct provider errors/time/ownership and replay equality; real OTLP exporter checks parent success/parent failure/child failures plus tool parent and non-LLM error isolation.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "background_child_terminal_error_owns_anchored_retries_without_claiming_unanchored_parent"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1424:C3",
+            "title": "损坏的子 transcript 不会中断父会话导出",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Null child content logs subagent_transcript_parse/parse_failed while parent exports and child records stay absent.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "invalid_child_transcript_reports_parse_error_without_breaking_parent"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1457:C3",
+            "title": "路径穿越形式的 agentId 不会读取子目录外的 transcript",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Traversal ID is supplied alongside populated outside transcript; no child records or private outside text are emitted.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "traversal_and_empty_child_ids_never_escape_but_unicode_ids_resolve"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1485:C3",
+            "title": "空 agentId 不会生成子 Agent 记录",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Empty agentId never creates child records.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "traversal_and_empty_child_ids_never_escape_but_unicode_ids_resolve"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1499:C3",
+            "title": "Unicode agentId 可以定位合法子 transcript",
+            "suites": [
+              "claude-code 一级子 Agent 上报"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Unicode agentId finds actual temporary child transcript and appears on child record.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "traversal_and_empty_child_ids_never_escape_but_unicode_ids_resolve"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1591:C3",
+            "title": "full match: both llm.request and llm.response receive new fields, intercept files deleted",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Both exact response matches enrich two requests with full system array and two responses with exact TTFT, then delete both intercept files.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "intercept_full_match_enriches_both_events_and_deletes_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1631:C3",
+            "title": "adopts the preload-minted llm_span_id as the LLM span id",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Both request/response events claim correct preload physical span, never self-parent.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "intercept_minted_span_ids_are_claimed_and_invalid_ids_get_distinct_local_fallbacks"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1656:C3",
+            "title": "rejects an invalid llm_span_id and generates one locally",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Invalid and all-zero advertised spans fall back to lowercase hex, pair IDs remain equal, distinct calls differ and neither self-parents.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "intercept_minted_span_ids_are_claimed_and_invalid_ids_get_distinct_local_fallbacks"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1681:C3",
+            "title": "each retry attempt span claims the id its own physical request advertised",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Each failed and success attempt claims its own advertised span; invalid retry span falls back locally without replacing valid sibling span.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "retries_claim_their_physical_span_ids_and_export_independently"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1737:C3",
+            "title": "emits every failed retry as an independent LLM span before final success",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Three physical request/response pairs keep ordered finish/request/status/errors and omit private/transient fields, consume all attempts; real OTLP exporter emits three LLM spans with two failures and healthy agent.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "retries_claim_their_physical_span_ids_and_export_independently"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1815:C3",
+            "title": "partial response with %s exports one failed LLM at the physical end time",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": [
+              "test.each(['aborted', 'typeerror'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "Both aborted and typeerror parameters preserve partial output, exact physical start/end time and failure status, consume one attempt, dedup replay, and keep non-LLM parents healthy through real OTLP export.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 原toMatchObject允许message额外finish_reason（旧converter本就生成）；Rust严格核对数组/parts长度及role/type/content，保留该既有字段，不加入原source没有的禁止字段要求。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "partial_network_errors_use_physical_end_preserve_content_and_replay_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1876:C3",
+            "title": "success without request_hash consumes only its exact anchor, not preceding failures",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Null request_hash success consumes only its exact response anchor; preceding failures remain files and create no guessed spans.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "missing_hash_and_overlapping_groups_only_consume_exact_success_anchor"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1905:C3",
+            "title": "repeated request ID with %s hashes skips attempts but exports transcript failure",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": [
+              "test.each(['same', 'different'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "Both same/different hash parameters leave repeated-provider-ID attempts untouched; transcript failure retains exact error/status/physical timestamp and produces one failed OTLP LLM.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "ambiguous_request_ids_do_not_guess_even_for_same_hash"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1938:C3",
+            "title": "overlapping same-hash failures reject the preceding retry group",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Overlapping same-hash retry interval rejects the preceding group and consumes only exact successful response anchor.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "missing_hash_and_overlapping_groups_only_consume_exact_success_anchor"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1969:C3",
+            "title": "reused provider request ID keeps physical retries as distinct real LLM spans",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Reused provider request ID still emits three distinct physical spans with unique response IDs, failed retry statuses and healthy terminal success.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "retries_claim_their_physical_span_ids_and_export_independently"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2014:C3",
+            "title": "does not duplicate the final failed attempt already represented by StopFailure",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Terminal StopFailure exact request anchor is not counted twice; three physical failures emit once and only last marks turn.end.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "terminal_failed_attempt_is_not_duplicated_and_only_final_ends_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2048:C3",
+            "title": "StopFailure racing transcript flush still exports the terminal error span",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual native hook starts on empty transcript; fixture flush after 250ms produces one terminal structured error with exact provider ID/status.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "stop_failure_waits_for_transcript_flush_race"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2109:C3",
+            "title": "no intercept directory: records emit without new fields (graceful)",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Absent intercept directory still emits real LLM events without system instructions or TTFT.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "intercept_absent_partial_malformed_and_orphan_lifetimes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2125:C3",
+            "title": "partial match: only response_ids with intercept files get enriched",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Only exact matching first message gets system array and TTFT; second remains unenriched.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "intercept_absent_partial_malformed_and_orphan_lifetimes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2153:C3",
+            "title": "stale orphan intercept file (mtime > 1h) is reaped on Stop",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Two-hour orphan intercept file is reaped by actual Stop.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "intercept_absent_partial_malformed_and_orphan_lifetimes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2170:C3",
+            "title": "fresh non-matching intercept file (mtime < 1h) is left alone",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Fresh unmatched intercept file remains available for future turn.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "intercept_absent_partial_malformed_and_orphan_lifetimes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2186:C3",
+            "title": "malformed intercept JSON: hook still emits records (no crash)",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Malformed intercept JSON and invalid physical attempt timestamps do not crash or suppress actual LLM output.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "intercept_absent_partial_malformed_and_orphan_lifetimes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2209:C3",
+            "title": "no guessing: missing request ID leaves same-model attempts untouched inside and outside the turn",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Same-model attempts both before and within prompt window lack exact provider anchor, remain untouched, and transcript failure emits without request ID.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "unanchored_failures_are_untouched_inside_and_outside_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2264:C3",
+            "title": "跨 session 清理: 其它 session 的过期 attempt 在本次导出时被扫掉",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Export of active session reaps other-session stale attempt and removes abandoned empty session directory.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "stale_attempts_reap_across_sessions_and_on_empty_transcript_return"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2281:C3",
+            "title": "提前返回路径: 空 transcript 也会 reap 过期 attempt",
+            "suites": [
+              "hook-processor merges intercept data into llm events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Empty transcript short-circuit still reaps stale attempt.  隔离clone固定7854e04+verified95基底实际执行新23 targeted，strict alltargets/allfeatures通过；既有目标由全库回归复验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_processor_history.rs",
+                "test": "stale_attempts_reap_across_sessions_and_on_empty_transcript_return"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/cursor/skill-detector.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "361d71ee9f4534152f2e5ebfe93ca5c1b2d757823cf7c6a85391e3bbc341c6e8",
+      "note": "固定ef8953逐声明49+25+24；基于7854e0448f225ad2e24c33c76d1dec000b533c1d+已交verified95隔离树。Rust1.99.1/glibc2.34/network-none：strict Clippy通过，全workspace2011pass/0fail，2项既有doc忽略。所有target函数核对实际通过日志；Windows/macOS未执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L24:C3",
+            "title": "should recognize supported skill document path %s",
+            "suites": [
+              "parseSkillDocumentPath"
+            ],
+            "parameters": [
+              "it.each([\n    ['/Users/utkvrjan/.agents/skills/ai-rag2/SKILL.md', 'ai-rag2'],\n    [\n      '/Users/utkvrjan/.claude/plugins/cache/context-hub/utilities/431adcc76243/skills/ai-rag2/SKILL.md',\n      'ai-rag2',\n    ],\n    ['/Users/test/.cursor/skills/code-review/SKILL.md', 'code-review'],\n    ['/Users/test/.cursor/skills-cursor/create-rule/SKILL.md', 'create-rule'],\n    ['/Users/test/.codex/skills/.system/imagegen/SKILL.md', 'imagegen'],\n    ['/workspace/project/skills/deploy-helper/SKILL.md', 'deploy-helper'],\n    ['C:\\\\Users\\\\test\\\\.agents\\\\skills\\\\ai-rag2\\\\SKILL.md', 'ai-rag2'],\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "should recognize supported skill document path %s；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::recognizes_all_supported_document_roots_including_plugins_system_and_windows"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L39:C3",
+            "title": "should reject non-SKILL.md path %s",
+            "suites": [
+              "parseSkillDocumentPath"
+            ],
+            "parameters": [
+              "it.each([\n    '/Users/test/.cursor/commands/ai-rag2.md',\n    '/Users/test/.agents/skills/ai-rag2/README.md',\n    '/Users/test/.agents/skills/ai-rag2/scripts/run.js',\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "should reject non-SKILL.md path %s；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::rejects_commands_readmes_and_files_below_skill_directory"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L49:C3",
+            "title": "should parse available skills as catalog entries without usage",
+            "suites": [
+              "extractAgentSkillsMetadata"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should parse available skills as catalog entries without usage；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::available_metadata_is_a_catalog_and_never_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L74:C3",
+            "title": "should treat standalone agent_skill elements inside agent_skills as usage",
+            "suites": [
+              "extractAgentSkillsMetadata"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should treat standalone agent_skill elements inside agent_skills as usage；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::standalone_metadata_inside_container_is_usage_with_single_quoted_plugin_path"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L89:C3",
+            "title": "should ignore agent_skill elements outside the agent_skills container",
+            "suites": [
+              "extractAgentSkillsMetadata"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should ignore agent_skill elements outside the agent_skills container；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::metadata_outside_container_has_no_catalog_or_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L111:C3",
+            "title": "should detect skill usage when transcript contains Read SKILL.md",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should detect skill usage when transcript contains Read SKILL.md；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::real_transcript_read_proves_skill_usage_and_never_reads_the_skill_file"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L132:C3",
+            "title": "should detect a manually attached skill without a Read tool call",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should detect a manually attached skill without a Read tool call；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::manual_attachment_is_usage_without_read_and_omits_inlined_body"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L172:C3",
+            "title": "should detect manually attached skills outside .cursor/skills",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should detect manually attached skills outside .cursor/skills；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::manual_plugin_attachment_outside_cursor_directory_is_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L200:C3",
+            "title": "should not treat available agent skills catalog as usage",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should not treat available agent skills catalog as usage；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::available_catalog_does_not_create_transcript_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L220:C3",
+            "title": "should detect a standalone agent_skill usage signal",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should detect a standalone agent_skill usage signal；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::standalone_usage_signal_is_detected_in_matched_user_row"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L244:C3",
+            "title": "should ignore an agent_skill example inside user_query",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should ignore an agent_skill example inside user_query；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::user_query_examples_are_never_interpreted_as_skill_metadata"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L265:C3",
+            "title": "should ignore an agent_skill example inside attached SKILL.md content",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should ignore an agent_skill example inside attached SKILL.md content；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::attached_document_examples_do_not_activate_another_skill"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L295:C3",
+            "title": "should prefer the explicit user_query when inlined skill content contains another prompt",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should prefer the explicit user_query when inlined skill content contains another prompt；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::explicit_user_query_wins_over_prompt_words_inside_attached_document"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L317:C3",
+            "title": "should deduplicate manual attachment and Read evidence for the same skill",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should deduplicate manual attachment and Read evidence for the same skill；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::manual_and_read_evidence_deduplicate_with_strongest_source_and_ordered_sources"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L346:C3",
+            "title": "should detect multiple manually attached skills in one turn",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should detect multiple manually attached skills in one turn；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::multiple_manual_attachments_preserve_declaration_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L374:C3",
+            "title": "should choose the latest turn when identical prompts are repeated",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should choose the latest turn when identical prompts are repeated；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::repeated_prompt_uses_latest_user_turn_only"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L402:C3",
+            "title": "should return null when transcript has no skill reads",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should return null when transcript has no skill reads；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::ordinary_source_file_read_is_not_skill_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L418:C3",
+            "title": "should match the correct turn among multiple turns",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should match the correct turn among multiple turns；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::selected_prompt_is_scoped_to_its_turn_among_multiple_turns"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L443:C3",
+            "title": "should match user prompt containing Chinese characters",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should match user prompt containing Chinese characters；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::chinese_prompt_and_windows_readfile_path_remain_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L461:C3",
+            "title": "should detect a skill under a generic skills directory",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should detect a skill under a generic skills directory；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::ordinary_skills_directory_with_skill_document_proves_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L481:C3",
+            "title": "should return null when transcriptPath is empty or null",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should return null when transcriptPath is empty or null；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::missing_and_empty_transcript_paths_return_none"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L486:C3",
+            "title": "should return null when userPrompt is empty or null",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should return null when userPrompt is empty or null；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::missing_and_empty_prompts_return_none"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L496:C3",
+            "title": "should return null when transcript file does not exist",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should return null when transcript file does not exist；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::absent_transcript_file_returns_none_without_external_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L501:C3",
+            "title": "should detect multiple skills in a single turn",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should detect multiple skills in a single turn；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::multiple_read_skills_preserve_first_evidence_order_even_for_large_batches"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L520:C3",
+            "title": "should stop scanning at turn_ended boundary",
+            "suites": [
+              "detectSkillFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should stop scanning at turn_ended boundary；真实temp transcript→production detector/metadata parser，25项targeted已通过。首次证据顺序回归先失败[b,a]后由IndexMap修复；缺省/null用Rust Option表示。Windows/macOS尚未平台执行。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_detector_history_contracts::turn_ended_stops_scanning_before_next_turn_skill_read"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/cursor/inject-skill-records.test.mjs",
+      "coverage": "partial",
+      "rust": [],
+      "source_hash": "ea31c437ef0a7e32e6d51390e7700cfdfee2e95bb0af42ee93cbee1221154137",
+      "note": "固定ef8953逐声明49+25+24；基于7854e0448f225ad2e24c33c76d1dec000b533c1d+已交verified95隔离树。Rust1.99.1/glibc2.34/network-none：strict Clippy通过，全workspace2011pass/0fail，2项既有doc忽略。所有target函数核对实际通过日志；Windows/macOS未执行。 L274旧JS局部alias与正式输出差异明确保留partial；L699仅退役Node动态import语言机制，以真实native启动无Hook副作用替代。",
+      "cases": [
+        {
+          "source": {
+            "id": "L57:C3",
+            "title": "should synthesize pure manual attachments after transcript assembly",
+            "suites": [
+              "filterSkillsForReadInjection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should synthesize pure manual attachments after transcript assembly；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::filtering_preserves_explicit_reads_without_duplicating_already_assembled_reads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L63:C3",
+            "title": "should synthesize standalone agent_skill usage after transcript assembly",
+            "suites": [
+              "filterSkillsForReadInjection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should synthesize standalone agent_skill usage after transcript assembly；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::filtering_preserves_explicit_reads_without_duplicating_already_assembled_reads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L69:C3",
+            "title": "should not synthesize transcript reads after transcript assembly",
+            "suites": [
+              "filterSkillsForReadInjection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should not synthesize transcript reads after transcript assembly；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::filtering_preserves_explicit_reads_without_duplicating_already_assembled_reads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L76:C3",
+            "title": "should synthesize manual attachments and transcript reads on hook-event assembly paths",
+            "suites": [
+              "filterSkillsForReadInjection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should synthesize manual attachments and transcript reads on hook-event assembly paths；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::filtering_preserves_explicit_reads_without_duplicating_already_assembled_reads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L87:C3",
+            "title": "should inject tool_call part into llm.response output.messages",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should inject tool_call part into llm.response output.messages；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::injected_tool_parts_records_fields_and_pair_ids_match_one_observed_skill"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L105:C3",
+            "title": "should insert tool.call and tool.result records after llm.response",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should insert tool.call and tool.result records after llm.response；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::injected_tool_parts_records_fields_and_pair_ids_match_one_observed_skill"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L129:C3",
+            "title": "should preserve the variant-specific cwd on synthesized skill records",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should preserve the variant-specific cwd on synthesized skill records；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::synthesized_records_retain_cursor_cli_windows_workspace_namespace"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L142:C3",
+            "title": "should share the same toolCallId across output.messages, tool.call, and tool.result",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should share the same toolCallId across output.messages, tool.call, and tool.result；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::injected_tool_parts_records_fields_and_pair_ids_match_one_observed_skill"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L158:C3",
+            "title": "should backfill the synthetic skill exchange into subsequent LLM inputs",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should backfill the synthetic skill exchange into subsequent LLM inputs；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::immediate_delta_and_every_later_full_history_receive_exactly_one_skill_exchange"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L243:C3",
+            "title": "should never backfill a parent Skill exchange into subagent requests",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should never backfill a parent Skill exchange into subagent requests；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::parent_skill_never_backfills_child_or_different_trace_or_different_turn_requests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L274:C3",
+            "title": "should reuse the prior assistant when the source tool call id is null",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "should reuse the prior assistant when the source tool call id is null；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终完整报告记录结果，Windows/macOS未代验。 显式旧测试缺陷/迁移差异，保留partial：旧JS的secondRequest局部引用仍指向records[index]=applyPolicy(...)替换前的对象，故其golden保留id:null；正式records会经同一sanitizeObject递归去掉null键。Rust owned records按正式输出断言：一条既有assistant、reasoning与原tool-call其余字段不变、skill-call仅追加一次、两条独立tool-response；不能声称复现旧局部引用id:null断言。原source别名断言需审定，未静默升级complete。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::null_source_tool_id_reuses_existing_assistant_without_duplicate_reasoning"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L319:C3",
+            "title": "should create assistant/tool history when the source response had no ordinary tools",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should create assistant/tool history when the source response had no ordinary tools；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::source_response_without_ordinary_tools_creates_history_before_later_exchanges"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L361:C3",
+            "title": "should preserve the synthetic skill exchange in the converted next LLM span",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should preserve the synthetic skill exchange in the converted next LLM span；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::injected_exchange_survives_real_native_llm_span_conversion_without_losing_reasoning"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L501:C3",
+            "title": "should assign strictly increasing timestamps relative to llm.response",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should assign strictly increasing timestamps relative to llm.response；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::one_and_multiple_skill_pairs_have_strictly_increasing_exact_nanos_and_observed_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L517:C3",
+            "title": "should handle multiple skills with correct timestamps and paired IDs",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should handle multiple skills with correct timestamps and paired IDs；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::one_and_multiple_skill_pairs_have_strictly_increasing_exact_nanos_and_observed_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L548:C3",
+            "title": "should not modify records when no llm.response exists",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should not modify records when no llm.response exists；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::no_response_empty_records_and_empty_skill_list_are_exact_noops"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L558:C3",
+            "title": "should handle empty records array without error",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should handle empty records array without error；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::no_response_empty_records_and_empty_skill_list_are_exact_noops"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L566:C3",
+            "title": "should not modify records when the skill list is empty",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should not modify records when the skill list is empty；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::no_response_empty_records_and_empty_skill_list_are_exact_noops"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L575:C3",
+            "title": "should append tool_call parts without overwriting existing output.messages",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should append tool_call parts without overwriting existing output.messages；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::existing_output_parts_are_retained_and_manual_detection_source_is_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L602:C3",
+            "title": "should use time_unix_nano for observed_time_unix_nano fallback when missing",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should use time_unix_nano for observed_time_unix_nano fallback when missing；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::one_and_multiple_skill_pairs_have_strictly_increasing_exact_nanos_and_observed_fallback"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L622:C3",
+            "title": "should ignore legacy captureMessageContent=false for injected records",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should ignore legacy captureMessageContent=false for injected records；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 真正运行配置None/false/true→native Cursor hook全生命周期→history；检查skill args/name/id/output、后续canonical full/delta、private prompt全部仍在，不用纯正向构造对象自证false配置。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_config_history_contracts::legacy_capture_setting_preserves_injected_skill_and_prompt_through_real_hook_pipeline"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L658:C3",
+            "title": "should synthesize Read records for a manually attached skill path",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should synthesize Read records for a manually attached skill path；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "skill_injection_history_contracts::existing_output_parts_are_retained_and_manual_detection_source_is_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L699:C3",
+            "title": "should not execute main when imported",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should not execute main when imported；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Node动态import守卫为语言专属机制；replacement执行native真实启动，明确作为退役项而非伪称Rust复现Node import API。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "已逐行检查旧case：Node以动态import加载脚本，断言status=0/stdout为空，专门验证import.meta.url/main入口保护。Rust是静态编译模块，没有Node动态import或脚本main导入机制；保留用户可观察安全意图为“未显式调用Hook的native启动不得输出Hook协议或写数据”。由真实native --version启动精确stdout/no-stderr/no-files和显式空stdin Hook协议测试替代，未退役任何技能检测/注入功能。",
+            "replacement": [
+              {
+                "file": "tests/cursor_dispatch_history.rs",
+                "test": "native_startup_without_hook_command_has_no_hook_output_or_filesystem_side_effects"
+              },
+              {
+                "file": "tests/cursor_dispatch_history.rs",
+                "test": "explicit_cursor_hook_command_with_empty_nonterminal_stdin_returns_only_empty_object"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L714:C3",
+            "title": "should still execute main when invoked directly",
+            "suites": [
+              "injectSkillRecords"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should still execute main when invoked directly；真实native注入/归一化/Span转换，不依赖JS对象引用身份；Linux隔离targeted已执行，最终全workspace2011 passed/0 failed，2项既有doc ignored，Windows/macOS未代验。 Linux隔离Rust1.99.1/glibc2.34最终strict Clippy与全workspace实际通过；Windows/macOS未执行，不代验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/cursor_dispatch_history.rs",
+                "test": "explicit_cursor_hook_command_with_empty_nonterminal_stdin_returns_only_empty_object"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

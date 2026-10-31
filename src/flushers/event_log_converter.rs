@@ -79,7 +79,7 @@ impl EventLogConverter for GenAiEventLogConverter {
         options: &ConvertOptions,
     ) -> Result<ConvertResult, String> {
         if records.iter().any(|record| {
-            record.agent_type == "codex"
+            matches!(record.agent_type.as_str(), "codex" | "claude-code")
                 && record.get("gen_ai.agent.scope").and_then(Value::as_str) == Some("subagent")
         }) {
             return super::qwen_subagent_converter::convert_tool_subagents(records, options, self);

@@ -2509,7 +2509,12 @@ fn subagent_directory(transcript_path: &str) -> PathBuf {
     path.join("subagents")
 }
 
-fn detect_skill_from_transcript(path: &str, user_prompt: &str) -> Option<Vec<SkillHit>> {
+fn detect_skill_from_transcript<'a, 'b>(
+    path: impl Into<Option<&'a str>>,
+    user_prompt: impl Into<Option<&'b str>>,
+) -> Option<Vec<SkillHit>> {
+    let path = path.into()?;
+    let user_prompt = user_prompt.into()?;
     if path.is_empty() || user_prompt.is_empty() {
         return None;
     }
@@ -2548,7 +2553,7 @@ fn detect_skill_from_transcript(path: &str, user_prompt: &str) -> Option<Vec<Ski
         }
     }
     let matched_index = matched_index?;
-    let mut detected: HashMap<String, SkillHit> = HashMap::new();
+    let mut detected: indexmap::IndexMap<String, SkillHit> = indexmap::IndexMap::new();
     for skill in extract_manually_attached_skills(&matched_text) {
         add_detected_skill(&mut detected, skill, "manual_attachment");
     }
@@ -2638,18 +2643,28 @@ fn extract_manually_attached_skills(user_text: &str) -> Vec<SkillPath> {
 }
 
 fn extract_agent_skill_usage(user_text: &str) -> Vec<SkillPath> {
+    extract_agent_skills_metadata(user_text).1
+}
+
+/// Catalog entries and explicit per-turn usage have different meanings. Keep
+/// both classifications, so catalog compatibility cannot become false usage.
+fn extract_agent_skills_metadata(user_text: &str) -> (Vec<SkillPath>, Vec<SkillPath>) {
     if user_text.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let without_manual = MANUALLY_ATTACHED_CONTAINER_RE.replace_all(user_text, "");
     let metadata = USER_QUERY_CONTAINER_RE.replace_all(&without_manual, "");
+    let mut available = Vec::new();
     let mut used = Vec::new();
     for caps in AGENT_SKILLS_CONTAINER_RE.captures_iter(&metadata) {
         let body = caps.get(1).map(|matched| matched.as_str()).unwrap_or("");
-        let usage_body = strip_available_skills(body);
-        used.extend(extract_agent_skill_elements(&usage_body));
+        for catalog in AVAILABLE_SKILLS_RE.captures_iter(body) {
+            let entries = catalog.get(1).map(|matched| matched.as_str()).unwrap_or("");
+            available.extend(extract_agent_skill_elements(entries));
+        }
+        used.extend(extract_agent_skill_elements(&strip_available_skills(body)));
     }
-    used
+    (available, used)
 }
 
 fn strip_available_skills(body: &str) -> String {
@@ -2698,7 +2713,11 @@ fn parse_skill_document_path(file_path: &str) -> Option<SkillPath> {
     })
 }
 
-fn add_detected_skill(detected: &mut HashMap<String, SkillHit>, skill: SkillPath, source: &str) {
+fn add_detected_skill(
+    detected: &mut indexmap::IndexMap<String, SkillHit>,
+    skill: SkillPath,
+    source: &str,
+) {
     let key = format!(
         "{}\0{}",
         skill.skill_name.to_lowercase(),
@@ -2758,6 +2777,9 @@ fn filter_skills_for_read_injection(
 }
 
 fn inject_skill_records(records: &mut Vec<Obj>, skills: &[SkillHit]) {
+    if skills.is_empty() {
+        return;
+    }
     let Some(target) = records
         .iter()
         .position(|record| field_str(record, "event.name") == "llm.response")
@@ -4488,5 +4510,1016 @@ mod transcript_history_contracts {
                 .collect::<Vec<_>>(),
             [Some("call-grep"), None, None]
         );
+    }
+}
+
+#[cfg(test)]
+mod skill_detector_history_contracts {
+    use super::*;
+    fn user(text: &str) -> Value {
+        json!({"role":"user","message":{"content":[{"type":"text","text":text}]}})
+    }
+    fn query(text: &str) -> String {
+        format!("<user_query>\n{text}\n</user_query>")
+    }
+    fn read(path: &str, name: &str) -> Value {
+        json!({"role":"assistant","message":{"content":[{"type":"tool_use","name":name,"input":{"path":path}}]}})
+    }
+    fn manual(names: &[&str], prompt: &str) -> String {
+        let mut text = String::from("<manually_attached_skills>\n");
+        for name in names {
+            text.push_str(&format!("Skill Name: {name}\nPath: /Users/test/.cursor/skills/{name}/SKILL.md\nSKILL.md content:\n# {name}\nInlined private body must not be emitted.\n"));
+        }
+        text.push_str("</manually_attached_skills>\n");
+        text.push_str(&query(prompt));
+        text
+    }
+    fn detect(rows: &[Value], prompt: &str) -> Option<Vec<SkillHit>> {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("transcript.jsonl");
+        fs::write(
+            &file,
+            rows.iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
+        detect_skill_from_transcript(file.to_str().unwrap(), prompt)
+    }
+    fn value(hits: Vec<SkillHit>) -> Value {
+        Value::Array(hits.into_iter().map(|h|json!({"skillName":h.skill_name,"skillPath":h.skill_path,"detectionSource":h.detection_source,"detectionSources":h.detection_sources})).collect())
+    }
+    fn paths(items: Vec<SkillPath>) -> Vec<(String, String)> {
+        items
+            .into_iter()
+            .map(|v| (v.skill_name, v.skill_path))
+            .collect()
+    }
+    fn names(hits: Vec<SkillHit>) -> Vec<String> {
+        hits.into_iter().map(|h| h.skill_name).collect()
+    }
+
+    #[test]
+    fn recognizes_all_supported_document_roots_including_plugins_system_and_windows() {
+        for (path,name) in [
+            ("/Users/test/.agents/skills/ai-rag2/SKILL.md","ai-rag2"),
+            ("/Users/test/.claude/plugins/cache/context-hub/utilities/431adcc76243/skills/ai-rag2/SKILL.md","ai-rag2"),
+            ("/Users/test/.cursor/skills/code-review/SKILL.md","code-review"),
+            ("/Users/test/.cursor/skills-cursor/create-rule/SKILL.md","create-rule"),
+            ("/Users/test/.codex/skills/.system/imagegen/SKILL.md","imagegen"),
+            ("/workspace/project/skills/deploy-helper/SKILL.md","deploy-helper"),
+            (r"C:\Users\test\.agents\skills\ai-rag2\SKILL.md","ai-rag2"),
+        ] {let parsed=parse_skill_document_path(path).unwrap();assert_eq!(parsed.skill_name,name);assert_eq!(parsed.skill_path,path);}
+    }
+    #[test]
+    fn rejects_commands_readmes_and_files_below_skill_directory() {
+        for path in [
+            "/Users/test/.cursor/commands/ai-rag2.md",
+            "/Users/test/.agents/skills/ai-rag2/README.md",
+            "/Users/test/.agents/skills/ai-rag2/scripts/run.js",
+        ] {
+            assert!(parse_skill_document_path(path).is_none());
+        }
+    }
+    #[test]
+    fn available_metadata_is_a_catalog_and_never_usage() {
+        let text="<agent_skills><available_skills><agent_skill fullPath=\"/Users/test/.cursor/skills-cursor/create-rule/SKILL.md\">create</agent_skill><agent_skill fullPath=\"/Users/test/.agents/skills/ai-rag2/SKILL.md\">rag</agent_skill></available_skills></agent_skills>";
+        let (available, used) = extract_agent_skills_metadata(text);
+        assert_eq!(
+            paths(available),
+            [
+                (
+                    "create-rule".into(),
+                    "/Users/test/.cursor/skills-cursor/create-rule/SKILL.md".into()
+                ),
+                (
+                    "ai-rag2".into(),
+                    "/Users/test/.agents/skills/ai-rag2/SKILL.md".into()
+                )
+            ]
+        );
+        assert!(used.is_empty());
+    }
+    #[test]
+    fn standalone_metadata_inside_container_is_usage_with_single_quoted_plugin_path() {
+        let path="/Users/test/.claude/plugins/cache/context-hub/utilities/431adcc76243/skills/ai-rag2/SKILL.md";
+        let (available, used) = extract_agent_skills_metadata(&format!(
+            "<agent_skills><agent_skill fullPath='{path}'>rag</agent_skill></agent_skills>"
+        ));
+        assert!(available.is_empty());
+        assert_eq!(paths(used), [("ai-rag2".into(), path.into())]);
+    }
+    #[test]
+    fn metadata_outside_container_has_no_catalog_or_usage() {
+        let (available,used)=extract_agent_skills_metadata("<agent_skill fullPath=\"/Users/test/.agents/skills/demo/SKILL.md\">example</agent_skill>");
+        assert!(available.is_empty() && used.is_empty());
+    }
+    #[test]
+    fn real_transcript_read_proves_skill_usage_and_never_reads_the_skill_file() {
+        let path = "/Users/test/.cursor/skills/leetcode-solver/SKILL.md";
+        let result = detect(
+            &[
+                user(&format!(
+                    "<timestamp>Tuesday, Jul 21, 2026</timestamp>\n{}",
+                    query("使用 leetcode-solver，解决 leetcode 120")
+                )),
+                read(path, "Read"),
+                json!({"type":"turn_ended"}),
+            ],
+            "使用 leetcode-solver，解决 leetcode 120",
+        )
+        .unwrap();
+        assert_eq!(
+            value(result),
+            json!([{"skillName":"leetcode-solver","skillPath":path,"detectionSource":"transcript_read","detectionSources":["transcript_read"]}])
+        );
+    }
+    #[test]
+    fn manual_attachment_is_usage_without_read_and_omits_inlined_body() {
+        let result=value(detect(&[user(&manual(&["count-if-statements"],"/count-if-statements 统计leetcode_334的if数量")),json!({"role":"assistant","message":{"content":[{"type":"tool_use","name":"Shell","input":{"command":"synthetic command"}}]}}),json!({"type":"turn_ended"})],"/count-if-statements 统计leetcode_334的if数量").unwrap());
+        assert_eq!(
+            result,
+            json!([{"skillName":"count-if-statements","skillPath":"/Users/test/.cursor/skills/count-if-statements/SKILL.md","detectionSource":"manual_attachment","detectionSources":["manual_attachment"]}])
+        );
+        assert!(!result.to_string().contains("Inlined private body"));
+    }
+    #[test]
+    fn manual_plugin_attachment_outside_cursor_directory_is_usage() {
+        let path="/Users/test/.claude/plugins/cache/context-hub/utilities/431adcc76243/skills/ai-rag2/SKILL.md";
+        let text=format!("<manually_attached_skills>\nSkill Name: ai-rag2\nPath: {path}\nSKILL.md content:\n# AI RAG\n</manually_attached_skills>\n{}",query("use ai-rag2"));
+        assert_eq!(
+            value(detect(&[user(&text), json!({"type":"turn_ended"})], "use ai-rag2").unwrap()),
+            json!([{"skillName":"ai-rag2","skillPath":path,"detectionSource":"manual_attachment","detectionSources":["manual_attachment"]}])
+        );
+    }
+    #[test]
+    fn available_catalog_does_not_create_transcript_usage() {
+        let text=format!("<agent_skills><available_skills><agent_skill fullPath=\"/Users/test/.agents/skills/ai-rag2/SKILL.md\">rag</agent_skill></available_skills></agent_skills>\n{}",query("answer without a skill"));
+        assert!(detect(
+            &[user(&text), json!({"type":"turn_ended"})],
+            "answer without a skill"
+        )
+        .is_none());
+    }
+    #[test]
+    fn standalone_usage_signal_is_detected_in_matched_user_row() {
+        let path = "/Users/test/.agents/skills/ai-rag2/SKILL.md";
+        let text = format!(
+            "<agent_skills><agent_skill fullPath=\"{path}\">rag</agent_skill></agent_skills>\n{}",
+            query("use ai-rag2")
+        );
+        assert_eq!(
+            value(detect(&[user(&text), json!({"type":"turn_ended"})], "use ai-rag2").unwrap()),
+            json!([{"skillName":"ai-rag2","skillPath":path,"detectionSource":"agent_skill","detectionSources":["agent_skill"]}])
+        );
+    }
+    #[test]
+    fn user_query_examples_are_never_interpreted_as_skill_metadata() {
+        let text=query("explain this example:\n<agent_skills><agent_skill fullPath=\"/Users/test/.agents/skills/demo/SKILL.md\">example</agent_skill></agent_skills>");
+        assert!(detect(
+            &[user(&text), json!({"type":"turn_ended"})],
+            "explain this example: example"
+        )
+        .is_none());
+    }
+    #[test]
+    fn attached_document_examples_do_not_activate_another_skill() {
+        let text=format!("<manually_attached_skills>\nSkill Name: attached\nPath: /Users/test/.agents/skills/attached/SKILL.md\nSKILL.md content:\n<agent_skills><agent_skill fullPath=\"/Users/test/.agents/skills/demo/SKILL.md\">example</agent_skill></agent_skills>\n</manually_attached_skills>\n{}",query("use attached"));
+        assert_eq!(
+            names(detect(&[user(&text), json!({"type":"turn_ended"})], "use attached").unwrap()),
+            ["attached"]
+        );
+    }
+    #[test]
+    fn explicit_user_query_wins_over_prompt_words_inside_attached_document() {
+        let text=format!("<manually_attached_skills>\nSkill Name: prompt-helper\nPath: /Users/test/.cursor/skills/prompt-helper/SKILL.md\nSKILL.md content:\nfix the bug\n</manually_attached_skills>\n{}",query("run the attached helper"));
+        let rows = [user(&text), json!({"type":"turn_ended"})];
+        assert!(detect(&rows, "fix the bug").is_none());
+        assert_eq!(detect(&rows, "run the attached helper").unwrap().len(), 1);
+    }
+    #[test]
+    fn manual_and_read_evidence_deduplicate_with_strongest_source_and_ordered_sources() {
+        let result = value(
+            detect(
+                &[
+                    user(&manual(&["my-skill"], "use my skill")),
+                    read("/Users/test/.cursor/skills/my-skill/SKILL.md", "Read"),
+                    json!({"type":"turn_ended"}),
+                ],
+                "use my skill",
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            result,
+            json!([{"skillName":"my-skill","skillPath":"/Users/test/.cursor/skills/my-skill/SKILL.md","detectionSource":"manual_attachment","detectionSources":["manual_attachment","transcript_read"]}])
+        );
+    }
+    #[test]
+    fn multiple_manual_attachments_preserve_declaration_order() {
+        let result = detect(
+            &[
+                user(&manual(&["skill-a", "skill-b"], "use both attached skills")),
+                json!({"type":"turn_ended"}),
+            ],
+            "use both attached skills",
+        )
+        .unwrap();
+        assert!(result
+            .iter()
+            .all(|h| h.detection_source == "manual_attachment"));
+        assert_eq!(names(result), ["skill-a", "skill-b"]);
+    }
+    #[test]
+    fn repeated_prompt_uses_latest_user_turn_only() {
+        let rows = [
+            user(&manual(&["old-skill"], "repeat this prompt")),
+            json!({"type":"turn_ended"}),
+            user(&manual(&["new-skill"], "repeat this prompt")),
+            json!({"type":"turn_ended"}),
+        ];
+        assert_eq!(
+            names(detect(&rows, "repeat this prompt").unwrap()),
+            ["new-skill"]
+        );
+    }
+    #[test]
+    fn ordinary_source_file_read_is_not_skill_usage() {
+        assert!(detect(
+            &[
+                user(&query("fix the bug")),
+                read("/Users/test/project/src/main.ts", "Read"),
+                json!({"type":"turn_ended"})
+            ],
+            "fix the bug"
+        )
+        .is_none());
+    }
+    #[test]
+    fn selected_prompt_is_scoped_to_its_turn_among_multiple_turns() {
+        let rows = [
+            user(&query("first turn prompt")),
+            json!({"role":"assistant","message":{"content":[{"type":"text","text":"Done with first turn."}]}}),
+            json!({"type":"turn_ended"}),
+            user(&query("use my-skill to do something")),
+            read("/home/user/.cursor/skills/my-skill/SKILL.md", "Read"),
+            json!({"type":"turn_ended"}),
+        ];
+        assert_eq!(
+            names(detect(&rows, "use my-skill to do something").unwrap()),
+            ["my-skill"]
+        );
+    }
+    #[test]
+    fn chinese_prompt_and_windows_readfile_path_remain_exact() {
+        let path = r"C:\Users\test\.cursor\skills\code-review\SKILL.md";
+        let result = detect(
+            &[
+                user(&format!(
+                    "<timestamp>2026-07-21</timestamp>\n{}",
+                    query("请使用代码审查技能检查代码")
+                )),
+                read(path, "ReadFile"),
+                json!({"type":"turn_ended"}),
+            ],
+            "请使用代码审查技能检查代码",
+        )
+        .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].skill_name, "code-review");
+        assert_eq!(result[0].skill_path, path);
+    }
+    #[test]
+    fn ordinary_skills_directory_with_skill_document_proves_usage() {
+        let path = "/Users/test/projects/skills/my-skill/SKILL.md";
+        assert_eq!(
+            value(
+                detect(
+                    &[
+                        user(&query("read some file")),
+                        read(path, "Read"),
+                        json!({"type":"turn_ended"})
+                    ],
+                    "read some file"
+                )
+                .unwrap()
+            ),
+            json!([{"skillName":"my-skill","skillPath":path,"detectionSource":"transcript_read","detectionSources":["transcript_read"]}])
+        );
+    }
+    #[test]
+    fn missing_and_empty_transcript_paths_return_none() {
+        assert!(detect_skill_from_transcript(None::<&str>, "some prompt").is_none());
+        assert!(detect_skill_from_transcript("", "some prompt").is_none());
+    }
+    #[test]
+    fn missing_and_empty_prompts_return_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("transcript.jsonl");
+        fs::write(&path, user("hello").to_string()).unwrap();
+        assert!(detect_skill_from_transcript(path.to_str().unwrap(), None::<&str>).is_none());
+        assert!(detect_skill_from_transcript(path.to_str().unwrap(), "").is_none());
+    }
+    #[test]
+    fn absent_transcript_file_returns_none_without_external_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(detect_skill_from_transcript(
+            dir.path().join("missing.jsonl").to_str().unwrap(),
+            "hello"
+        )
+        .is_none());
+    }
+    #[test]
+    fn multiple_read_skills_preserve_first_evidence_order_even_for_large_batches() {
+        let mut rows = vec![user(&query("use both skills"))];
+        for name in ["skill-a", "skill-b"] {
+            rows.push(read(
+                &format!("/Users/test/.cursor/skills/{name}/SKILL.md"),
+                "Read",
+            ));
+        }
+        rows.push(json!({"type":"turn_ended"}));
+        assert_eq!(
+            names(detect(&rows, "use both skills").unwrap()),
+            ["skill-a", "skill-b"]
+        );
+        let expected: Vec<_> = (0..20).map(|n| format!("ordered-{n}")).collect();
+        let mut rows = vec![user(&query("ordered skills"))];
+        for name in &expected {
+            rows.push(read(
+                &format!("/Users/test/.cursor/skills/{name}/SKILL.md"),
+                "Read",
+            ));
+        }
+        rows.push(json!({"type":"turn_ended"}));
+        assert_eq!(names(detect(&rows, "ordered skills").unwrap()), expected);
+    }
+    #[test]
+    fn turn_ended_stops_scanning_before_next_turn_skill_read() {
+        let rows = [
+            user(&query("first turn")),
+            json!({"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}),
+            json!({"type":"turn_ended"}),
+            user(&query("second turn")),
+            read("/Users/test/.cursor/skills/some-skill/SKILL.md", "Read"),
+            json!({"type":"turn_ended"}),
+        ];
+        assert!(detect(&rows, "first turn").is_none());
+    }
+}
+
+#[cfg(test)]
+mod skill_injection_history_contracts {
+    use super::*;
+    fn response(patch: Value) -> Obj {
+        let mut row=json!({"trace_id":"trace-001","gen_ai.session.id":"session-001","gen_ai.turn.id":"turn-001","gen_ai.step.id":"step_1","gen_ai.agent.type":"cursor","user.id":"user-001","event.id":"evt-resp-001","event.name":"llm.response","time_unix_nano":"1700000000000000000","observed_time_unix_nano":"1700000000000000100","gen_ai.output.messages":[{"role":"assistant","parts":[{"type":"text","text":"Hello"}]}]}).as_object().unwrap().clone();
+        row.extend(patch.as_object().unwrap().clone());
+        row
+    }
+    fn request(id: &str, patch: Value) -> Obj {
+        let mut row=json!({"trace_id":"trace-001","event.id":id,"event.name":"llm.request","time_unix_nano":"1700000000000000000","gen_ai.turn.id":"turn-001","gen_ai.step.id":"step_2"}).as_object().unwrap().clone();
+        row.extend(patch.as_object().unwrap().clone());
+        row
+    }
+    fn skill(name: &str, path: &str, sources: &[&str]) -> SkillHit {
+        SkillHit {
+            skill_name: name.into(),
+            skill_path: path.into(),
+            detection_source: sources.first().copied().unwrap_or("").into(),
+            detection_sources: sources.iter().map(|s| (*s).into()).collect(),
+        }
+    }
+    fn ordinary_skill() -> SkillHit {
+        skill(
+            "my-skill",
+            "/Users/test/.cursor/skills/my-skill/SKILL.md",
+            &[],
+        )
+    }
+    fn hits_value(hits: &[SkillHit]) -> Value {
+        json!(hits.iter().map(|h|json!({"name":h.skill_name,"path":h.skill_path,"source":h.detection_source,"sources":h.detection_sources})).collect::<Vec<_>>())
+    }
+    fn row<'a>(rows: &'a [Obj], id: &str) -> &'a Obj {
+        rows.iter().find(|r| r["event.id"] == id).unwrap()
+    }
+    fn read_part(row: &Obj) -> &Value {
+        row["gen_ai.output.messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["role"] == "assistant")
+            .unwrap()["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["type"] == "tool_call" && p["name"] == "Read" && p["id"].is_string())
+            .unwrap()
+    }
+    fn roles(messages: &Value) -> Vec<&str> {
+        messages
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["role"].as_str().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn filtering_preserves_explicit_reads_without_duplicating_already_assembled_reads() {
+        for source in ["manual_attachment", "agent_skill"] {
+            let skills = [skill("my-skill", "/path/SKILL.md", &[source])];
+            assert_eq!(
+                hits_value(&filter_skills_for_read_injection(&skills, true)),
+                hits_value(&skills)
+            );
+        }
+        let transcript = skill("my-skill", "/path/SKILL.md", &["transcript_read"]);
+        let dual = skill(
+            "my-skill",
+            "/path/SKILL.md",
+            &["manual_attachment", "transcript_read"],
+        );
+        assert!(
+            filter_skills_for_read_injection(&[transcript.clone(), dual.clone()], true).is_empty()
+        );
+        let mixed = [
+            skill("manual", "/manual/SKILL.md", &["manual_attachment"]),
+            transcript,
+            dual,
+        ];
+        assert_eq!(
+            hits_value(&filter_skills_for_read_injection(&mixed, false)),
+            hits_value(&mixed)
+        );
+    }
+    #[test]
+    fn injected_tool_parts_records_fields_and_pair_ids_match_one_observed_skill() {
+        let mut rows = vec![response(json!({}))];
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        assert_eq!(rows.len(), 3);
+        let part = read_part(&rows[0]);
+        assert_eq!(part["type"], "tool_call");
+        assert_eq!(part["name"], "Read");
+        assert_eq!(
+            part["arguments"],
+            json!({"path":"/Users/test/.cursor/skills/my-skill/SKILL.md"})
+        );
+        assert!(part["id"].as_str().is_some_and(|s| !s.is_empty()));
+        assert_eq!(part["id"], rows[1]["gen_ai.tool.call.id"]);
+        assert_eq!(
+            rows[1]["gen_ai.tool.call.id"],
+            rows[2]["gen_ai.tool.call.id"]
+        );
+        for (index, event) in [(1, "tool.call"), (2, "tool.result")] {
+            assert_eq!(rows[index]["event.name"], event);
+            assert_eq!(rows[index]["gen_ai.tool.name"], "Read");
+            assert_eq!(rows[index]["gen_ai.skill.name"], "my-skill");
+            assert_eq!(rows[index]["gen_ai.skill.id"], "my-skill");
+            assert_eq!(
+                rows[index]["agent.cursor.skill_detection_source"],
+                "transcript_post_assembly"
+            );
+        }
+        assert_eq!(
+            rows[1]["gen_ai.tool.call.arguments"],
+            json!({"path":"/Users/test/.cursor/skills/my-skill/SKILL.md"})
+        );
+    }
+    #[test]
+    fn synthesized_records_retain_cursor_cli_windows_workspace_namespace() {
+        let mut rows = vec![response(
+            json!({"gen_ai.agent.type":"cursor-cli","agent.cursor-cli.cwd":"C:\\Users\\alice\\project"}),
+        )];
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        assert_eq!(rows.len(), 3);
+        assert!(rows[1..]
+            .iter()
+            .all(|r| r["agent.cursor-cli.cwd"] == "C:\\Users\\alice\\project"));
+    }
+    #[test]
+    fn immediate_delta_and_every_later_full_history_receive_exactly_one_skill_exchange() {
+        let call = json!({"type":"tool_call","id":"existing-call","name":"Grep","arguments":{"pattern":"needle"}});
+        let result = json!({"type":"tool_call_response","id":"existing-call","response":"matched"});
+        let later_delta = json!([{"role":"assistant","parts":[{"type":"tool_call","id":"later-call","name":"Shell"}]},{"role":"tool","parts":[{"type":"tool_call_response","id":"later-call","response":"ok"}]}]);
+        let mut rows = vec![
+            response(json!({"gen_ai.output.messages":[{"role":"assistant","parts":[call]}]})),
+            request(
+                "second",
+                json!({"gen_ai.input.messages_delta":[{"role":"assistant","parts":[call]},{"role":"tool","parts":[result]}],"gen_ai.input.messages":[{"role":"user","parts":[{"type":"text","content":"prompt"}]},{"role":"assistant","parts":[call]},{"role":"tool","parts":[result]}]}),
+            ),
+            request(
+                "later",
+                json!({"gen_ai.step.id":"step_3","gen_ai.input.messages_delta":later_delta,"gen_ai.input.messages":[{"role":"user","parts":[{"type":"text","content":"prompt"}]},{"role":"assistant","parts":[call]},{"role":"tool","parts":[result]},{"role":"assistant","parts":[{"type":"tool_call","id":"later-call","name":"Shell"}]},{"role":"tool","parts":[{"type":"tool_call_response","id":"later-call","response":"ok"}]}]}),
+            ),
+        ];
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        let id = read_part(&rows[0])["id"].clone();
+        let delta = &row(&rows, "second")["gen_ai.input.messages_delta"];
+        assert_eq!(roles(delta), ["assistant", "tool", "tool"]);
+        assert_eq!(
+            delta[0]["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["id"].clone())
+                .collect::<Vec<_>>(),
+            [json!("existing-call"), id.clone()]
+        );
+        assert_eq!(delta[1]["parts"][0]["id"], "existing-call");
+        assert_eq!(
+            delta[2]["parts"][0],
+            json!({"type":"tool_call_response","id":id,"response":""})
+        );
+        for event in ["second", "later"] {
+            let full = &row(&rows, event)["gen_ai.input.messages"];
+            let assistant = full
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| {
+                    m["role"] == "assistant"
+                        && m["parts"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|p| p["id"] == "existing-call")
+                })
+                .unwrap();
+            assert_eq!(
+                assistant["parts"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|p| p["id"] == id)
+                    .count(),
+                1
+            );
+            let original_tool = full
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["role"] == "tool" && m["parts"][0]["id"] == "existing-call")
+                .unwrap();
+            assert!(!original_tool["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["id"] == id));
+            let skill_tool = full
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["role"] == "tool" && m["parts"][0]["id"] == id)
+                .unwrap();
+            assert_eq!(skill_tool["parts"].as_array().unwrap().len(), 1);
+        }
+        assert_eq!(
+            row(&rows, "later")["gen_ai.input.messages_delta"],
+            later_delta
+        );
+    }
+    #[test]
+    fn parent_skill_never_backfills_child_or_different_trace_or_different_turn_requests() {
+        let children = [
+            request(
+                "child",
+                json!({"gen_ai.agent.scope":"subagent","gen_ai.agent.id":"child-conversation","gen_ai.input.messages_delta":[{"role":"assistant","parts":[{"type":"reasoning","content":"child reasoning"}]}],"gen_ai.input.messages":[{"role":"assistant","parts":[{"type":"reasoning","content":"child reasoning"}]}]}),
+            ),
+            request("other-trace", json!({"trace_id":"other-trace"})),
+            request("other-turn", json!({"gen_ai.turn.id":"other-turn"})),
+        ];
+        let mut rows = vec![response(
+            json!({"gen_ai.output.messages":[{"role":"assistant","parts":[{"type":"tool_call","id":"parent-call","name":"Agent","arguments":{"task":"inspect"}}]}]}),
+        )];
+        rows.extend(children.clone());
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        let id = read_part(&rows[0])["id"].as_str().unwrap();
+        for child in children {
+            let actual = row(&rows, child["event.id"].as_str().unwrap());
+            assert_eq!(actual, &child);
+            assert!(!Value::Object(actual.clone()).to_string().contains(id));
+        }
+    }
+    #[test]
+    fn null_source_tool_id_reuses_existing_assistant_without_duplicate_reasoning() {
+        let reasoning = json!({"type":"reasoning","content":"inspect first"});
+        let call =
+            json!({"type":"tool_call","id":null,"name":"Read","arguments":{"path":"/tmp/a"}});
+        let result = json!({"type":"tool_call_response","id":null,"response":"file body"});
+        let assistant = json!({"role":"assistant","parts":[reasoning,call]});
+        let mut rows = vec![
+            response(json!({"gen_ai.output.messages":[assistant]})),
+            request(
+                "second",
+                json!({"gen_ai.input.messages_delta":[assistant,{"role":"tool","parts":[result]}],"gen_ai.input.messages":[{"role":"user","parts":[{"type":"text","content":"prompt"}]},assistant,{"role":"tool","parts":[result]}]}),
+            ),
+        ];
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        let skill = read_part(&rows[0]).clone();
+        let id = skill["id"].clone();
+        for key in ["gen_ai.input.messages_delta", "gen_ai.input.messages"] {
+            let messages = row(&rows, "second")[key].as_array().unwrap();
+            let assistants: Vec<_> = messages
+                .iter()
+                .filter(|m| m["role"] == "assistant")
+                .collect();
+            assert_eq!(assistants.len(), 1);
+            // JS's local secondRequest alias keeps pre-sanitized nulls after
+            // records[index] is replaced. Formal emitted records use the shared
+            // sanitizer and omit that null key; keep every remaining field.
+            let emitted_call =
+                json!({"type":"tool_call","name":"Read","arguments":{"path":"/tmp/a"}});
+            assert_eq!(
+                assistants[0]["parts"],
+                json!([reasoning, emitted_call, skill])
+            );
+            assert_eq!(messages.iter().filter(|m| m["role"] == "tool").count(), 2);
+            assert!(messages
+                .iter()
+                .any(|m| m["role"] == "tool" && m["parts"][0]["id"] == id));
+        }
+    }
+    #[test]
+    fn source_response_without_ordinary_tools_creates_history_before_later_exchanges() {
+        let later_delta = json!([{"role":"assistant","parts":[{"type":"tool_call","id":"later-call","name":"Shell"}]},{"role":"tool","parts":[{"type":"tool_call_response","id":"later-call","response":"ok"}]}]);
+        let mut rows = vec![
+            response(json!({})),
+            request(
+                "second",
+                json!({"gen_ai.input.messages":[{"role":"user","parts":[{"type":"text","content":"prompt"}]}]}),
+            ),
+            request(
+                "later",
+                json!({"gen_ai.step.id":"step_3","gen_ai.input.messages_delta":later_delta,"gen_ai.input.messages":[{"role":"user","parts":[{"type":"text","content":"prompt"}]},{"role":"assistant","parts":[{"type":"tool_call","id":"later-call","name":"Shell"}]},{"role":"tool","parts":[{"type":"tool_call_response","id":"later-call","response":"ok"}]}]}),
+            ),
+        ];
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        let id = read_part(&rows[0])["id"].clone();
+        let second = row(&rows, "second");
+        assert_eq!(
+            roles(&second["gen_ai.input.messages_delta"]),
+            ["assistant", "tool"]
+        );
+        assert_eq!(
+            roles(&second["gen_ai.input.messages"]),
+            ["user", "assistant", "tool"]
+        );
+        assert_eq!(second["gen_ai.input.messages"][1]["parts"][0]["id"], id);
+        assert_eq!(second["gen_ai.input.messages"][2]["parts"][0]["id"], id);
+        let later = row(&rows, "later");
+        assert_eq!(
+            roles(&later["gen_ai.input.messages"]),
+            ["user", "assistant", "tool", "assistant", "tool"]
+        );
+        assert_eq!(later["gen_ai.input.messages"][1]["parts"][0]["id"], id);
+        assert_eq!(
+            later["gen_ai.input.messages"][3]["parts"][0]["id"],
+            "later-call"
+        );
+        assert_eq!(later["gen_ai.input.messages_delta"], later_delta);
+    }
+    #[test]
+    fn injected_exchange_survives_real_native_llm_span_conversion_without_losing_reasoning() {
+        use crate::flushers::{ConvertOptions, EventLogConverter, GenAiEventLogConverter};
+        let mut common=json!({"trace_id":"0123456789abcdef0123456789abcdef","gen_ai.session.id":"session-conversion","gen_ai.turn.id":"turn-conversion","gen_ai.agent.type":"cursor","gen_ai.provider.name":"openai","gen_ai.request.model":"test-model","user.id":"user-conversion"}).as_object().unwrap().clone();
+        let mut make = |name: &str, id: &str, step: &str, time: &str, patch: Value| {
+            common.insert("event.name".into(), name.into());
+            common.insert("event.id".into(), id.into());
+            common.insert("gen_ai.step.id".into(), step.into());
+            common.insert("time_unix_nano".into(), time.into());
+            common.insert("observed_time_unix_nano".into(), time.into());
+            let mut row = common.clone();
+            row.extend(patch.as_object().unwrap().clone());
+            row
+        };
+        let reasoning = json!({"type":"reasoning","content":"inspect first"});
+        let call = json!({"type":"tool_call","id":"existing-call","name":"Grep","arguments":{"pattern":"x"}});
+        let result = json!({"type":"tool_call_response","id":"existing-call","response":"matched"});
+        let mut rows = vec![
+            make(
+                "llm.request",
+                "req1",
+                "turn-conversion:s1",
+                "1000000000",
+                json!({"gen_ai.input.messages_delta":[{"role":"user","parts":[{"type":"text","content":"prompt"}]}],"gen_ai.input.messages":[{"role":"user","parts":[{"type":"text","content":"prompt"}]}]}),
+            ),
+            make(
+                "tool.call",
+                "call",
+                "turn-conversion:s1",
+                "2000000000",
+                json!({"gen_ai.tool.name":"Grep","gen_ai.tool.call.id":"existing-call"}),
+            ),
+            make(
+                "tool.result",
+                "result",
+                "turn-conversion:s1",
+                "3000000000",
+                json!({"gen_ai.tool.name":"Grep","gen_ai.tool.call.id":"existing-call"}),
+            ),
+            make(
+                "llm.response",
+                "resp1",
+                "turn-conversion:s1",
+                "2000000000",
+                json!({"gen_ai.response.model":"test-model","gen_ai.response.finish_reasons":["tool_calls"],"gen_ai.output.messages":[{"role":"assistant","parts":[reasoning,call],"finish_reason":"tool_calls"}]}),
+            ),
+            make(
+                "llm.request",
+                "req2",
+                "turn-conversion:s2",
+                "4000000000",
+                json!({"gen_ai.input.messages_delta":[{"role":"assistant","parts":[reasoning,call]},{"role":"tool","parts":[result]}],"gen_ai.input.messages":[{"role":"user","parts":[{"type":"text","content":"prompt"}]},{"role":"assistant","parts":[reasoning,call]},{"role":"tool","parts":[result]}]}),
+            ),
+            make(
+                "llm.response",
+                "resp2",
+                "turn-conversion:s2",
+                "5000000000",
+                json!({"gen_ai.response.model":"test-model","gen_ai.response.finish_reasons":["stop"],"gen_ai.output.messages":[{"role":"assistant","parts":[{"type":"text","content":"done"}],"finish_reason":"stop"}]}),
+            ),
+        ];
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        let id = read_part(row(&rows, "resp1"))["id"].clone();
+        let entries: Vec<_> = rows
+            .into_iter()
+            .map(crate::normalization::entry_from_map)
+            .collect();
+        let converted = GenAiEventLogConverter
+            .convert(&entries, &ConvertOptions::default())
+            .unwrap();
+        assert!(converted.warnings.is_empty(), "{:?}", converted.warnings);
+        let llms: Vec<_> = converted
+            .spans
+            .iter()
+            .filter(|s| s.attributes.get("gen_ai.span.kind") == Some(&json!("LLM")))
+            .collect();
+        assert_eq!(llms.len(), 2);
+        let input: Value = serde_json::from_str(
+            llms[1].attributes["gen_ai.input.messages"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(roles(&input), ["user", "assistant", "tool", "tool"]);
+        assert_eq!(
+            input[1]["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["type"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["reasoning", "tool_call", "tool_call"]
+        );
+        assert_eq!(
+            input
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|m| m["parts"].as_array().unwrap())
+                .filter(|p| p["id"] == id)
+                .map(|p| p["type"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["tool_call", "tool_call_response"]
+        );
+    }
+    #[test]
+    fn one_and_multiple_skill_pairs_have_strictly_increasing_exact_nanos_and_observed_fallback() {
+        for missing_observed in [false, true] {
+            let mut first = response(json!({}));
+            if missing_observed {
+                first.remove("observed_time_unix_nano");
+            }
+            let mut rows = vec![first];
+            inject_skill_records(
+                &mut rows,
+                &[
+                    skill("skill-a", "/path/a/SKILL.md", &[]),
+                    skill("skill-b", "/path/b/SKILL.md", &[]),
+                ],
+            );
+            assert_eq!(rows.len(), 5);
+            for (index, row) in rows.iter().enumerate().skip(1) {
+                assert_eq!(
+                    row["time_unix_nano"],
+                    (1_700_000_000_000_000_000i128 + index as i128).to_string()
+                );
+                let observed = if missing_observed {
+                    1_700_000_000_000_000_000i128
+                } else {
+                    1_700_000_000_000_000_100i128
+                };
+                assert_eq!(
+                    row["observed_time_unix_nano"],
+                    (observed + index as i128).to_string()
+                );
+            }
+            assert_eq!(
+                rows[1]["gen_ai.tool.call.id"],
+                rows[2]["gen_ai.tool.call.id"]
+            );
+            assert_eq!(
+                rows[3]["gen_ai.tool.call.id"],
+                rows[4]["gen_ai.tool.call.id"]
+            );
+            assert_ne!(
+                rows[1]["gen_ai.tool.call.id"],
+                rows[3]["gen_ai.tool.call.id"]
+            );
+            assert_eq!(rows[1]["gen_ai.skill.name"], "skill-a");
+            assert_eq!(rows[3]["gen_ai.skill.name"], "skill-b");
+        }
+    }
+    #[test]
+    fn no_response_empty_records_and_empty_skill_list_are_exact_noops() {
+        let mut rows = vec![request("request-only", json!({}))];
+        let original = rows.clone();
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        assert_eq!(rows, original);
+        let mut empty = Vec::new();
+        inject_skill_records(&mut empty, &[ordinary_skill()]);
+        assert!(empty.is_empty());
+        let mut rows = vec![
+            response(json!({})),
+            request("later-with-no-history", json!({})),
+        ];
+        let original = rows.clone();
+        inject_skill_records(&mut rows, &[]);
+        assert_eq!(rows, original);
+        let mut no_output = response(json!({}));
+        no_output.remove("gen_ai.output.messages");
+        let mut rows = vec![no_output, request("later-without-output", json!({}))];
+        let original = rows.clone();
+        inject_skill_records(&mut rows, &[]);
+        assert_eq!(rows, original);
+    }
+    #[test]
+    fn existing_output_parts_are_retained_and_manual_detection_source_is_preserved() {
+        let first = json!({"type":"text","text":"existing response"});
+        let call = json!({"type":"tool_call","id":"existing-id","name":"Write","arguments":{"path":"/tmp/x"}});
+        let mut rows = vec![response(
+            json!({"gen_ai.output.messages":[{"role":"assistant","parts":[first,call]}]}),
+        )];
+        inject_skill_records(&mut rows, &[ordinary_skill()]);
+        let parts = rows[0]["gen_ai.output.messages"][0]["parts"]
+            .as_array()
+            .unwrap();
+        assert_eq!(&parts[..2], &[first, call]);
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[2]["name"], "Read");
+        let path = "/Users/test/.cursor/skills/count-if-statements/SKILL.md";
+        let mut rows = vec![response(json!({}))];
+        inject_skill_records(
+            &mut rows,
+            &[skill("count-if-statements", path, &["manual_attachment"])],
+        );
+        assert_eq!(read_part(&rows[0])["arguments"], json!({"path":path}));
+        for (index, event) in [(1, "tool.call"), (2, "tool.result")] {
+            assert_eq!(rows[index]["event.name"], event);
+            assert_eq!(rows[index]["gen_ai.tool.name"], "Read");
+            assert_eq!(rows[index]["gen_ai.skill.name"], "count-if-statements");
+            assert_eq!(rows[index]["gen_ai.skill.id"], "count-if-statements");
+            assert_eq!(
+                rows[index]["agent.cursor.skill_detection_source"],
+                "manual_attachment"
+            );
+        }
+        assert_eq!(rows[1]["gen_ai.tool.call.arguments"], json!({"path":path}));
+    }
+}
+
+#[cfg(test)]
+mod skill_config_history_contracts {
+    use super::super::super::common::{Env, HookRequest};
+    use super::*;
+    #[test]
+    fn legacy_capture_setting_preserves_injected_skill_and_prompt_through_real_hook_pipeline() {
+        for setting in [None, Some(false), Some(true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            let path = "/Users/alice/.cursor/skills/private-skill/SKILL.md";
+            let user_text=format!("<manually_attached_skills>\nSkill Name: private-skill\nPath: {path}\nSKILL.md content:\n# private-skill\n</manually_attached_skills>\n<user_query>\nprivate prompt\n</user_query>");
+            let transcript = root.join("transcript.jsonl");
+            let rows = [
+                json!({"role":"user","message":{"content":[{"type":"text","text":user_text}]}}),
+                json!({"role":"assistant","message":{"content":[{"type":"text","text":"checking"},{"type":"tool_use","id":"ordinary-call","name":"Grep","input":{"pattern":"x"}}]}}),
+                json!({"role":"assistant","message":{"content":[{"type":"text","text":"done"}]}}),
+                json!({"type":"turn_ended","status":"success"}),
+            ];
+            fs::write(
+                &transcript,
+                rows.iter()
+                    .map(Value::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    + "\n",
+            )
+            .unwrap();
+            let mut config = json!({});
+            if let Some(setting) = setting {
+                config["agents"] = json!({"cursor":{"captureMessageContent":setting}});
+            }
+            let config_file = root.join("config.json");
+            fs::write(&config_file, config.to_string()).unwrap();
+            let original_config = fs::read(&config_file).unwrap();
+            let mut env = Env::new();
+            env.insert(
+                "LOONGSUITE_PILOT_DATA_DIR".into(),
+                root.to_string_lossy().into_owned(),
+            );
+            env.insert(
+                "AGENT_DATA_COLLECTION_CONFIG".into(),
+                config_file.to_string_lossy().into_owned(),
+            );
+            env.insert(
+                "HOME".into(),
+                root.join("home").to_string_lossy().into_owned(),
+            );
+            env.insert(
+                "USERPROFILE".into(),
+                root.join("home").to_string_lossy().into_owned(),
+            );
+            env.insert("OS".into(), "Windows_NT".into());
+            for (name, details) in [
+                ("beforeSubmitPrompt", json!({"prompt":"private prompt"})),
+                ("afterAgentThought", json!({"text":"checking"})),
+                (
+                    "preToolUse",
+                    json!({"tool_name":"Grep","tool_use_id":"ordinary-call","tool_input":{"pattern":"x"}}),
+                ),
+                (
+                    "postToolUse",
+                    json!({"tool_name":"Grep","tool_use_id":"ordinary-call","tool_output":"matched","duration_ms":1}),
+                ),
+                (
+                    "afterAgentResponse",
+                    json!({"text":"done","input_tokens":5,"output_tokens":2}),
+                ),
+                ("stop", json!({"status":"completed"})),
+            ] {
+                let mut payload = json!({"hook_event_name":name,"conversation_id":"skill-context","session_id":"skill-context","generation_id":"skill-turn","cursor_version":"1.7.0","model":"gpt-test","transcript_path":transcript,"cwd":"C:\\synthetic-project"});
+                payload
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(details.as_object().unwrap().clone());
+                let bytes = serde_json::to_vec(&payload).unwrap();
+                let mut stdout = Vec::new();
+                let mut request = HookRequest {
+                    args: &[],
+                    stdin: &bytes,
+                    env: &env,
+                    stdout: &mut stdout,
+                };
+                assert_eq!(super::super::run(&mut request), 0);
+                assert_eq!(String::from_utf8(stdout).unwrap().trim(), "{}");
+            }
+            let records: Vec<Value> = fs::read_dir(root.join("logs/cursor/history"))
+                .unwrap()
+                .map(Result::unwrap)
+                .flat_map(|p| {
+                    fs::read_to_string(p.path())
+                        .unwrap()
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .map(|l| serde_json::from_str(l).unwrap())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            let serialized = serde_json::to_string(&records).unwrap();
+            assert!(serialized.contains(path));
+            assert!(serialized.contains("private prompt"));
+            let call = records
+                .iter()
+                .find(|r| {
+                    r["event.name"] == "tool.call" && r["gen_ai.skill.name"] == "private-skill"
+                })
+                .unwrap();
+            assert_eq!(call["gen_ai.tool.call.arguments"], json!({"path":path}));
+            assert_eq!(call["gen_ai.skill.id"], "private-skill");
+            let id = call["gen_ai.tool.call.id"].clone();
+            assert!(records.iter().any(|r| r["event.name"] == "tool.result"
+                && r["gen_ai.skill.name"] == "private-skill"
+                && r["gen_ai.tool.call.id"] == id));
+            assert!(records.iter().any(|r| r["event.name"] == "llm.response"
+                && r.get("gen_ai.output.messages")
+                    .is_some_and(|m| m.to_string().contains(id.as_str().unwrap()))));
+            let later = records
+                .iter()
+                .find(|r| {
+                    r["event.name"] == "llm.request"
+                        && r["gen_ai.step.id"].as_str().unwrap_or("").ends_with(":s2")
+                })
+                .unwrap();
+            assert!(later["gen_ai.input.messages_delta"].is_array());
+            assert!(later["gen_ai.input.messages"].is_array());
+            assert!(later["gen_ai.input.messages"]
+                .to_string()
+                .contains("private prompt"));
+            assert!(later["gen_ai.input.messages"]
+                .to_string()
+                .contains(id.as_str().unwrap()));
+            assert_eq!(fs::read(&config_file).unwrap(), original_config);
+        }
     }
 }
