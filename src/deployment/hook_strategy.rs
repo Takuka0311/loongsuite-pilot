@@ -46,18 +46,36 @@ fn event_to_subcommand(event: &str) -> String {
     out
 }
 
-fn wrap_legacy_ps1_command(cmd: &str) -> String {
-    if !cfg!(windows) {
-        return cmd.to_string();
+// Parse only a bare script path and its exact argument suffix. Legacy command
+// forms are enumerated for ownership matching, never used to launch a process.
+fn split_ps1_script(command: &str) -> Option<(&str, &str)> {
+    let command = command.trim();
+    if let Some(quoted) = command.strip_prefix('"') {
+        let end = quoted.find('"')?;
+        Some((&quoted[..end], quoted[end + 1..].trim()))
+    } else {
+        let lower = command.to_ascii_lowercase();
+        let (index, _) = lower.match_indices(".ps1").find(|(index, _)| {
+            command
+                .as_bytes()
+                .get(index + 4)
+                .is_none_or(u8::is_ascii_whitespace)
+        })?;
+        Some((&command[..index + 4], command[index + 4..].trim()))
     }
-    let mut parts = cmd.split(' ');
-    let Some(script) = parts.next() else {
+}
+
+fn wrap_legacy_ps1_command(cmd: &str) -> String {
+    let Some((script, args)) = split_ps1_script(cmd) else {
         return cmd.to_string();
     };
-    if !script.ends_with(".ps1") {
+    if !script.to_ascii_lowercase().ends_with(".ps1")
+        || script.contains(['"', '\r', '\n'])
+        || script.to_ascii_lowercase().starts_with("powershell")
+        || script.to_ascii_lowercase().starts_with("pwsh ")
+    {
         return cmd.to_string();
     }
-    let args = parts.collect::<Vec<_>>().join(" ");
     let wrapped = format!("powershell -NoProfile -ExecutionPolicy Bypass -File {script}");
     if args.is_empty() {
         wrapped
@@ -70,23 +88,8 @@ fn wrap_ps1_for_platform(cmd: &str, windows: bool) -> String {
     if !windows {
         return cmd.to_string();
     }
-    let command = cmd.trim();
-    let (script, rest) = if let Some(quoted) = command.strip_prefix('"') {
-        let Some(end) = quoted.find('"') else {
-            return cmd.to_string();
-        };
-        (&quoted[..end], quoted[end + 1..].trim())
-    } else {
-        let lower = command.to_ascii_lowercase();
-        let Some((index, _)) = lower.match_indices(".ps1").find(|(index, _)| {
-            command
-                .as_bytes()
-                .get(index + 4)
-                .is_none_or(u8::is_ascii_whitespace)
-        }) else {
-            return cmd.to_string();
-        };
-        (&command[..index + 4], command[index + 4..].trim())
+    let Some((script, rest)) = split_ps1_script(cmd) else {
+        return cmd.to_string();
     };
     if !script.to_ascii_lowercase().ends_with(".ps1")
         || script.contains(['"', '\r', '\n'])
@@ -1442,6 +1445,12 @@ mod tests {
         for path in [path.to_string(), path.replace('/', "\\")] {
             let command = format!("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{path}\" stop");
             assert!(commands.contains(&command));
+            let legacy = format!("powershell -NoProfile -ExecutionPolicy Bypass -File {path} stop");
+            assert!(
+                commands.contains(&legacy),
+                "missing legacy spelling: {legacy}"
+            );
+            assert!(!commands.contains(&format!("{legacy} --unknown")));
             assert!(!commands.contains(&format!("{command} --unknown")));
         }
         assert!(!commands

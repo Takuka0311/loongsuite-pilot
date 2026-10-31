@@ -317,7 +317,7 @@ fn strict_components(path: &Path, create: bool) -> io::Result<()> {
             }
             Ok(_) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound && create => {
-                let mut builder = fs::DirBuilder::new();
+                let builder = &mut fs::DirBuilder::new();
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::DirBuilderExt;

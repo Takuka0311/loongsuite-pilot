@@ -192,7 +192,8 @@ async fn actual_windows_deployment_replaces_legacy_alias_and_keeps_declared_shel
     h.win_shell = Some("powershell".into());
     let legacy="powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/Test User/hooks/qoder.ps1 stop";
     f.write(&json!({"hooks":{"Stop":[{"command":legacy},{"command":"user-hook"}]}}));
-    assert!(f.strategy.deploy(&def).await.success);
+    let deployed = f.strategy.deploy(&def).await;
+    assert!(deployed.success, "{:?}", deployed.error);
     let text = std::fs::read_to_string(&f.settings).unwrap();
     assert!(!text.contains(legacy));
     assert_eq!(text.matches("qoder.ps1").count(), 1);
@@ -349,8 +350,10 @@ async fn uninstall_removes_only_the_exact_preinstalled_nonzero_codex_trust_key()
     std::fs::write(f.root.path().join("config.toml"), content).unwrap();
     assert!(f.strategy.undeploy(&def).await);
     let after = std::fs::read_to_string(f.root.path().join("config.toml")).unwrap();
-    assert!(!after.contains(&own));
-    assert!(after.contains(&foreign));
+    let parsed = toml::from_str::<toml::Value>(&after).unwrap();
+    let state = parsed["hooks"]["state"].as_table().unwrap();
+    assert!(!state.contains_key(&own));
+    assert_eq!(state[&foreign]["trusted_hash"].as_str(), Some("foreign"));
     assert!(after.contains("model = \"kept\""));
     assert_eq!(
         f.data()["hooks"]["Stop"],
