@@ -990,6 +990,14 @@ impl Updater {
             },
         );
         self.gc_old_versions().await;
+        *self
+            .consecutive_failures
+            .lock()
+            .unwrap_or_else(|err| err.into_inner()) = 0;
+        *self
+            .next_check_at
+            .lock()
+            .unwrap_or_else(|err| err.into_inner()) = 0;
         self.write_heartbeat().await?;
         self.schedule_updater_restart().await;
         Ok(true)
@@ -2828,6 +2836,17 @@ mod tests {
     }
 
     fn native_package_version(root: &Path, version: &str, commit: &str) -> VersionManifest {
+        native_package_version_for_test(root, version, commit, None)
+    }
+
+    // Small resource bytes are only for component fixtures with scripted execution.
+    // Native subprocess/capability tests retain the real test executable via None.
+    fn native_package_version_for_test(
+        root: &Path,
+        version: &str,
+        commit: &str,
+        fixture_binary: Option<&[u8]>,
+    ) -> VersionManifest {
         use crate::utils::runtime_paths::{sha256_file, RuntimeManifest, RuntimeResource};
         let manifest = super::super::release_manifest::fixture(version, commit);
         let binary = if cfg!(windows) {
@@ -2838,7 +2857,17 @@ mod tests {
         for directory in ["bin", "agents.d", "assets", "scripts"] {
             std::fs::create_dir_all(root.join(directory)).unwrap();
         }
-        std::fs::copy(std::env::current_exe().unwrap(), root.join(binary)).unwrap();
+        if let Some(bytes) = fixture_binary {
+            std::fs::write(root.join(binary), bytes).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(root.join(binary), std::fs::Permissions::from_mode(0o755))
+                    .unwrap();
+            }
+        } else {
+            std::fs::copy(std::env::current_exe().unwrap(), root.join(binary)).unwrap();
+        }
         let version = format!(
             "version={}\ngit_commit={}\n",
             manifest.version, manifest.git_commit

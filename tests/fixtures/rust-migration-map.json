@@ -46622,7 +46622,7 @@
       "legacy": "tests/unit/updater/updater.test.ts",
       "coverage": "partial",
       "rust": [],
-      "note": "前两批28/58声明精确承接，其余保持未映射；固定ef8953 source/hash不变。基点native3d11568，保留容器capability门禁/最终安装路径pin/事务修复，不混旧runtime。platforms仅合同适用，当前仅Linux glibc2.34实测，Windows/macOS未实测。L245首检原60s延迟与原生立即差异另记pending，不靠Node计时器退役抹掉。L316/323原Promise不throw与Rust受控Result接口差异待daemon级回归补齐，未把本批guard测试当全部合同完成。 主工作区严格Clippy与真实updater目标43通过；本批仅28/58来源声明。健康确认、GC与heartbeat后安排handoff；失败handoff不回滚成功激活，恢复失败保留两个child诊断。其余30仍待审定。",
+      "note": "前三批42/58声明精确承接，其余保持未映射；固定ef8953 source/hash不变。基点native3d11568，保留容器capability门禁/最终安装路径pin/事务修复，不混旧runtime。platforms仅合同适用，当前仅Linux glibc2.34实测，Windows/macOS未实测。L245首检原60s延迟与原生立即差异另记pending，不靠Node计时器退役抹掉。L316/323已补实际daemon边界连续处理失败/告警/继续运行；Rust Result接口差异明确。归档fixture复用native_binary::fixture_binary，仅结构与资源字节/事务真实，执行明确由UpdaterNet提供；实际native child/caps/pin测试仍使用真实testexe，没有削弱平台格式校验或生产2s/30s预算。 主工作区严格Clippy与updater真实46项通过；Windows新接入契约的fixture安装路径和锁隔离问题正在独立修复，未计为Windows验收通过。",
       "source_hash": "4db0980f0bacb1fc16058a4f21a8c9c72f4b9b08334532bb6f01e1eb880996b0",
       "cases": [
         {
@@ -46898,6 +46898,68 @@
         },
         {
           "source": {
+            "id": "L316:C5",
+            "title": "handles manifest HTTP error gracefully",
+            "suites": [
+              "Updater",
+              "check - manifest fetching"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际daemon scheduled_check边界连续处理HTTP500和network Err，告警含两端原因、scheduled保持、checking释放，可继续下一次；公开check的Rust Result差异另有真实HTTP/拒绝连接回归。没有恢复吞错，也不把受控Err误报panic。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "actual_daemon_check_boundary_handles_http_and_network_result_errors_without_stopping"
+              },
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "actual_manifest_http_and_connection_failures_release_guard_and_preserve_install_state"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L323:C5",
+            "title": "handles manifest network error gracefully",
+            "suites": [
+              "Updater",
+              "check - manifest fetching"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际daemon scheduled_check边界连续处理HTTP500和network Err，告警含两端原因、scheduled保持、checking释放，可继续下一次；公开check的Rust Result差异另有真实HTTP/拒绝连接回归。没有恢复吞错，也不把受控Err误报panic。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "actual_daemon_check_boundary_handles_http_and_network_result_errors_without_stopping"
+              },
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "actual_manifest_http_and_connection_failures_release_guard_and_preserve_install_state"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L330:C5",
             "title": "skips update when already up to date",
             "suites": [
@@ -46946,6 +47008,346 @@
               {
                 "file": "src/updater/updater_contract_tests.rs",
                 "test": "already_current_recovery_handoff_waits_for_success_bookkeeping_and_is_best_effort"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L511:C5",
+            "title": "deploys successfully on first install",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check承接first-install和upgrade两场景：真实归档字节SHA256、格式/资源manifest校验、解包、current唯一slot/previous精确、服务文件/GC/heartbeat全部真实；仅候选执行和服务边界scripted。成功仅collector restart+记账后handoff，无dashboard命令，验证download_verified/collector_restarted且无update_failure；重试状态必须在heartbeat/handoff前清0。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "downloaded_native_archive_commits_install_and_upgrade_then_hands_off_with_fresh_success_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L560:C5",
+            "title": "adopts the managed node runtime + prebuilt modules and pins node-bin",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "只退役.managed-runtime Node/prebuilt node_modules/node-bin接管机制；Rust独立包使用原生binary/resources与对应target/edition，原3d实际child能力门禁与最终安装路径pin有单独实测，保留普通原生事务数据。没有声称归档组件fixture执行了其合成binary。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "只退役.managed-runtime Node/prebuilt node_modules/node-bin接管机制；Rust独立包使用原生binary/resources与对应target/edition，原3d实际child能力门禁与最终安装路径pin有单独实测，保留普通原生事务数据。没有声称归档组件fixture执行了其合成binary。",
+            "replacement": [
+              {
+                "file": "src/updater/updater.rs",
+                "test": "container_updater_rejects_missing_actual_caps_before_rename_or_state_writes"
+              },
+              {
+                "file": "src/updater/updater.rs",
+                "test": "container_updater_pins_final_package_after_rename_and_rolls_state_back"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L629:C5",
+            "title": "rolls pointers back when pinning the managed node runtime fails",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "只退役不存在的Node node-bin文件写入fault；原生状态由同一ActivationTransaction控制，实际能力门禁失败无指针/状态发布，真实最终路径pin事务drop恢复old state，另实测current/previous/service/layout整体回滚。此项不宣称额外执行原生pin普通IO fault。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "只退役不存在的Node node-bin文件写入fault；原生状态由同一ActivationTransaction控制，实际能力门禁失败无指针/状态发布，真实最终路径pin事务drop恢复old state，另实测current/previous/service/layout整体回滚。此项不宣称额外执行原生pin普通IO fault。",
+            "replacement": [
+              {
+                "file": "src/updater/updater.rs",
+                "test": "container_updater_rejects_missing_actual_caps_before_rename_or_state_writes"
+              },
+              {
+                "file": "src/updater/updater.rs",
+                "test": "container_updater_pins_final_package_after_rename_and_rolls_state_back"
+              },
+              {
+                "file": "src/updater/updater.rs",
+                "test": "native_activation_rollback_restores_pointers_and_service_and_gc_keeps_current"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L828:C5",
+            "title": "updates previous pointer when upgrading",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check承接first-install和upgrade两场景：真实归档字节SHA256、格式/资源manifest校验、解包、current唯一slot/previous精确、服务文件/GC/heartbeat全部真实；仅候选执行和服务边界scripted。成功仅collector restart+记账后handoff，无dashboard命令，验证download_verified/collector_restarted且无update_failure；重试状态必须在heartbeat/handoff前清0。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "downloaded_native_archive_commits_install_and_upgrade_then_hands_off_with_fresh_success_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L865:C5",
+            "title": "removes stale versions after a successful automatic upgrade",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check承接first-install和upgrade两场景：真实归档字节SHA256、格式/资源manifest校验、解包、current唯一slot/previous精确、服务文件/GC/heartbeat全部真实；仅候选执行和服务边界scripted。成功仅collector restart+记账后handoff，无dashboard命令，验证download_verified/collector_restarted且无update_failure；重试状态必须在heartbeat/handoff前清0。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "downloaded_native_archive_commits_install_and_upgrade_then_hands_off_with_fresh_success_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L925:C5",
+            "title": "aborts when download returns HTTP error",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实HTTP404/错误SHA/受控native preflight Err/清单缺SHA四组公开check，所有current/previous均未发布，无service调用，真实失败event/failure1且guard释放；.unpack临时根无残留。SHA mismatch包含明确原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "download_http_checksum_preflight_and_missing_sha_failures_never_publish_or_leak_temporary_roots"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L937:C5",
+            "title": "aborts when SHA-256 does not match",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实HTTP404/错误SHA/受控native preflight Err/清单缺SHA四组公开check，所有current/previous均未发布，无service调用，真实失败event/failure1且guard释放；.unpack临时根无残留。SHA mismatch包含明确原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "download_http_checksum_preflight_and_missing_sha_failures_never_publish_or_leak_temporary_roots"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L949:C5",
+            "title": "proceeds when SHA-256 matches",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check承接first-install和upgrade两场景：真实归档字节SHA256、格式/资源manifest校验、解包、current唯一slot/previous精确、服务文件/GC/heartbeat全部真实；仅候选执行和服务边界scripted。成功仅collector restart+记账后handoff，无dashboard命令，验证download_verified/collector_restarted且无update_failure；重试状态必须在heartbeat/handoff前清0。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "downloaded_native_archive_commits_install_and_upgrade_then_hands_off_with_fresh_success_heartbeat"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L970:C5",
+            "title": "skips SHA-256 check when manifest has no sha256",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧Node单包清单允许省略SHA的策略不适用于独立Rust v2 per-platform发布协议；逐项退役可选校验，真实缺SHA清单在下载前拒绝（仅一次manifest fetch），指针不动、无service，不以默认接受绕过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "旧Node单包清单允许省略SHA的策略不适用于独立Rust v2 per-platform发布协议；逐项退役可选校验，真实缺SHA清单在下载前拒绝（仅一次manifest fetch），指针不动、无service，不以默认接受绕过。",
+            "replacement": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "download_http_checksum_preflight_and_missing_sha_failures_never_publish_or_leak_temporary_roots"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L978:C5",
+            "title": "aborts when npm install fails — pointer NOT updated",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "只退役旧npm install失败入口（原生更新不装Node模块）；替代受控native candidate preflight失败，在真实已校验/解包的资源包上进入预检Err后，current/previous不发布、临时根清理并产生update_failure。不是把安装失败保护退役。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "只退役旧npm install失败入口（原生更新不装Node模块）；替代受控native candidate preflight失败，在真实已校验/解包的资源包上进入预检Err后，current/previous不发布、临时根清理并产生update_failure。不是把安装失败保护退役。",
+            "replacement": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "download_http_checksum_preflight_and_missing_sha_failures_never_publish_or_leak_temporary_roots"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L997:C5",
+            "title": "cleans up download-tmp even on failure",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实HTTP404/错误SHA/受控native preflight Err/清单缺SHA四组公开check，所有current/previous均未发布，无service调用，真实失败event/failure1且guard释放；.unpack临时根无残留。SHA mismatch包含明确原因。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "download_http_checksum_preflight_and_missing_sha_failures_never_publish_or_leak_temporary_roots"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1012:C5",
+            "title": "restarts only the collector because the dashboard shares its lifecycle",
+            "suites": [
+              "Updater",
+              "check - download and deploy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "公开check承接first-install和upgrade两场景：真实归档字节SHA256、格式/资源manifest校验、解包、current唯一slot/previous精确、服务文件/GC/heartbeat全部真实；仅候选执行和服务边界scripted。成功仅collector restart+记账后handoff，无dashboard命令，验证download_verified/collector_restarted且无update_failure；重试状态必须在heartbeat/handoff前清0。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/updater/updater_contract_tests.rs",
+                "test": "downloaded_native_archive_commits_install_and_upgrade_then_hands_off_with_fresh_success_heartbeat"
               }
             ]
           }
