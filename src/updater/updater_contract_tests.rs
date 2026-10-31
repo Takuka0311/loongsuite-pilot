@@ -1,11 +1,36 @@
 mod migration_contract_tests {
     use super::*;
+
+    // Each component fixture owns an installation, including its service lock.
+    // Updater's production default intentionally shares HOME's installed entry.
+    fn scoped_updater(
+        config: AutoUpdateConfig,
+        base_dir: Option<&str>,
+        net: Arc<dyn UpdaterNet>,
+    ) -> Updater {
+        let root = Path::new(base_dir.expect("fixture installation root"));
+        let mut updater = super::Updater::with_net(config, base_dir, net);
+        updater.paths.loongsuite_pilot_bin = root
+            .join("service-bin")
+            .join(if updater.platform == Platform::Win32 {
+                "loongsuite-pilot-service.ps1"
+            } else {
+                "loongsuite-pilot"
+            })
+            .to_string_lossy()
+            .into_owned();
+        updater.config_path = root.join("config.json").to_string_lossy().into_owned();
+        updater
+    }
+    fn scoped_real_updater(config: AutoUpdateConfig, base_dir: Option<&str>) -> Updater {
+        scoped_updater(config, base_dir, Arc::new(RealUpdaterNet))
+    }
     use std::sync::atomic::AtomicUsize;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     #[test]
     fn all_six_historical_stable_version_decisions_are_exact() {
         let root = tempfile::tempdir().unwrap();
-        let updater = Updater::new(base_config(), root.path().to_str());
+        let updater = scoped_real_updater(base_config(), root.path().to_str());
         let remote = super::super::super::release_manifest::fixture("1.0.2", "bbb");
         assert!(updater.needs_update(None, &remote, UpdateChannel::Stable));
         for (local_version, local_commit, remote_version, remote_commit, want) in [
@@ -34,7 +59,7 @@ mod migration_contract_tests {
     async fn disabled_scheduler_has_no_work_and_repeated_stop_is_safe() {
         let root = tempfile::tempdir().unwrap();
         let net = ScriptedNet::new(vec![], vec![]);
-        let updater = Updater::with_net(
+        let updater = scoped_updater(
             AutoUpdateConfig {
                 enabled: false,
                 ..base_config()
@@ -66,7 +91,7 @@ mod migration_contract_tests {
             entered: tokio::sync::Notify::new(),
             dropped: AtomicBool::new(false),
         });
-        let updater = Updater::with_net(base_config(), root.path().to_str(), net.clone());
+        let updater = scoped_updater(base_config(), root.path().to_str(), net.clone());
         std::fs::write(
             &updater.config_path,
             r#"{"autoUpdate":{"manifestUrl":"https://example.invalid/latest-rust.json"}}"#,
@@ -91,7 +116,7 @@ mod migration_contract_tests {
     async fn missing_manifest_url_does_not_fetch_or_spawn_any_service_command() {
         let root = tempfile::tempdir().unwrap();
         let net = ScriptedNet::new(vec![], vec![]);
-        let updater = Updater::with_net(
+        let updater = scoped_updater(
             AutoUpdateConfig {
                 manifest_url: None,
                 ..base_config()
@@ -121,7 +146,7 @@ mod migration_contract_tests {
             stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
         });
         let root = tempfile::tempdir().unwrap();
-        let updater = Updater::new(
+        let updater = scoped_real_updater(
             AutoUpdateConfig {
                 manifest_url: Some(format!("http://{address}/latest.json")),
                 ..base_config()
@@ -143,7 +168,7 @@ mod migration_contract_tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
-        let updater = Updater::new(
+        let updater = scoped_real_updater(
             AutoUpdateConfig {
                 manifest_url: Some(format!("http://{address}/latest.json")),
                 ..base_config()
@@ -168,7 +193,7 @@ mod migration_contract_tests {
             entered: tokio::sync::Notify::new(),
             dropped: AtomicBool::new(false),
         });
-        let updater = Arc::new(Updater::with_net(
+        let updater = Arc::new(scoped_updater(
             base_config(),
             root.path().to_str(),
             net.clone(),
@@ -205,7 +230,7 @@ mod migration_contract_tests {
             })
         };
         let net = ScriptedNet::new(vec![Ok(manifest_body("1.0.2", "bbb")), failure()], vec![]);
-        let mut updater = Updater::with_net(
+        let mut updater = scoped_updater(
             AutoUpdateConfig {
                 check_interval_ms: 10_000,
                 ..base_config()
@@ -226,7 +251,7 @@ mod migration_contract_tests {
         for prior in [9, 99] {
             let root = tempfile::tempdir().unwrap();
             let net = ScriptedNet::new(vec![Ok(manifest_body("1.0.2", "bbb")), failure()], vec![]);
-            let mut updater = Updater::with_net(base_config(), root.path().to_str(), net);
+            let mut updater = scoped_updater(base_config(), root.path().to_str(), net);
             updater.set_clock(Arc::new(|| 100_000));
             updater.set_failure_state_for_test(prior, 0);
             updater.start();
@@ -279,7 +304,7 @@ mod migration_contract_tests {
     #[tokio::test]
     async fn real_gc_preserves_current_previous_and_removes_exactly_the_oldest_owned_version() {
         let root = tempfile::tempdir().unwrap();
-        let updater = Updater::with_net(
+        let updater = scoped_updater(
             base_config(),
             root.path().to_str(),
             ScriptedNet::new(vec![], vec![]),
@@ -316,7 +341,7 @@ mod migration_contract_tests {
     async fn already_current_success_fetches_only_manifest_clears_backoff_and_runs_real_gc() {
         let root = tempfile::tempdir().unwrap();
         let net = ScriptedNet::new(vec![Ok(manifest_body("1.0.2", "aaa"))], vec![]);
-        let mut updater = Updater::with_net(base_config(), root.path().to_str(), net.clone());
+        let mut updater = scoped_updater(base_config(), root.path().to_str(), net.clone());
         let commit = format!("{:0<40}", "aaa");
         native_package_version(
             &Path::new(&updater.paths.versions_dir).join("1.0.2_aaa"),
@@ -353,7 +378,7 @@ mod migration_contract_tests {
     async fn current_version_resolution_uses_real_pointer_and_explicitly_refuses_node_legacy_fallback(
     ) {
         let root = tempfile::tempdir().unwrap();
-        let updater = Updater::with_net(
+        let updater = scoped_updater(
             base_config(),
             root.path().to_str(),
             ScriptedNet::new(vec![], vec![]),
@@ -498,7 +523,7 @@ mod migration_contract_tests {
                     }
                 }),
             });
-            let mut updater = Updater::with_net(base_config(), root.path().to_str(), net);
+            let mut updater = scoped_updater(base_config(), root.path().to_str(), net);
             install_current(&updater);
             updater.set_pid_alive(Arc::new(|_| true));
             updater.set_failure_state_for_test(5, 0);
@@ -534,7 +559,7 @@ mod migration_contract_tests {
             false,
         );
         let scripted = ScriptedNet::new(vec![], vec![Err(restart), Err(recovery)]);
-        let updater = Updater::with_net(base_config(), root.path().to_str(), scripted.clone());
+        let updater = scoped_updater(base_config(), root.path().to_str(), scripted.clone());
         let metrics = attach_metrics(&updater, root.path());
         let error = updater
             .restart_collector("1.0.2", false, "")
@@ -572,7 +597,7 @@ mod migration_contract_tests {
             false,
         );
         let scripted = ScriptedNet::new(vec![], vec![Err(recovery)]);
-        let updater = Updater::with_net(base_config(), root.path().to_str(), scripted);
+        let updater = scoped_updater(base_config(), root.path().to_str(), scripted);
         let error = updater
             .start_collector_for_recovery(&restart)
             .await
@@ -601,14 +626,17 @@ mod migration_contract_tests {
                 assert_eq!(request.env["LOONGSUITE_PILOT_CACHE_DIR"], expected_root);
                 assert_eq!(
                     request.env["AGENT_DATA_COLLECTION_CONFIG"],
-                    format!("{expected_root}/config.json")
+                    Path::new(&expected_root)
+                        .join("config.json")
+                        .to_string_lossy()
+                        .into_owned()
                 );
                 assert!(!request.env.contains_key("LOONGSUITE_PILOT_RESOURCE_ROOT"));
                 assert!(!request.env.contains_key("LOONGSUITE_PILOT_INSTALL_INPUT"));
                 assert_eq!(request.timeout_ms, 90_000);
             }),
         });
-        let mut updater = Updater::with_net(base_config(), root.path().to_str(), net);
+        let mut updater = scoped_updater(base_config(), root.path().to_str(), net);
         updater.platform = Platform::Win32;
         updater.paths.loongsuite_pilot_bin = r"C:\Users\Test User\pilot-service.ps1".into();
         updater.process_env.insert(
@@ -783,7 +811,7 @@ mod migration_contract_tests {
                     }
                 }),
             });
-            let mut updater = Updater::with_net(base_config(), root.path().to_str(), net);
+            let mut updater = scoped_updater(base_config(), root.path().to_str(), net);
             updater.paths.loongsuite_pilot_bin = root
                 .path()
                 .join(if cfg!(windows) {
@@ -891,7 +919,7 @@ mod migration_contract_tests {
                 }));
             }
             let scripted = ScriptedNet::new(responses, execs);
-            let updater = Updater::with_net(base_config(), root.path().to_str(), scripted.clone());
+            let updater = scoped_updater(base_config(), root.path().to_str(), scripted.clone());
             let metrics = attach_metrics(&updater, root.path());
             let error = updater.check().await.unwrap_err();
             metrics.flush().await;
@@ -938,7 +966,7 @@ mod migration_contract_tests {
             ],
             vec![],
         );
-        let updater = Updater::with_net(base_config(), root.path().to_str(), scripted.clone());
+        let updater = scoped_updater(base_config(), root.path().to_str(), scripted.clone());
         std::fs::write(&updater.config_path,r#"{"autoUpdate":{"enabled":true,"manifestUrl":"https://example.invalid/latest.json","checkIntervalMs":1000}}"#).unwrap();
         let metrics = attach_metrics(&updater, root.path());
         updater.start();
@@ -963,5 +991,97 @@ mod migration_contract_tests {
         assert_eq!(scripted.fetch_log.lock().unwrap().len(), 2);
         updater.stop();
         assert!(!updater.is_scheduled());
+    }
+    #[tokio::test]
+    async fn fixture_installations_do_not_share_the_default_home_service_lock() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let foreign = tempfile::tempdir().unwrap();
+        let unused = ScriptedNet::new(vec![], vec![]);
+        // Constructor-only comparison proves the source of the old alias;
+        // neither default HOME path is read, locked, or created.
+        let default_one =
+            super::Updater::with_net(base_config(), first.path().to_str(), unused.clone());
+        let default_two = super::Updater::with_net(base_config(), second.path().to_str(), unused);
+        assert_eq!(
+            default_one.paths.loongsuite_pilot_bin,
+            default_two.paths.loongsuite_pilot_bin
+        );
+        let foreign_entry = foreign.path().join("bin/pilot-service");
+        let acquired = Arc::new(tokio::sync::Notify::new());
+        let entered = acquired.clone();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let release_task = release.clone();
+        let locked_path = foreign_entry.clone();
+        let owner = tokio::spawn(async move {
+            crate::deployment::native_install::with_service_lock(&locked_path, || async {
+                entered.notify_one();
+                release_task.notified().await;
+                Ok(())
+            })
+            .await
+            .unwrap()
+        });
+        tokio::time::timeout(Duration::from_secs(2), acquired.notified())
+            .await
+            .unwrap();
+        let blocked_net = Arc::new(PendingNet {
+            entered: tokio::sync::Notify::new(),
+            dropped: AtomicBool::new(false),
+        });
+        let mut blocked =
+            super::Updater::with_net(base_config(), first.path().to_str(), blocked_net.clone());
+        blocked.paths.loongsuite_pilot_bin = foreign_entry.to_string_lossy().into_owned();
+        blocked.config_path = first
+            .path()
+            .join("config.json")
+            .to_string_lossy()
+            .into_owned();
+        let blocked = Arc::new(blocked);
+        let blocked_check = blocked.clone();
+        let blocked_task = tokio::spawn(async move { blocked_check.check().await });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), blocked_net.entered.notified())
+                .await
+                .is_err()
+        );
+        assert!(!blocked_task.is_finished());
+        assert!(blocked.is_checking());
+        blocked.stop();
+        tokio::time::timeout(Duration::from_secs(2), blocked_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let isolated_net = Arc::new(PendingNet {
+            entered: tokio::sync::Notify::new(),
+            dropped: AtomicBool::new(false),
+        });
+        let isolated = Arc::new(scoped_updater(
+            base_config(),
+            second.path().to_str(),
+            isolated_net.clone(),
+        ));
+        assert!(Path::new(&isolated.paths.loongsuite_pilot_bin).starts_with(second.path()));
+        assert!(Path::new(&isolated.config_path).starts_with(second.path()));
+        let running = isolated.clone();
+        let own_task = tokio::spawn(async move { running.check().await });
+        // Foreign install remains locked throughout; our network boundary must
+        // still be reached within the unchanged original two-second budget.
+        tokio::time::timeout(Duration::from_secs(2), isolated_net.entered.notified())
+            .await
+            .unwrap();
+        isolated.stop();
+        tokio::time::timeout(Duration::from_secs(2), own_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(isolated_net.dropped.load(Ordering::SeqCst));
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(2), owner)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }
