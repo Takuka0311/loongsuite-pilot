@@ -1388,7 +1388,10 @@ fn windows_install_preflight_and_cancel_precede_task_and_service_operations() {
                 let data = fixture.root.path().join("Windows 安装主流程 🚀");
                 let original = match scenario {
                     "cancel" => Some("{\"userId\":\"prior-user\"}"),
-                    "legacy-enricher" => Some("{\"spanEnricherPaths\":[\"old.mjs\"]}"),
+                    "invalid-privacy" => Some(r#"{"privacy":{"excludeWorkspaces":["relative"]}}"#),
+                    "supported-enricher" => {
+                        Some(r#"{"otlpTrace":{"spanEnrichers":["optional.mjs"]}}"#)
+                    }
                     _ => None,
                 };
                 if let Some(original) = original {

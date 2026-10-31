@@ -103,6 +103,9 @@ impl Fixture {
             .env("PILOT_SCRIPT", &self.script)
             .env("PILOT_FIXTURE_LOG", self.home.join("invocations.jsonl"))
             .env("PILOT_FIXTURE_MODE", "exit")
+            // PowerShell needs an executable extension list even for absolute
+            // paths; without it native EXEs can be treated as documents.
+            .env("PATHEXT", ".EXE;.COM")
             .env("PATH", shell.parent().unwrap())
             .stdin(Stdio::null())
             .stdout(fs::File::create(&out).unwrap())

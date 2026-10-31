@@ -390,7 +390,12 @@ fn packaged_deploy_reports_gate_results_and_never_publishes_hook_scope() {
         serde_json::from_slice(&fs::read(home.join("hooks.json")).unwrap()).unwrap();
     assert_eq!(config["user"], "保留");
     assert_eq!(config["hooks"]["stop"].as_array().unwrap().len(), 1);
-    assert!(data.join("hooks/cursor-loongsuite-pilot-hook.sh").is_file());
+    let hook = if cfg!(windows) {
+        "hooks/cursor-loongsuite-pilot-hook.ps1"
+    } else {
+        "hooks/cursor-loongsuite-pilot-hook.sh"
+    };
+    assert!(data.join(hook).is_file());
     let state: Value =
         serde_json::from_slice(&fs::read(data.join("deployed-agents.json")).unwrap()).unwrap();
     assert_eq!(state["cursor"]["installedBy"], "build");

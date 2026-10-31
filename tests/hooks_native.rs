@@ -22,6 +22,8 @@ fn execute(mut command: Command, root: &Path, input: &[u8]) -> Output {
         .env("LOONGSUITE_PILOT_CACHE_DIR", root.join("other-cache"))
         .env("CODEX_HOME", root.join("codex 中文🚀"))
         .env("PATH", root.join("no-runtimes"))
+        // Set fixture output after env_clear; caller-provided env is discarded.
+        .env("PILOT_ARGV_PROBE_OUTPUT", root.join("argv-probe.json"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -443,8 +445,7 @@ fn powershell_bridge_preserves_raw_bytes_and_native_argument_boundaries() {
                     "Bypass",
                     "-File",
                 ])
-                .arg(&script)
-                .env("PILOT_ARGV_PROBE_OUTPUT", &output_path);
+                .arg(&script);
             let output = execute(command, root.path(), &input);
             assert!(
                 output.status.success(),
