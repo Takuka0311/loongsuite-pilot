@@ -22,6 +22,7 @@ fn temp_store() -> (tempfile::TempDir, Arc<StateStore>) {
 
 struct Script {
     collect_calls: AtomicUsize,
+    collect_entered: tokio::sync::Notify,
     start_calls: AtomicUsize,
     stop_calls: AtomicUsize,
     fail_starts: AtomicUsize,
@@ -36,6 +37,7 @@ impl Script {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             collect_calls: AtomicUsize::new(0),
+            collect_entered: tokio::sync::Notify::new(),
             start_calls: AtomicUsize::new(0),
             stop_calls: AtomicUsize::new(0),
             fail_starts: AtomicUsize::new(0),
@@ -92,6 +94,7 @@ impl InputBody for PlainBody {
     }
     async fn collect(&self, _rt: &InputRuntime) -> anyhow::Result<Vec<AgentActivityEntry>> {
         self.script.collect_calls.fetch_add(1, Ordering::SeqCst);
+        self.script.collect_entered.notify_one();
         let wait = self.script.collect_wait.lock().unwrap().take();
         if let Some(wait) = wait {
             return match wait.await {
@@ -209,11 +212,17 @@ async fn does_not_install_timer_when_stopped_during_first_collection() {
         let input = Arc::clone(&input);
         tokio::spawn(async move { input.start().await })
     };
-    tokio::task::yield_now().await;
+    tokio::time::timeout(Duration::from_secs(1), script.collect_entered.notified())
+        .await
+        .unwrap();
     let stopping = {
         let input = Arc::clone(&input);
         tokio::spawn(async move { input.stop().await })
     };
+    tokio::task::yield_now().await;
+    assert!(!input.running());
+    assert!(!stopping.is_finished());
+    assert_eq!(script.stop_calls.load(Ordering::SeqCst), 0);
     let _ = tx.send(Vec::new());
     starting.await.unwrap().unwrap();
     stopping.await.unwrap().unwrap();
@@ -239,6 +248,9 @@ async fn shares_pending_startup_and_waits_for_cleanup_before_restart() {
         tokio::spawn(async move { input.start().await })
     };
     tokio::task::yield_now().await;
+    assert!(!first.is_finished());
+    assert!(!duplicate.is_finished());
+    assert_eq!(script.start_calls.load(Ordering::SeqCst), 1);
     let _ = start_tx.send(());
     first.await.unwrap().unwrap();
     duplicate.await.unwrap().unwrap();
@@ -255,6 +267,8 @@ async fn shares_pending_startup_and_waits_for_cleanup_before_restart() {
     };
     tokio::task::yield_now().await;
     assert_eq!(script.start_calls.load(Ordering::SeqCst), 1);
+    assert!(!stopping.is_finished());
+    assert!(!restarting.is_finished());
     let _ = stop_tx.send(());
     stopping.await.unwrap().unwrap();
     restarting.await.unwrap().unwrap();
@@ -305,18 +319,12 @@ async fn polls_on_interval_and_serializes_slow_cycles() {
     let _ = tx.send(Vec::new());
     tokio::task::yield_now().await;
 
-    assert!(store_save_happened(&store, "test-input"));
     input.stop().await.unwrap();
-}
-
-fn store_save_happened(store: &StateStore, id: &str) -> bool {
-    let _ = (store, id);
-    true
 }
 
 #[tokio::test(start_paused = true)]
 async fn emits_entries_saves_and_keeps_polling_after_errors() {
-    let (dir, store) = temp_store();
+    let (_dir, store) = temp_store();
     let script = Script::new();
     let entry = build_test_entry(&json!({ "filePath": "/tmp/test/file.ts" }));
     *script.entries.lock().unwrap() = vec![entry.clone()];
@@ -347,9 +355,6 @@ async fn emits_entries_saves_and_keeps_polling_after_errors() {
     assert!(seen.lock().unwrap().is_empty());
     input.stop().await.unwrap();
 
-    let state_path = dir.path().join("input-state.json");
-    assert!(state_path.exists() || !state_path.exists());
-
     let script = Script::new();
     let input = plain(Arc::clone(&script), store, Some(5_000));
     let seen = Arc::new(Mutex::new(0_usize));
@@ -367,11 +372,6 @@ async fn emits_entries_saves_and_keeps_polling_after_errors() {
         input.on_runtime_delta(move |delta| deltas.lock().unwrap().push(delta.raw_read_calls));
     }
     script.fail_starts.store(0, Ordering::SeqCst);
-    // First collect throws via a one-shot flag on entries being a sentinel: use collect_wait error
-    // by failing the body. Reuse fail through empty + a custom path: set entries after one failure
-    // by swapping the script's entries after the first cycle. The first cycle uses a wait that
-    // returns an error only if we bail. Approximate the vitest "continue after throw" by making
-    // collect return Err once through a poisoned oneshot.
     let (tx, rx) = tokio::sync::oneshot::channel::<Vec<AgentActivityEntry>>();
     drop(tx);
     *script.collect_wait.lock().unwrap() = Some(rx);
@@ -491,9 +491,27 @@ async fn hook_reads_today_incrementally_and_skips_partial_lines() {
     std::fs::write(&partial, &complete[..split_at]).unwrap();
     let fresh = Arc::new(StateStore::new(dir.path().join("state-partial.json")));
     let input = hook_input(dir.path(), Arc::clone(&fresh), false);
+    let incomplete_batches = Arc::new(AtomicUsize::new(0));
+    let observed = incomplete_batches.clone();
+    input.on_entries(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+    let incomplete_deltas = Arc::new(Mutex::new(Vec::new()));
+    let observed = incomplete_deltas.clone();
+    input.on_runtime_delta(move |delta| observed.lock().unwrap().push(delta.clone()));
     input.start().await.unwrap();
     input.stop().await.unwrap();
-    assert_eq!(fresh.get("test-hook").last_offset().unwrap_or(-1.0), 0.0);
+    assert_eq!(incomplete_batches.load(Ordering::SeqCst), 0);
+    {
+        let deltas = incomplete_deltas.lock().unwrap();
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(deltas[0].raw_read_calls, 1);
+        assert_eq!(deltas[0].raw_read_bytes, split_at as u64);
+        assert_eq!(deltas[0].raw_in_records, 0);
+        assert_eq!(deltas[0].raw_in_bytes, 0);
+        assert_eq!(deltas[0].raw_in_max_batch_bytes, split_at as u64);
+        assert_eq!(fresh.get("test-hook").last_offset().unwrap_or(-1.0), 0.0);
+    }
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .open(&partial)
@@ -547,6 +565,14 @@ async fn hook_cold_start_skips_previous_day_and_prunes_missing_offsets() {
         .unwrap();
     assert!(offsets.get(&previous_name).is_some());
     assert_eq!(offsets.len(), 1);
+    assert_eq!(
+        offsets[&previous_name].as_f64(),
+        Some(
+            std::fs::metadata(dir.path().join(&previous_name))
+                .unwrap()
+                .len() as f64
+        )
+    );
 }
 
 fn add_days(today: &str, days: i64) -> String {
@@ -560,6 +586,7 @@ struct IdeProbe {
     events: Mutex<Vec<CodeGenerationEvent>>,
     fail_path: Mutex<Option<String>>,
     calls: AtomicUsize,
+    scan_calls: AtomicUsize,
     since: Mutex<Option<f64>>,
     snapshot: SnapshotStore,
     root: String,
@@ -584,6 +611,7 @@ impl IdeBody for IdeProbe {
         _rt: &InputRuntime,
         since_ts: f64,
     ) -> anyhow::Result<Vec<CodeGenerationEvent>> {
+        self.scan_calls.fetch_add(1, Ordering::SeqCst);
         *self.since.lock().unwrap() = Some(since_ts);
         Ok(self.events.lock().unwrap().clone())
     }
@@ -628,6 +656,7 @@ async fn ide_dedups_snapshot_keys_and_flushes() {
         events: Mutex::new(vec![code_event("/a.ts", 1000)]),
         fail_path: Mutex::new(None),
         calls: AtomicUsize::new(0),
+        scan_calls: AtomicUsize::new(0),
         since: Mutex::new(None),
         snapshot: SnapshotStore::new(&snapshot_path),
         root: dir.path().to_string_lossy().into_owned(),
@@ -644,6 +673,14 @@ async fn ide_dedups_snapshot_keys_and_flushes() {
         input.on_entries(move |entries| seen.lock().unwrap().extend(entries.to_vec()));
     }
     input.start().await.unwrap();
+    assert_eq!(input.body.inner().scan_calls.load(Ordering::SeqCst), 1);
+    assert!(input
+        .body
+        .inner()
+        .since
+        .lock()
+        .unwrap()
+        .is_some_and(f64::is_finite));
     assert_eq!(seen.lock().unwrap().len(), 1);
     input.body.inner().events.lock().unwrap().clear();
     input
@@ -657,6 +694,7 @@ async fn ide_dedups_snapshot_keys_and_flushes() {
     for _ in 0..8 {
         tokio::task::yield_now().await;
     }
+    assert_eq!(input.body.inner().scan_calls.load(Ordering::SeqCst), 2);
     assert_eq!(seen.lock().unwrap().len(), 1);
     assert!(snapshot_path.exists());
     input.stop().await.unwrap();
@@ -673,6 +711,7 @@ async fn ide_skips_build_errors_and_nulls() {
         ]),
         fail_path: Mutex::new(Some("/fail.ts".into())),
         calls: AtomicUsize::new(0),
+        scan_calls: AtomicUsize::new(0),
         since: Mutex::new(None),
         snapshot: SnapshotStore::new(dir.path().join("snapshot.json")),
         root: dir.path().to_string_lossy().into_owned(),
@@ -952,6 +991,10 @@ async fn canonical_and_hook_transform_preserve_safe_fields() {
         kept.extra.get("multica.user.id").and_then(Value::as_str),
         Some("staff-1")
     );
+    assert_eq!(
+        serde_json::to_value(&kept).unwrap()["event.name"],
+        "llm.response"
+    );
     assert_eq!(kept.user_name.as_deref(), Some("qoder-user"));
     assert_eq!(kept.user_email.as_deref(), Some("qoder-user@example.com"));
 
@@ -1061,4 +1104,799 @@ async fn hook_history_checkpoint_baselines_existing_bytes() {
     .await
     .unwrap();
     assert!(again.is_none());
+}
+
+#[tokio::test]
+async fn each_successful_empty_cycle_persists_the_actual_dirty_checkpoint() {
+    let (dir, store) = temp_store();
+    let script = Script::new();
+    let input = plain(script.clone(), store.clone(), Some(60_000));
+    store.set_offset("first-cycle", 41.0);
+    input.start().await.unwrap();
+    let path = dir.path().join("input-state.json");
+    let first: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(first["first-cycle"]["lastOffset"], 41.0);
+    store.set_offset("second-cycle", 42.0);
+    input.run_cycle().await;
+    let second: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(second["first-cycle"]["lastOffset"], 41.0);
+    assert_eq!(second["second-cycle"]["lastOffset"], 42.0);
+    assert_eq!(script.collect_calls.load(Ordering::SeqCst), 2);
+    input.stop().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn collect_error_reports_zero_raw_delta_then_next_scheduled_tick_recovers() {
+    let (_dir, store) = temp_store();
+    let script = Script::new();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    drop(sender);
+    *script.collect_wait.lock().unwrap() = Some(receiver);
+    let input = plain(script.clone(), store, Some(5_000));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let deltas = Arc::new(Mutex::new(Vec::new()));
+    let failures = Arc::new(Mutex::new(Vec::new()));
+    let delivered = Arc::new(tokio::sync::Notify::new());
+    let observed = seen.clone();
+    let ready = delivered.clone();
+    input.on_entries(move |entries| {
+        observed.lock().unwrap().push(entries.to_vec());
+        ready.notify_one();
+    });
+    let completed = Arc::new(tokio::sync::Notify::new());
+    let ready = completed.clone();
+    let observed = deltas.clone();
+    input.on_runtime_delta(move |delta| {
+        let mut rows = observed.lock().unwrap();
+        rows.push(delta.clone());
+        if rows.len() == 2 {
+            ready.notify_one();
+        }
+    });
+    let observed = failures.clone();
+    input.on_collect_error(move |error| observed.lock().unwrap().push(error.to_owned()));
+    input.start().await.unwrap();
+    assert!(seen.lock().unwrap().is_empty());
+    assert_eq!(failures.lock().unwrap().as_slice(), ["test error"]);
+    assert_eq!(deltas.lock().unwrap().len(), 1);
+    {
+        let rows = deltas.lock().unwrap();
+        let first = &rows[0];
+        assert_eq!(first.source_kind, PRIMARY_INPUT_SOURCE_KIND);
+        assert_eq!(first.raw_read_calls, 0);
+        assert_eq!(first.raw_read_bytes, 0);
+        assert_eq!(first.raw_in_records, 0);
+        assert_eq!(first.raw_in_bytes, 0);
+    }
+    let entry = build_test_entry(&json!({"filePath":"/after-error.ts"}));
+    *script.entries.lock().unwrap() = vec![entry.clone()];
+    tokio::time::advance(Duration::from_millis(5_000)).await;
+    tokio::time::timeout(Duration::from_secs(1), delivered.notified())
+        .await
+        .expect("the next scheduled polling cycle must survive the earlier Err");
+    tokio::time::timeout(Duration::from_secs(1), completed.notified())
+        .await
+        .expect("recovery cycle must complete and report its runtime delta");
+    assert_eq!(
+        serde_json::to_value(&*seen.lock().unwrap()).unwrap(),
+        json!([[entry]])
+    );
+    assert_eq!(deltas.lock().unwrap().len(), 2);
+    assert_eq!(script.collect_calls.load(Ordering::SeqCst), 2);
+    input.stop().await.unwrap();
+    tokio::time::advance(Duration::from_millis(10_000)).await;
+    assert_eq!(script.collect_calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn stop_drains_the_actual_active_cycle_before_body_cleanup() {
+    let (_dir, store) = temp_store();
+    let script = Script::new();
+    let input = plain(script.clone(), store, Some(5_000));
+    input.start().await.unwrap();
+    script.collect_entered.notified().await;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    *script.collect_wait.lock().unwrap() = Some(receiver);
+    tokio::time::advance(Duration::from_millis(5_000)).await;
+    tokio::time::timeout(Duration::from_secs(1), script.collect_entered.notified())
+        .await
+        .unwrap();
+    assert_eq!(script.collect_calls.load(Ordering::SeqCst), 2);
+    let stopping = {
+        let input = input.clone();
+        tokio::spawn(async move { input.stop().await })
+    };
+    tokio::task::yield_now().await;
+    assert!(!stopping.is_finished());
+    assert_eq!(script.stop_calls.load(Ordering::SeqCst), 0);
+    sender.send(Vec::new()).unwrap();
+    stopping.await.unwrap().unwrap();
+    assert_eq!(script.stop_calls.load(Ordering::SeqCst), 1);
+    assert!(!input.running());
+    assert!(!input.runtime.timer_active());
+    tokio::time::advance(Duration::from_millis(10_000)).await;
+    assert_eq!(script.collect_calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn ide_different_keys_emit_two_entries_and_null_builds_emit_no_batch() {
+    for (events, expected_paths) in [
+        (
+            vec![code_event("/a.ts", 1_000), code_event("/b.ts", 2_000)],
+            vec!["/a.ts", "/b.ts"],
+        ),
+        (vec![code_event("/skip", 1_000)], vec![]),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(StateStore::new(dir.path().join("state.json")));
+        let input = hosted_ide(
+            IdeProbe {
+                events: Mutex::new(events),
+                fail_path: Mutex::new(None),
+                calls: AtomicUsize::new(0),
+                scan_calls: AtomicUsize::new(0),
+                since: Mutex::new(None),
+                snapshot: SnapshotStore::new(dir.path().join("snapshot.json")),
+                root: dir.path().to_string_lossy().into_owned(),
+            },
+            "TestIdeContract",
+            store,
+            Some(60_000),
+        );
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let observed = seen.clone();
+        input.on_entries(move |entries| observed.lock().unwrap().push(entries.to_vec()));
+        input.start().await.unwrap();
+        assert_eq!(input.body.inner().scan_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            input.body.inner().calls.load(Ordering::SeqCst),
+            if expected_paths.is_empty() { 1 } else { 2 }
+        );
+        let batches = seen.lock().unwrap().clone();
+        if expected_paths.is_empty() {
+            assert!(batches.is_empty());
+        } else {
+            assert_eq!(batches.len(), 1);
+            assert_eq!(
+                batches[0]
+                    .iter()
+                    .filter_map(legacy_file_path)
+                    .collect::<Vec<_>>(),
+                expected_paths
+            );
+        }
+        input.stop().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn hook_resource_attributes_survive_both_real_transform_paths() {
+    let attributes = json!({
+        "agentteams.worker.name":"local-worker",
+        "agentteams.instance.id":"example-instance"
+    });
+    let record = json!({
+        "event.id":"event-1","event.name":"llm.response",
+        "gen_ai.session.id":"session-1","gen_ai.agent.type":"claude-code",
+        "gen_ai.response.finish_reasons":["stop"],"resourceAttributes":attributes
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let generic = transform_hook_record(&record, ClientType::ClaudeCliHook, "claude-code")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(generic.resource_attributes.unwrap()).unwrap(),
+        attributes
+    );
+    let mut canonical_record = record;
+    canonical_record.insert("event.id".into(), json!("event-2"));
+    canonical_record.insert("gen_ai.session.id".into(), json!("session-2"));
+    let canonical = build_canonical_hook_entry(
+        &canonical_record,
+        ClientType::ClaudeCliHook.as_str(),
+        None,
+        CanonicalHookRecordOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(canonical.resource_attributes.unwrap()).unwrap(),
+        attributes
+    );
+}
+
+struct ContractSession {
+    paths: SessionPaths,
+    files: Vec<String>,
+    discoveries: AtomicUsize,
+    records: Mutex<Vec<(String, Value)>>,
+    filter_all: bool,
+}
+
+#[async_trait]
+impl SessionBody for ContractSession {
+    fn id(&self) -> &str {
+        "contract-session"
+    }
+    fn agent_type(&self) -> ClientType {
+        ClientType::QoderWork
+    }
+    fn paths(&self) -> &SessionPaths {
+        &self.paths
+    }
+    async fn discover_session_files(&self, _: &InputRuntime) -> anyhow::Result<Vec<String>> {
+        self.discoveries.fetch_add(1, Ordering::SeqCst);
+        Ok(self.files.clone())
+    }
+    async fn process_session_line(
+        &self,
+        _: &InputRuntime,
+        record: &Map<String, Value>,
+        path: &str,
+    ) -> anyhow::Result<Option<AgentActivityEntry>> {
+        self.records
+            .lock()
+            .unwrap()
+            .push((path.into(), Value::Object(record.clone())));
+        if self.filter_all {
+            return Ok(None);
+        }
+        Ok(Some(build_test_entry(
+            &json!({"filePath":record.get("file_path").and_then(Value::as_str).unwrap_or("")}),
+        )))
+    }
+}
+
+fn contract_session(
+    dir: &std::path::Path,
+    store: Arc<StateStore>,
+    files: Vec<String>,
+    filter_all: bool,
+) -> Arc<HostedInput<SessionAdapter<ContractSession>>> {
+    let input = hosted_session(
+        ContractSession {
+            paths: SessionPaths {
+                session_dir: dir.to_string_lossy().into_owned(),
+                file_pattern: "*.jsonl".into(),
+            },
+            files,
+            discoveries: AtomicUsize::new(0),
+            records: Mutex::new(Vec::new()),
+            filter_all,
+        },
+        "SessionContract",
+        store,
+        Some(60_000),
+    );
+    input.runtime.force_poll_interval_ms(60_000);
+    input
+}
+
+fn entry_paths(entries: &[AgentActivityEntry]) -> Vec<String> {
+    entries
+        .iter()
+        .map(|entry| legacy_file_path(entry).unwrap().to_owned())
+        .collect()
+}
+
+#[tokio::test]
+async fn session_delegates_each_record_and_filepath_then_resumes_only_new_bytes_from_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("session.jsonl");
+    let path = file.to_string_lossy().into_owned();
+    let state = dir.path().join("state.json");
+    std::fs::write(
+        &file,
+        "{\"file_path\":\"/a.ts\"}\n{\"file_path\":\"/b.ts\"}\n",
+    )
+    .unwrap();
+    let store = Arc::new(StateStore::new(&state));
+    let input = contract_session(dir.path(), store, vec![path.clone()], false);
+    assert_eq!(
+        input.collection_method(),
+        CollectionMethod::SessionFilePolling
+    );
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let observed = rows.clone();
+    input.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+    input.start().await.unwrap();
+    assert_eq!(input.body.inner().discoveries.load(Ordering::SeqCst), 1);
+    assert_eq!(entry_paths(&rows.lock().unwrap()), ["/a.ts", "/b.ts"]);
+    let records = input.body.inner().records.lock().unwrap().clone();
+    assert_eq!(
+        records,
+        vec![
+            (path.clone(), json!({"file_path":"/a.ts"})),
+            (path.clone(), json!({"file_path":"/b.ts"})),
+        ]
+    );
+    input.stop().await.unwrap();
+    use std::io::Write;
+    writeln!(
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap(),
+        "{}",
+        json!({"file_path":"/second.ts"})
+    )
+    .unwrap();
+    let restored = Arc::new(StateStore::new(&state));
+    restored.load().await;
+    let next = contract_session(dir.path(), restored, vec![path], false);
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let observed = rows.clone();
+    next.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+    next.start().await.unwrap();
+    assert_eq!(entry_paths(&rows.lock().unwrap()), ["/second.ts"]);
+    next.run_cycle().await;
+    assert_eq!(next.body.inner().discoveries.load(Ordering::SeqCst), 2);
+    assert_eq!(next.body.inner().records.lock().unwrap().len(), 1);
+    assert_eq!(rows.lock().unwrap().len(), 1);
+    next.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn session_counts_malformed_and_filtered_records_before_normalization() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("raw-stats.jsonl");
+    let payload = "not-json\n{\"file_path\":\"/filtered.ts\"}\n";
+    std::fs::write(&file, payload).unwrap();
+    let input = contract_session(
+        dir.path(),
+        Arc::new(StateStore::new(dir.path().join("state.json"))),
+        vec![file.to_string_lossy().into_owned()],
+        true,
+    );
+    let deltas = Arc::new(Mutex::new(Vec::new()));
+    let observed = deltas.clone();
+    input.on_runtime_delta(move |delta| observed.lock().unwrap().push(delta.clone()));
+    let emitted = Arc::new(AtomicUsize::new(0));
+    let observed = emitted.clone();
+    input.on_entries(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+    input.start().await.unwrap();
+    input.stop().await.unwrap();
+    assert_eq!(emitted.load(Ordering::SeqCst), 0);
+    assert_eq!(input.body.inner().records.lock().unwrap().len(), 1);
+    let rows = deltas.lock().unwrap();
+    assert_eq!(rows.len(), 1);
+    let stats = &rows[0];
+    assert_eq!(stats.raw_read_calls, 1);
+    assert_eq!(stats.raw_read_bytes, payload.len() as u64);
+    assert_eq!(stats.raw_in_records, 2);
+    assert_eq!(stats.raw_in_bytes, payload.len() as u64);
+    assert_eq!(stats.raw_in_max_batch_bytes, payload.len() as u64);
+    assert_eq!(stats.parse_success_records, 1);
+    assert_eq!(stats.parse_failed_records, 1);
+}
+
+#[tokio::test]
+async fn session_missing_files_emit_nothing_and_never_invoke_the_record_processor() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = contract_session(
+        dir.path(),
+        Arc::new(StateStore::new(dir.path().join("state.json"))),
+        vec![dir
+            .path()
+            .join("nonexistent.jsonl")
+            .to_string_lossy()
+            .into_owned()],
+        false,
+    );
+    let emitted = Arc::new(AtomicUsize::new(0));
+    let observed = emitted.clone();
+    input.on_entries(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+    input.start().await.unwrap();
+    assert_eq!(input.body.inner().discoveries.load(Ordering::SeqCst), 1);
+    assert!(input.body.inner().records.lock().unwrap().is_empty());
+    assert_eq!(emitted.load(Ordering::SeqCst), 0);
+    input.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn session_same_length_replacement_is_not_mistaken_for_an_already_consumed_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("rotated.jsonl");
+    let old = dir.path().join("rotated.jsonl.old");
+    let path = file.to_string_lossy().into_owned();
+    let key = format!("contract-session:{path}");
+    let checkpoint = dir.path().join("state.json");
+    let first = "{\"file_path\":\"/a.ts\"}\n";
+    let replacement = "{\"file_path\":\"/b.ts\"}\n";
+    assert_eq!(first.len(), replacement.len());
+    std::fs::write(&file, first).unwrap();
+    let store = Arc::new(StateStore::new(&checkpoint));
+    let input = contract_session(dir.path(), store.clone(), vec![path.clone()], false);
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let observed = rows.clone();
+    input.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+    input.start().await.unwrap();
+    input.stop().await.unwrap();
+    assert_eq!(entry_paths(&rows.lock().unwrap()), ["/a.ts"]);
+    let previous_identity = store.get(&key).extra().unwrap()["inode"].clone();
+    std::fs::rename(&file, &old).unwrap();
+    std::fs::write(&file, replacement).unwrap();
+    let restored = Arc::new(StateStore::new(&checkpoint));
+    restored.load().await;
+    let next = contract_session(dir.path(), restored.clone(), vec![path], false);
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let observed = rows.clone();
+    next.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+    next.start().await.unwrap();
+    next.stop().await.unwrap();
+    assert_eq!(entry_paths(&rows.lock().unwrap()), ["/b.ts"]);
+    assert_ne!(
+        restored.get(&key).extra().unwrap()["inode"],
+        previous_identity
+    );
+    assert_eq!(restored.get_offset(&key), replacement.len() as f64);
+    std::fs::remove_file(old).unwrap();
+}
+
+#[tokio::test]
+async fn session_adopts_legacy_unknown_identity_without_replaying_the_saved_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("legacy-zero-inode.jsonl");
+    let path = file.to_string_lossy().into_owned();
+    let key = format!("contract-session:{path}");
+    let first = "{\"file_path\":\"/already-consumed.ts\"}\n";
+    std::fs::write(&file, first).unwrap();
+    let store = Arc::new(StateStore::new(dir.path().join("state.json")));
+    store.set(
+        &key,
+        InputState::new()
+            .with_last_offset(first.len() as f64)
+            .with_extra(json!({"inode":0,"preserved":"yes"})),
+    );
+    let input = contract_session(dir.path(), store.clone(), vec![path], false);
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let observed = rows.clone();
+    input.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+    input.start().await.unwrap();
+    assert!(rows.lock().unwrap().is_empty());
+    assert_eq!(store.get_offset(&key), first.len() as f64);
+    assert_eq!(store.get(&key).extra().unwrap()["preserved"], "yes");
+    assert!(store.get(&key).extra().unwrap().get("device").is_some());
+    use std::io::Write;
+    writeln!(
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap(),
+        "{}",
+        json!({"file_path":"/new-tail.ts"})
+    )
+    .unwrap();
+    input.run_cycle().await;
+    input.stop().await.unwrap();
+    assert_eq!(entry_paths(&rows.lock().unwrap()), ["/new-tail.ts"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn session_permission_failures_warn_once_and_keep_collecting_readable_siblings() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    const CHILD: &str = "PILOT_BASE_SESSION_PERMISSION_CHILD";
+    if let Some(mode) = std::env::var_os(CHILD) {
+        let root = std::path::PathBuf::from(std::env::var_os("PILOT_PERMISSION_FIXTURE").unwrap());
+        let blocked = root.join("blocked.jsonl");
+        let readable = root.join("readable.jsonl");
+        let owner = std::fs::metadata(&blocked).unwrap().uid();
+        let daemon = if mode == "mismatch" {
+            owner.wrapping_add(1)
+        } else {
+            owner
+        };
+        let input = contract_session(
+            &root,
+            Arc::new(StateStore::new(root.join("checkpoint/state.json"))),
+            vec![
+                blocked.to_string_lossy().into_owned(),
+                readable.to_string_lossy().into_owned(),
+            ],
+            false,
+        );
+        input.runtime.set_daemon_uid_override(Some(daemon));
+        let rows = Arc::new(Mutex::new(Vec::new()));
+        let observed = rows.clone();
+        input.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+        input.start().await.unwrap();
+        assert_eq!(entry_paths(&rows.lock().unwrap()), ["/ok.ts"]);
+        let warnings = input.runtime.test_warns();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("ownership-mismatch"));
+        if mode == "mismatch" {
+            assert!(warnings[0].contains(&format!("owned by uid {owner}")));
+            assert!(warnings[0].contains(&format!("daemon runs as uid {daemon}")));
+        } else {
+            assert!(warnings[0].contains(&format!("despite matching uid {daemon}")));
+            assert!(warnings[0].contains("SELinux/AppArmor/ACLs"));
+        }
+        input.stop().await.unwrap();
+        input.start().await.unwrap();
+        assert_eq!(input.runtime.test_warns(), warnings);
+        assert_eq!(entry_paths(&rows.lock().unwrap()), ["/ok.ts"]);
+        input.stop().await.unwrap();
+        return;
+    }
+    let uid = unsafe { libc::getuid() };
+    for mode in ["mismatch", "matching"] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let blocked = root.join("blocked.jsonl");
+        std::fs::write(&blocked, "{\"file_path\":\"/blocked.ts\"}\n").unwrap();
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        std::fs::write(root.join("readable.jsonl"), "{\"file_path\":\"/ok.ts\"}\n").unwrap();
+        std::fs::set_permissions(
+            root.join("readable.jsonl"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        let checkpoint = root.join("checkpoint");
+        std::fs::create_dir(&checkpoint).unwrap();
+        std::fs::set_permissions(&checkpoint, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let child_uid = if uid == 0 { 65_534 } else { uid };
+        if uid == 0 {
+            std::os::unix::fs::chown(&blocked, Some(child_uid), Some(child_uid)).unwrap();
+            std::os::unix::fs::chown(&checkpoint, Some(child_uid), Some(child_uid)).unwrap();
+        }
+        let executable = root.join("isolated-session-permission-tests");
+        std::fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut command = std::process::Command::new(executable);
+        command.env_clear()
+            .args(["--exact","inputs::base::tests::session_permission_failures_warn_once_and_keep_collecting_readable_siblings","--nocapture"])
+            .env(CHILD,mode).env("PILOT_PERMISSION_FIXTURE",root)
+            .env("HOME",&checkpoint).env("USERPROFILE",&checkpoint)
+            .env("TMPDIR",&checkpoint).env("TMP",&checkpoint).env("TEMP",&checkpoint)
+            .env("PATH",root.join("no-runtimes"))
+            .stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        if uid == 0 {
+            use std::os::unix::process::CommandExt;
+            command.uid(child_uid).gid(child_uid);
+        }
+        let mut child = command.spawn().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while child.try_wait().unwrap().is_none() {
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let output = child.wait_with_output().unwrap();
+                panic!("permission fixture timed out: {output:?}");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{mode} permission fixture failed: {output:?}"
+        );
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn hook_missing_and_empty_logs_emit_no_batches_or_transform_calls() {
+    for empty in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        if empty {
+            std::fs::write(
+                dir.path()
+                    .join(format!("test-hook-{}.jsonl", get_today_date_string())),
+                "",
+            )
+            .unwrap();
+        }
+        let input = hook_input(
+            dir.path(),
+            Arc::new(StateStore::new(dir.path().join("state.json"))),
+            false,
+        );
+        assert_eq!(input.collection_method(), CollectionMethod::HookJsonl);
+        let emitted = Arc::new(AtomicUsize::new(0));
+        let observed = emitted.clone();
+        input.on_entries(move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+        input.start().await.unwrap();
+        input.stop().await.unwrap();
+        assert_eq!(emitted.load(Ordering::SeqCst), 0);
+        assert_eq!(input.body.inner().calls.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
+async fn hook_raw_metrics_include_malformed_and_filtered_utf8_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let valid = "{\"file_path\":\"/已过滤.ts\"}\n";
+    let payload = format!("not-json\n{valid}");
+    std::fs::write(
+        dir.path()
+            .join(format!("test-hook-{}.jsonl", get_today_date_string())),
+        &payload,
+    )
+    .unwrap();
+    let input = hook_input(
+        dir.path(),
+        Arc::new(StateStore::new(dir.path().join("state.json"))),
+        true,
+    );
+    let deltas = Arc::new(Mutex::new(Vec::new()));
+    let observed = deltas.clone();
+    input.on_runtime_delta(move |stats| observed.lock().unwrap().push(stats.clone()));
+    let emitted = Arc::new(AtomicUsize::new(0));
+    let observed = emitted.clone();
+    input.on_entries(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+    input.start().await.unwrap();
+    input.stop().await.unwrap();
+    assert_eq!(emitted.load(Ordering::SeqCst), 0);
+    assert_eq!(input.body.inner().calls.load(Ordering::SeqCst), 1);
+    let rows = deltas.lock().unwrap();
+    assert_eq!(rows.len(), 1);
+    let stats = &rows[0];
+    assert_eq!(stats.raw_read_calls, 1);
+    assert_eq!(stats.raw_read_bytes, payload.len() as u64);
+    assert_eq!(stats.raw_in_records, 2);
+    assert_eq!(stats.raw_in_bytes, payload.len() as u64);
+    assert_eq!(stats.raw_in_max_batch_bytes, payload.len() as u64);
+    assert_eq!(stats.raw_in_max_record_bytes, valid.len() as u64);
+    assert_eq!(stats.parse_success_records, 1);
+    assert_eq!(stats.parse_failed_records, 1);
+}
+
+#[tokio::test]
+async fn hook_transforms_each_new_line_once_and_skips_bad_json_without_aborting_valid_siblings() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir
+        .path()
+        .join(format!("test-hook-{}.jsonl", get_today_date_string()));
+    std::fs::write(
+        &file,
+        "not-json\n{\"file_path\":\"/a.ts\"}\n{\"file_path\":\"/b.ts\"}\n",
+    )
+    .unwrap();
+    let input = hook_input(
+        dir.path(),
+        Arc::new(StateStore::new(dir.path().join("state.json"))),
+        false,
+    );
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let observed = rows.clone();
+    input.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+    input.start().await.unwrap();
+    assert_eq!(entry_paths(&rows.lock().unwrap()), ["/a.ts", "/b.ts"]);
+    assert_eq!(input.body.inner().calls.load(Ordering::SeqCst), 2);
+    input.run_cycle().await;
+    assert_eq!(input.body.inner().calls.load(Ordering::SeqCst), 2);
+    assert_eq!(rows.lock().unwrap().len(), 2);
+    use std::io::Write;
+    writeln!(
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap(),
+        "{}",
+        json!({"file_path":"/c.ts"})
+    )
+    .unwrap();
+    input.run_cycle().await;
+    input.stop().await.unwrap();
+    assert_eq!(
+        entry_paths(&rows.lock().unwrap()),
+        ["/a.ts", "/b.ts", "/c.ts"]
+    );
+    assert_eq!(input.body.inner().calls.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn hook_stale_truncated_offset_resets_then_persists_the_short_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir
+        .path()
+        .join(format!("test-hook-{}.jsonl", get_today_date_string()));
+    let checkpoint = dir.path().join("state.json");
+    std::fs::write(
+        &file,
+        "{\"file_path\":\"/first-entry-with-long-path.ts\"}\n",
+    )
+    .unwrap();
+    let store = Arc::new(StateStore::new(&checkpoint));
+    let input = hook_input(dir.path(), store, false);
+    input.start().await.unwrap();
+    input.stop().await.unwrap();
+    let short = "{\"file_path\":\"/short.ts\"}\n";
+    std::fs::write(&file, short).unwrap();
+    let restored = Arc::new(StateStore::new(&checkpoint));
+    restored.load().await;
+    assert!(restored.get_offset("test-hook") > short.len() as f64);
+    let next = hook_input(dir.path(), restored.clone(), false);
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let observed = rows.clone();
+    next.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+    next.start().await.unwrap();
+    next.stop().await.unwrap();
+    assert_eq!(entry_paths(&rows.lock().unwrap()), ["/short.ts"]);
+    assert_eq!(restored.get_offset("test-hook"), short.len() as f64);
+}
+
+#[tokio::test]
+async fn hook_drains_previous_day_in_order_and_keeps_lagged_sources_after_today() {
+    for lagged in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let today = get_today_date_string();
+        let previous = add_days(&today, -1);
+        let old_name = format!("test-hook-{previous}.jsonl");
+        let current_name = format!("test-hook-{today}.jsonl");
+        let old_consumed = "{\"file_path\":\"/already-read.ts\"}\n";
+        let old_payload = format!("{old_consumed}{{\"file_path\":\"/late-previous.ts\"}}\n");
+        let current_payload = if lagged {
+            "{\"file_path\":\"/today-consumed.ts\"}\n"
+        } else {
+            "{\"file_path\":\"/today.ts\"}\n"
+        };
+        std::fs::write(dir.path().join(&old_name), &old_payload).unwrap();
+        std::fs::write(dir.path().join(&current_name), current_payload).unwrap();
+        let store = Arc::new(StateStore::new(dir.path().join("state.json")));
+        let state = if lagged {
+            InputState::new().with_last_file(&current_name).with_last_offset(current_payload.len() as f64)
+                .with_extra(json!({(OFFSET_MAP_EXTRA_KEY):{(old_name.clone()):old_consumed.len(),(current_name.clone()):current_payload.len()}}))
+        } else {
+            InputState::new()
+                .with_last_file(&old_name)
+                .with_last_offset(old_consumed.len() as f64)
+        };
+        store.set("test-hook", state);
+        let input = hook_input(dir.path(), store.clone(), false);
+        let rows = Arc::new(Mutex::new(Vec::new()));
+        let observed = rows.clone();
+        input.on_entries(move |batch| observed.lock().unwrap().extend(batch.to_vec()));
+        input.start().await.unwrap();
+        input.stop().await.unwrap();
+        assert_eq!(
+            entry_paths(&rows.lock().unwrap()),
+            if lagged {
+                vec!["/late-previous.ts"]
+            } else {
+                vec!["/late-previous.ts", "/today.ts"]
+            }
+        );
+        let final_state = store.get("test-hook");
+        assert_eq!(final_state.last_file(), Some(current_name.as_str()));
+        assert_eq!(
+            final_state.extra().unwrap()[OFFSET_MAP_EXTRA_KEY],
+            json!({
+                (old_name):old_payload.len() as f64,(current_name):current_payload.len() as f64
+            })
+        );
+    }
+}
+
+#[tokio::test]
+async fn hook_prunes_only_missing_daily_offsets_and_keeps_live_and_unrelated_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let today = get_today_date_string();
+    let current_name = format!("test-hook-{today}.jsonl");
+    let old_name = format!("test-hook-{}.jsonl", add_days(&today, -30));
+    let payload = "{\"file_path\":\"/today.ts\"}\n";
+    std::fs::write(dir.path().join(&current_name), payload).unwrap();
+    let store = Arc::new(StateStore::new(dir.path().join("state.json")));
+    store.set("test-hook",InputState::new().with_last_file(&current_name).with_last_offset(0.0)
+        .with_extra(json!({(OFFSET_MAP_EXTRA_KEY):{(old_name.clone()):999,(current_name.clone()):0},"unrelated":"keep"})));
+    let input = hook_input(dir.path(), store.clone(), false);
+    input.start().await.unwrap();
+    input.stop().await.unwrap();
+    let extra = store.get("test-hook").extra().unwrap();
+    assert_eq!(
+        extra[OFFSET_MAP_EXTRA_KEY],
+        json!({(current_name):payload.len() as f64})
+    );
+    assert!(extra[OFFSET_MAP_EXTRA_KEY].get(&old_name).is_none());
+    assert_eq!(extra["unrelated"], "keep");
 }

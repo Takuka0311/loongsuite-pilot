@@ -838,10 +838,10 @@
     },
     {
       "legacy": "tests/unit/core/input-manager.test.ts",
-      "coverage": "partial",
+      "coverage": "complete",
       "rust": [],
-      "note": "新增9个真实pipeline组合测试草案，26/44逐声明；需根应用、lint及实际测试后登记。未映射项包括git异常/fail-open钩子、多模态processor shutdown/替换、content各字段白名单和Trace上下文；不把单个mask子集或单个legacy config断言冒充覆盖全部字段。 Linux all-features全库实际通过本项对应专项；目标平台标签不是Windows/macOS实跑证明。",
       "source_hash": "a4931e80856bcf8a0aec4f4a22582dd6665bcb64e2d04a76ab716aea38086ca3",
+      "note": "按固定Git源码哈希逐声明承接。2026-10-31 glibc2.34/Rust1.99.1：整库1630通过，两个新增Hook断言仅因JSON整数/浮点表示不同失败，修正期望表示后Base34项全过；InputManager本批全过。Windows/macOS执行证据单独记录，Linux结果不代表其他平台通过。",
       "cases": [
         {
           "source": {
@@ -853,7 +853,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "filters excluded sessions before identity rewriting and every output destination；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "filters excluded sessions before identity rewriting and every output destination；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -880,7 +880,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "counts raw input independently from normalized entry emission；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "counts raw input independently from normalized entry emission；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -898,6 +898,33 @@
         },
         {
           "source": {
+            "id": "L145:C5",
+            "title": "subscribes to entries events and calls flusher.sendBatch",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual HostedInput emits to its real subscribed callback, registered LiveInput start/stop and Manager cancellable queue; final Sink receives exact event/counters.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::hosted_entries_subscription_reaches_actual_manager_queue_and_flusher"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L157:C5",
             "title": "passes the existing serialized sizes aligned with final dispatched events",
             "suites": [
@@ -907,7 +934,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "passes the existing serialized sizes aligned with final dispatched events；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "passes the existing serialized sizes aligned with final dispatched events；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -925,6 +952,60 @@
         },
         {
           "source": {
+            "id": "L167:C5",
+            "title": "last-mile enriches every Codex transcript path before dispatch",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual manager git/workspace stage handles completed, interrupted and subagent native paths without dropping any; prefilled git repo/branch prevents real-home git configuration reads.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::all_codex_completion_interrupt_and_subagent_paths_receive_workspace_context"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L202:C5",
+            "title": "dispatches the batch when last-mile git enrichment fails unexpectedly",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Rust Vec cannot override/throw Symbol.iterator. Actual missing cwd fails the production git spawn before config reads; manager dispatches both current/later records. Existing normalization probe-error unit supplements native failure semantics.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_git_probe_failure_does_not_drop_the_batch_or_later_entries"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L225:C5",
             "title": "serializes multiple entry batches from the same input",
             "suites": [
@@ -934,7 +1015,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "serializes multiple entry batches from the same input；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "serializes multiple entry batches from the same input；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -961,7 +1042,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "fills userId for entries missing it；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "fills userId for entries missing it；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -988,7 +1069,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "does not overwrite existing userId；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "does not overwrite existing userId；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1015,7 +1096,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "uses configured user.id before userId fallback；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "uses configured user.id before userId fallback；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1042,7 +1123,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "configured user.id overwrites an existing user.id；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "configured user.id overwrites an existing user.id；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1069,7 +1150,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "invocation env identity overrides configured/native identity and is consumed；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "invocation env identity overrides configured/native identity and is consumed；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1087,6 +1168,250 @@
         },
         {
           "source": {
+            "id": "L326:C5",
+            "title": "links TRACEPARENT with the native session before applying invocation session identity",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual correlation files resolve by native session before identity, customer decoy file unchanged. Metadata first does not consume fallback; same-turn actual input evidence later resolves. Old empty-other positive fixture is superseded by04d0de4 metadata-is-not-input rule.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "04d0de4明确禁止无文本/无hash metadata消耗上游关联；退役旧无输入证据的positive fixture，保留真实输入native session优先于invocation rewrite并新增metadata不消耗负控。",
+            "replacement": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::native_correlation_precedes_invocation_identity_and_metadata_cannot_consume_it"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L372:C5",
+            "title": "preserves content when legacy captureMessageContent is false",
+            "suites": [
+              "InputManager",
+              "legacy message content config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "All legacy input/output/tool/content/diff fields preserved for false/true/default across both hook/sqlite IDs and three real MultiFlusher children.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L398:C5",
+            "title": "preserves sensitive fields when message content capture is enabled by default",
+            "suites": [
+              "InputManager",
+              "legacy message content config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Default configuration has no content opt-out; all five legacy content fields retained through actual manager/multiple destinations.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L413:C5",
+            "title": "ignores legacy config across every input for the agent",
+            "suites": [
+              "InputManager",
+              "legacy message content config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Distinct hook/sqlite registrations for same agent both retain exact source content for false/true/default config.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L439:C5",
+            "title": "dispatches content to all child flushers despite legacy config",
+            "suites": [
+              "InputManager",
+              "legacy message content config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual MultiFlusher three child outputs each retain exact legacy output.messages, agent/event identity and other content fields.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L469:C5",
+            "title": "fills boundaries once before dispatching the same records to every flusher",
+            "suites": [
+              "InputManager",
+              "turn boundary enrichment"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual request/terminal response get start/end markers; all child outputs equal exact ordered two records.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::shared_turn_boundaries_are_inferred_once_and_identical_for_every_destination"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L507:C5",
+            "title": "fails open and dispatches original entries when enrichment throws",
+            "suites": [
+              "InputManager",
+              "turn boundary enrichment"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual previous thread fault poisons boundary state. Manager restores only derived flags, resets cache, dispatches original facts, and next request successfully derives start marker.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::real_boundary_state_failure_preserves_current_records_and_recovers_next_batch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L533:C5",
+            "title": "applies user id, content policy, and mask before the shared flusher",
+            "suites": [
+              "InputManager",
+              "blocked prompt flush"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Production blocked-prompt builder -> prepared manager output -> two child destinations preserves guardrail block, configured identity and masked prompt; no trace or inferred turn start.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_blocked_prompt_builder_flows_through_identity_mask_and_shared_output"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L559:C5",
+            "title": "keeps blocked prompt content and masks it despite the legacy qoder opt-out",
+            "suites": [
+              "InputManager",
+              "blocked prompt flush"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Both actual Qoder/QoderCli request variants exercise ignored legacy opt-out and exact APIKEY masking; no clear synthetic key remains.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_blocked_prompt_builder_flows_through_identity_mask_and_shared_output"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L581:C5",
             "title": "masks whitelisted content fields before dispatching to the flusher",
             "suites": [
@@ -1096,7 +1421,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "masks whitelisted content fields before dispatching to the flusher；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "masks whitelisted content fields before dispatching to the flusher；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1123,7 +1448,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "still masks content when legacy captureMessageContent is false；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "still masks content when legacy captureMessageContent is false；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1150,7 +1475,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "dispatches masked entries consistently to all child flushers；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "dispatches masked entries consistently to all child flushers；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1177,7 +1502,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "dual-writes masked input other after shared enrichment；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "dual-writes masked input other after shared enrichment；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1204,7 +1529,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "generates agent.input despite legacy captureMessageContent=false；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "generates agent.input despite legacy captureMessageContent=false；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1231,7 +1556,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "does not copy a non-input other event；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "does not copy a non-input other event；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1258,7 +1583,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "dispatches the same expanded pair to every child flusher；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "dispatches the same expanded pair to every child flusher；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1285,7 +1610,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "counts ingress before expansion and successful egress after expansion；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "counts ingress before expansion and successful egress after expansion；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1312,7 +1637,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "counts the full expanded batch when dispatch fails；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "counts the full expanded batch when dispatch fails；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1339,7 +1664,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "records the collection method and the owning agent separately；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "records the collection method and the owning agent separately；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1357,6 +1682,33 @@
         },
         {
           "source": {
+            "id": "L826:C5",
+            "title": "ignores duplicate registration for same id",
+            "suites": [
+              "InputManager",
+              "registerInput deduplication (T032)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Original native test only registered same Arc twice and checked count: insufficient for historical two distinct instances. Small queued strengthening asserts first Arc retained and original agent metadata; do not mark verified from the old weak assertion.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "tests::duplicate_registration_is_ignored"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L837:C5",
             "title": "proxies start to the registered input",
             "suites": [
@@ -1366,7 +1718,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "proxies start to the registered input；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "proxies start to the registered input；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1393,7 +1745,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "proxies stop to the registered input；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "proxies stop to the registered input；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1420,7 +1772,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "startInput is a no-op for unknown id；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "startInput is a no-op for unknown id；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1447,7 +1799,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "stopInput is a no-op for unknown id；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "stopInput is a no-op for unknown id；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1474,7 +1826,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "stops all running inputs；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "stops all running inputs；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1501,7 +1853,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "waits for queued entries before completing shutdown；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "waits for queued entries before completing shutdown；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1519,6 +1871,114 @@
         },
         {
           "source": {
+            "id": "L907:C5",
+            "title": "shuts down multimodal processor after draining queues",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual processor plus controlled uploader stays installed/unclosed while actual non-Codex queue is blocked; acceptance release precedes uploader shutdown and slot clearing.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_multimodal_processor_shutdown_waits_for_the_real_non_codex_queue"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L914:C5",
+            "title": "continues stopAll when multimodal processor shutdown fails",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual processor invokes uploader task that panics. Supervised shutdown JoinError is logged and contained; slot clears and new real processor can be installed. Native shutdown API returns(), so no fictitious Result::Err is asserted.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_multimodal_shutdown_task_failure_is_contained_after_clearing_the_slot"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L923:C5",
+            "title": "rejects replacing an active multimodal processor with a different instance",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual first/second processor origins and uploader shutdown counts prove first retained, second never closed while rejected, identical first reinstall remains idempotent.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::active_processor_replacement_is_rejected_and_stop_reinstall_uses_new_real_instance"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L933:C5",
+            "title": "allows reinstalling multimodal processor after stopAll clears it",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Real stop clears first; second actual processor then installs with different origin and closes once on subsequent stop.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::active_processor_replacement_is_rejected_and_stop_reinstall_uses_new_real_instance"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L947:C5",
             "title": "joins tool.call and tool.result before invocation identity rewrite",
             "suites": [
@@ -1528,7 +1988,7 @@
             "parameters": []
           },
           "coverage": "complete",
-          "behavior": "joins tool.call and tool.result before invocation identity rewrite；原生 manager 实际处理与可断言接收器，未执行草案。",
+          "behavior": "joins tool.call and tool.result before invocation identity rewrite；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。",
           "platforms": [
             "linux",
             "macos",
@@ -1540,6 +2000,33 @@
               {
                 "file": "src/core/input_manager.rs",
                 "test": "migration_pipeline_tests::tool_verdicts_join_native_identity_before_invocation_rewrite"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L987:C5",
+            "title": "drops entries when no flusher is set",
+            "suites": [
+              "InputManager",
+              "no flusher warning"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Existing native accept_entries completes without backend and actual egress remains0, matching historical no-crash/dropped-output assertion.",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "tests::drops_entries_when_no_flusher_is_set"
               }
             ]
           }
@@ -24999,6 +25486,1659 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/inputs/base-hook-input.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "b93134f666214cfed8099cb1f9fd334d6f1a6ca11a458682ac49572ccf74a35e",
+      "cases": [
+        {
+          "source": {
+            "id": "L49:C3",
+            "title": "should have correct collectionMethod",
+            "suites": [
+              "BaseHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实Hosted HookInput声明HookJsonl，并逐一验证缺失和空文件既无batch也无transform调用。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_missing_and_empty_logs_emit_no_batches_or_transform_calls"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L54:C5",
+            "title": "should read from today's JSONL file",
+            "suites": [
+              "BaseHookInput",
+              "daily JSONL file reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实今日日志首轮产生一个事件；新增行重新启动仅产出新增路径。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_reads_today_incrementally_and_skips_partial_lines"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L68:C5",
+            "title": "should return empty if no log file exists",
+            "suites": [
+              "BaseHookInput",
+              "daily JSONL file reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "缺失今日日志时batch和transform调用数均为0。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_missing_and_empty_logs_emit_no_batches_or_transform_calls"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L77:C5",
+            "title": "reports complete raw records and bytes even when no normalized entry survives",
+            "suites": [
+              "BaseHookInput",
+              "daily JSONL file reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "完整保留原始UTF-8 fixture；断言rawReadCalls/Bytes、rawInRecords/Bytes、maxBatch/maxRecord与parse成功失败全部精确值，即使transform全过滤。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_raw_metrics_include_malformed_and_filtered_utf8_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L106:C5",
+            "title": "should read only new bytes on subsequent polls",
+            "suites": [
+              "BaseHookInput",
+              "byte offset incremental reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实append后创建新Input复用checkpoint，只产出second事件且次数为1。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_reads_today_incrementally_and_skips_partial_lines"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L136:C5",
+            "title": "keeps an incomplete trailing JSONL record for the next poll",
+            "suites": [
+              "BaseHookInput",
+              "byte offset incremental reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "不完整尾行首轮无batch、checkpoint0，delta一条并精确断言已读半行字节、raw记录0/raw字节0/maxBatch；补齐换行后新Input仅产出完整事件一次。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_reads_today_incrementally_and_skips_partial_lines"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L176:C5",
+            "title": "should not re-read already consumed bytes",
+            "suites": [
+              "BaseHookInput",
+              "byte offset incremental reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "同一Input真实第二轮读取未变文件，transform总次数及事件总数不增加。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_transforms_each_new_line_once_and_skips_bad_json_without_aborting_valid_siblings"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L196:C5",
+            "title": "should recover when file is truncated and stored offset is stale",
+            "suites": [
+              "BaseHookInput",
+              "byte offset incremental reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实保存较长文件offset，截短后新StateStore从磁盘load旧offset，Input仅产出短文件并将offset更新到新长度。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_stale_truncated_offset_resets_then_persists_the_short_file"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L223:C5",
+            "title": "should drain the stored previous-day file before reading today",
+            "suites": [
+              "BaseHookInput",
+              "byte offset incremental reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "预置前日消费位置，追加部分在当日前输出，精确比对两条路径顺序、lastFile以及两文件实际offsetMap。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_drains_previous_day_in_order_and_keeps_lagged_sources_after_today"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L253:C5",
+            "title": "should not re-ingest history on cold start when only a previous-day file exists",
+            "suites": [
+              "BaseHookInput",
+              "byte offset incremental reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "仅前日文件且无状态，首轮0事件，offsetMap仅一项且该项严格等于前日文件实际大小。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_cold_start_skips_previous_day_and_prunes_missing_offsets"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L281:C5",
+            "title": "should prune offsets for daily files that no longer exist on disk",
+            "suites": [
+              "BaseHookInput",
+              "byte offset incremental reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "预置30天前已缺失文件与当日offset，验证只剩当日实际文件长度并保留无关extra字段。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_prunes_only_missing_daily_offsets_and_keeps_live_and_unrelated_state"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L309:C5",
+            "title": "should keep reading a recent timezone-lagged file after lastFile advances to today",
+            "suites": [
+              "BaseHookInput",
+              "byte offset incremental reading"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "lastFile已指向当日且当日已消费，前日新增仍被实际读取且仅产出该新增，最终两文件offset精确正确。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_drains_previous_day_in_order_and_keeps_lagged_sources_after_today"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L346:C5",
+            "title": "should call transformRecord for each JSON line",
+            "suites": [
+              "BaseHookInput",
+              "transformRecord delegation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "两个初始合法record与一个实际追加record各transform一次，最终三条完整路径及transform次数3精确相符。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_transforms_each_new_line_once_and_skips_bad_json_without_aborting_valid_siblings"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L364:C5",
+            "title": "should skip entries when transformRecord returns null",
+            "suites": [
+              "BaseHookInput",
+              "transformRecord delegation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "合法JSON实际调用transform一次并返回None，订阅的事件batch总数仍0。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_raw_metrics_include_malformed_and_filtered_utf8_bytes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L381:C5",
+            "title": "should skip malformed JSON lines without crashing",
+            "suites": [
+              "BaseHookInput",
+              "malformed JSON handling"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "坏JSON在同一真实文件中不阻断后面的合法a/b记录，首轮仅合法事件2条及transform2次。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_transforms_each_new_line_once_and_skips_bad_json_without_aborting_valid_siblings"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L396:C5",
+            "title": "should handle empty file gracefully",
+            "suites": [
+              "BaseHookInput",
+              "malformed JSON handling"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际存在的空文件被采集且不产生batch，transform调用0。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_missing_and_empty_logs_emit_no_batches_or_transform_calls"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "按固定Git源码哈希逐声明承接。2026-10-31 glibc2.34/Rust1.99.1：整库1630通过，两个新增Hook断言仅因JSON整数/浮点表示不同失败，修正期望表示后Base34项全过；InputManager本批全过。Windows/macOS执行证据单独记录，Linux结果不代表其他平台通过。"
+    },
+    {
+      "legacy": "tests/unit/inputs/base-ide-input.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "b4c0cbc92ec9a910632cc26435553c001352530a72d30fae2145d4436bf11cca",
+      "cases": [
+        {
+          "source": {
+            "id": "L53:C3",
+            "title": "should have correct collectionMethod",
+            "suites": [
+              "BaseIdeInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should have correct collectionMethod；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "ide_dedups_snapshot_keys_and_flushes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L58:C5",
+            "title": "should call scanHistoryEntries with sinceTs",
+            "suites": [
+              "BaseIdeInput",
+              "scanHistoryEntries delegation"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should call scanHistoryEntries with sinceTs；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "ide_dedups_snapshot_keys_and_flushes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L70:C5",
+            "title": "should process new events and skip already-seen ones",
+            "suites": [
+              "BaseIdeInput",
+              "SnapshotStore dedup flow"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should process new events and skip already-seen ones；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "ide_dedups_snapshot_keys_and_flushes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L93:C5",
+            "title": "should process events with different keys",
+            "suites": [
+              "BaseIdeInput",
+              "SnapshotStore dedup flow"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should process events with different keys；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "ide_different_keys_emit_two_entries_and_null_builds_emit_no_batch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L108:C5",
+            "title": "should skip events when buildEntry throws",
+            "suites": [
+              "BaseIdeInput",
+              "buildEntry error handling"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should skip events when buildEntry throws；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "ide_skips_build_errors_and_nulls"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L130:C5",
+            "title": "should skip events when buildEntry returns null",
+            "suites": [
+              "BaseIdeInput",
+              "buildEntry error handling"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should skip events when buildEntry returns null；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "ide_different_keys_emit_two_entries_and_null_builds_emit_no_batch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L145:C5",
+            "title": "should flush snapshot store after collect",
+            "suites": [
+              "BaseIdeInput",
+              "SnapshotStore flush"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should flush snapshot store after collect；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "ide_dedups_snapshot_keys_and_flushes"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "按固定Git源码哈希逐声明承接。2026-10-31 glibc2.34/Rust1.99.1：整库1630通过，两个新增Hook断言仅因JSON整数/浮点表示不同失败，修正期望表示后Base34项全过；InputManager本批全过。Windows/macOS执行证据单独记录，Linux结果不代表其他平台通过。"
+    },
+    {
+      "legacy": "tests/unit/inputs/base-input.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "cb3517add009e6921a75c921db2efe68bc1a52918f8f3bb952d211465182a7df",
+      "cases": [
+        {
+          "source": {
+            "id": "L45:C3",
+            "title": "uses LOONGSUITE_PILOT_POLL_INTERVAL_MS over the constructor value",
+            "suites": [
+              "BaseInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses LOONGSUITE_PILOT_POLL_INTERVAL_MS over the constructor value；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "poll_env_overrides_constructor_value"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L53:C5",
+            "title": "should set running to true after start",
+            "suites": [
+              "BaseInput",
+              "start/stop lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should set running to true after start；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "start_stop_lifecycle_matches_base_input_tests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L59:C5",
+            "title": "should set running to false after stop",
+            "suites": [
+              "BaseInput",
+              "start/stop lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should set running to false after stop；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "start_stop_lifecycle_matches_base_input_tests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L65:C5",
+            "title": "should call onStart during start",
+            "suites": [
+              "BaseInput",
+              "start/stop lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should call onStart during start；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "start_stop_lifecycle_matches_base_input_tests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L72:C5",
+            "title": "should call onStop during stop",
+            "suites": [
+              "BaseInput",
+              "start/stop lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should call onStop during stop；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "start_stop_lifecycle_matches_base_input_tests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L80:C5",
+            "title": "should be idempotent on multiple start calls",
+            "suites": [
+              "BaseInput",
+              "start/stop lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should be idempotent on multiple start calls；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "start_stop_lifecycle_matches_base_input_tests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L88:C5",
+            "title": "should be idempotent on multiple stop calls",
+            "suites": [
+              "BaseInput",
+              "start/stop lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should be idempotent on multiple stop calls；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "start_stop_lifecycle_matches_base_input_tests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L98:C3",
+            "title": "drains startup resources before stop and never collects after cancelled startup",
+            "suites": [
+              "BaseInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "drains startup resources before stop and never collects after cancelled startup；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "drains_startup_before_stop_and_does_not_collect"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L120:C3",
+            "title": "does not install a timer when stopped during the first collection",
+            "suites": [
+              "BaseInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not install a timer when stopped during the first collection；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "does_not_install_timer_when_stopped_during_first_collection"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L137:C3",
+            "title": "shares pending startup and waits for cleanup before restarting",
+            "suites": [
+              "BaseInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "shares pending startup and waits for cleanup before restarting；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "shares_pending_startup_and_waits_for_cleanup_before_restart"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L160:C3",
+            "title": "cleans failed startup and allows a later retry",
+            "suites": [
+              "BaseInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "cleans failed startup and allows a later retry；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "cleans_failed_startup_and_allows_retry"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L172:C5",
+            "title": "should run collect immediately on start",
+            "suites": [
+              "BaseInput",
+              "polling cycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should run collect immediately on start；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "start_stop_lifecycle_matches_base_input_tests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L179:C5",
+            "title": "should run collect on each poll interval",
+            "suites": [
+              "BaseInput",
+              "polling cycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should run collect on each poll interval；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "polls_on_interval_and_serializes_slow_cycles"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L192:C5",
+            "title": "should stop polling after stop",
+            "suites": [
+              "BaseInput",
+              "polling cycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should stop polling after stop；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "start_stop_lifecycle_matches_base_input_tests"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L202:C5",
+            "title": "does not start another cycle while a slow collection is still running",
+            "suites": [
+              "BaseInput",
+              "polling cycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not start another cycle while a slow collection is still running；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "polls_on_interval_and_serializes_slow_cycles"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L221:C5",
+            "title": "waits for an active collection before completing stop",
+            "suites": [
+              "BaseInput",
+              "polling cycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "waits for an active collection before completing stop；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "stop_drains_the_actual_active_cycle_before_body_cleanup"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L249:C5",
+            "title": "should emit entries when collect returns non-empty array",
+            "suites": [
+              "BaseInput",
+              "entries event emission"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should emit entries when collect returns non-empty array；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "emits_entries_saves_and_keeps_polling_after_errors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L261:C5",
+            "title": "should not emit entries when collect returns empty array",
+            "suites": [
+              "BaseInput",
+              "entries event emission"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should not emit entries when collect returns empty array；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "emits_entries_saves_and_keeps_polling_after_errors"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L273:C5",
+            "title": "should call save after each cycle",
+            "suites": [
+              "BaseInput",
+              "stateStore.save"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should call save after each cycle；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "each_successful_empty_cycle_persists_the_actual_dirty_checkpoint"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L284:C5",
+            "title": "should continue polling after collect throws",
+            "suites": [
+              "BaseInput",
+              "error handling"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "should continue polling after collect throws；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "collect_error_reports_zero_raw_delta_then_next_scheduled_tick_recovers"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "按固定Git源码哈希逐声明承接。2026-10-31 glibc2.34/Rust1.99.1：整库1630通过，两个新增Hook断言仅因JSON整数/浮点表示不同失败，修正期望表示后Base34项全过；InputManager本批全过。Windows/macOS执行证据单独记录，Linux结果不代表其他平台通过。"
+    },
+    {
+      "legacy": "tests/unit/inputs/base-session-input.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "d7dc0893dd7b7f6c441e8b328f9318034c398f5482ff9ba0778d985cd2dc5611",
+      "cases": [
+        {
+          "source": {
+            "id": "L52:C3",
+            "title": "should have correct collectionMethod",
+            "suites": [
+              "BaseSessionInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际Hosted SessionInput声明SessionFilePolling。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_delegates_each_record_and_filepath_then_resumes_only_new_bytes_from_disk"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L57:C5",
+            "title": "should call discoverSessionFiles on each collect cycle",
+            "suites": [
+              "BaseSessionInput",
+              "discoverSessionFiles"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "首轮discover精确1次；新Input再次手动cycle后discover精确2次。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_delegates_each_record_and_filepath_then_resumes_only_new_bytes_from_disk"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L68:C5",
+            "title": "should process each line in a session file",
+            "suites": [
+              "BaseSessionInput",
+              "line-by-line processing"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实JSONL两行，processor捕获完整JSON与文件路径组成的两个元组，输出路径a/b精确匹配。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_delegates_each_record_and_filepath_then_resumes_only_new_bytes_from_disk"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L89:C5",
+            "title": "reports malformed and filtered lines as raw records before normalization",
+            "suites": [
+              "BaseSessionInput",
+              "line-by-line processing"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留历史坏JSON+合法过滤record fixture，精确断言一条delta全部原始计数/字节及parse成功失败，合法processor仅调用1次且0事件batch。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_counts_malformed_and_filtered_records_before_normalization"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L114:C5",
+            "title": "should pass filePath to processSessionLine",
+            "suites": [
+              "BaseSessionInput",
+              "line-by-line processing"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "捕获并逐项比对传入processSessionLine的实际文件路径和原始JSON。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_delegates_each_record_and_filepath_then_resumes_only_new_bytes_from_disk"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L132:C5",
+            "title": "should only read new data on subsequent polls",
+            "suites": [
+              "BaseSessionInput",
+              "byte offset persistence"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stop落盘后append，新StateStore从文件load并新建Input，仅新增尾行产出一次，额外空poll不重处理。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_delegates_each_record_and_filepath_then_resumes_only_new_bytes_from_disk"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L164:C5",
+            "title": "should reset offset when file is replaced (inode change)",
+            "suites": [
+              "BaseSessionInput",
+              "inode change detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实rename保留旧inode文件，同长度新文件排除截短兜底，新StateStore从磁盘load后仅产出替换record，identity改变且offset等于新长度；需要配套opened-handle identity修复。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_same_length_replacement_is_not_mistaken_for_an_already_consumed_file"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L202:C5",
+            "title": "should skip files that do not exist",
+            "suites": [
+              "BaseSessionInput",
+              "error handling"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "discover实际返回不存在文件，processor0、batch0，采集正常完成。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_missing_files_emit_nothing_and_never_invoke_the_record_processor"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L213:C5",
+            "title": "should skip malformed JSON lines",
+            "suites": [
+              "BaseSessionInput",
+              "error handling"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "已有真实bad.jsonl包含坏JSON和ok记录，仅产出ok一次，紧接的缺失文件不阻断处理。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_offsets_inode_and_malformed_lines"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L233:C7",
+            "title": "unreadable event file: warns once with owner/daemon uids and keeps collecting sibling files",
+            "suites": [
+              "BaseSessionInput",
+              "ownership diagnostics"
+            ],
+            "parameters": [
+              "describe.runIf(typeof process.getuid === 'function' && process.getuid() !== 0)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "真实chmod000触发EACCES：root时复制同一测试二进制并降权运行；强制UID不匹配诊断owner/daemon值准确，仍读取可读sibling且stop/start后warn总数保持1。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_permission_failures_warn_once_and_keep_collecting_readable_siblings"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L273:C7",
+            "title": "unreadable despite matching uid: points at directory permissions or security modules",
+            "suites": [
+              "BaseSessionInput",
+              "ownership diagnostics"
+            ],
+            "parameters": [
+              "describe.runIf(typeof process.getuid === 'function' && process.getuid() !== 0)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "真实chmod000并以文件owner身份运行，诊断包含matching uid及安全模块/目录权限；stop/start不重复warn。 草案仅静态验证，根Agent应用并实际执行后才能记入已验证覆盖。",
+          "platforms": [
+            "linux",
+            "macos"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "session_permission_failures_warn_once_and_keep_collecting_readable_siblings"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "按固定Git源码哈希逐声明承接。2026-10-31 glibc2.34/Rust1.99.1：整库1630通过，两个新增Hook断言仅因JSON整数/浮点表示不同失败，修正期望表示后Base34项全过；InputManager本批全过。Windows/macOS执行证据单独记录，Linux结果不代表其他平台通过。"
+    },
+    {
+      "legacy": "tests/unit/inputs/base/hook-record-transform.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "7788c467fb1c264c4fbd005332ee7c918a17c89821206fc47852f96188ea6c6d",
+      "cases": [
+        {
+          "source": {
+            "id": "L7:C3",
+            "title": "preserves resourceAttributes in generic hook transform",
+            "suites": [
+              "hook record resource attribute passthrough"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves resourceAttributes in generic hook transform；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_resource_attributes_survive_both_real_transform_paths"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L28:C3",
+            "title": "preserves resourceAttributes in canonical hook transform",
+            "suites": [
+              "hook record resource attribute passthrough"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves resourceAttributes in canonical hook transform；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "hook_resource_attributes_survive_both_real_transform_paths"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L57:C3",
+            "title": "keeps strict canonical behavior by default",
+            "suites": [
+              "canonical hook custom top-level field passthrough"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps strict canonical behavior by default；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "canonical_and_hook_transform_preserve_safe_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L66:C3",
+            "title": "preserves safe string fields when explicitly enabled",
+            "suites": [
+              "canonical hook custom top-level field passthrough"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves safe string fields when explicitly enabled；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "canonical_and_hook_transform_preserve_safe_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L85:C3",
+            "title": "preserves canonical user identity fields",
+            "suites": [
+              "canonical hook custom top-level field passthrough"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves canonical user identity fields；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "canonical_and_hook_transform_preserve_safe_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L103:C3",
+            "title": "drops unsafe custom fields when passthrough is enabled",
+            "suites": [
+              "canonical hook custom top-level field passthrough"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "drops unsafe custom fields when passthrough is enabled；真实HostedInput/StateStore或原生transform边界，独立历史期望；",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/base/tests.rs",
+                "test": "canonical_and_hook_transform_preserve_safe_fields"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "按固定Git源码哈希逐声明承接。2026-10-31 glibc2.34/Rust1.99.1：整库1630通过，两个新增Hook断言仅因JSON整数/浮点表示不同失败，修正期望表示后Base34项全过；InputManager本批全过。Windows/macOS执行证据单独记录，Linux结果不代表其他平台通过。"
     }
   ]
 }

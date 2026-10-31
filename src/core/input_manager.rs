@@ -497,7 +497,17 @@ impl InputManager {
         self.drain_all().await;
         let processor = self.multimodal.lock().expect("multimodal").take();
         if let Some(processor) = processor {
-            processor.shutdown(30_000).await;
+            // Supervise this subsystem boundary so an unexpected uploader task
+            // panic cannot abort the rest of collector shutdown.
+            let shutdown = crate::multimodal::http::spawn_with_http_context(async move {
+                processor.shutdown(30_000).await;
+            });
+            if let Err(error) = shutdown.await {
+                logger("InputManager").warn(
+                    "multimodal processor shutdown failed",
+                    Some(&fields(serde_json::json!({"error":error.to_string()}))),
+                );
+            }
         }
     }
 
@@ -583,7 +593,12 @@ impl InputManager {
         if entries.is_empty() {
             return Ok(());
         }
-        let mut entries = entries;
+        // Interceptor-originated records are an output path too. Preflight
+        // the whole native-session batch before identity rewriting or masking.
+        let mut entries = self.filter_workspace(entries, "interceptor");
+        if entries.is_empty() {
+            return Ok(());
+        }
         enrich_canonical_entries_with_git(&mut entries).await;
         self.apply_identity(&mut entries);
         let prepared = self.apply_mask(entries);
@@ -628,10 +643,7 @@ impl InputManager {
             linker.stamp(&mut entries).await;
         }
         self.apply_identity(&mut entries);
-        self.turn_boundary
-            .lock()
-            .expect("turns")
-            .enrich(&mut entries);
+        self.enrich_turn_boundaries_fail_open(&mut entries);
         let expanded = expand_agent_input_events(self.apply_mask(entries));
         logger("InputManager").info(
             "dispatching entries",
@@ -640,6 +652,32 @@ impl InputManager {
             )),
         );
         self.dispatch_entries(input_id, expanded).await
+    }
+
+    fn enrich_turn_boundaries_fail_open(&self, entries: &mut [AgentActivityEntry]) {
+        // This derived stage may mutate only the two boundary flags. Keep a
+        // small rollback journal instead of cloning potentially large payloads.
+        let before: Vec<_> = entries
+            .iter()
+            .map(|entry| (entry.turn_start, entry.turn_end))
+            .collect();
+        let enriched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.turn_boundary.lock().expect("turns").enrich(entries);
+        }));
+        if enriched.is_err() {
+            for (entry, (start, end)) in entries.iter_mut().zip(before) {
+                entry.turn_start = start;
+                entry.turn_end = end;
+            }
+            // Do not retain partially updated derived turn state after a panic.
+            let mut processor = self
+                .turn_boundary
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            *processor = TurnBoundaryProcessor::new();
+            self.turn_boundary.clear_poison();
+            logger("InputManager").warn("turn boundary enrichment failed (skipped)", None);
+        }
     }
 
     fn filter_workspace(
@@ -881,7 +919,17 @@ mod tests {
             || Box::pin(async {}),
         );
         manager.register_input(Arc::clone(&input));
-        manager.register_input(input);
+        let other = LiveInput::new(
+            "qoder",
+            "cursor",
+            "different-fixture",
+            || false,
+            || Box::pin(async { Ok(()) }),
+            || Box::pin(async {}),
+        );
+        manager.register_input(other);
+        assert!(Arc::ptr_eq(&manager.get_input("qoder").unwrap(), &input));
+        assert_eq!(manager.get_input("qoder").unwrap().agent_type, "qoder");
         assert_eq!(manager.get_input_counters().len(), 1);
     }
 
@@ -1705,6 +1753,7 @@ mod migration_remaining_contracts {
         let output = Sink::new();
         manager.set_flusher(output.clone());
         let mut metadata = entry("metadata", AgentEventName::Other);
+        metadata.agent_type = "opencode".into();
         metadata.session_id = native.into();
         metadata.turn_id = Some(format!("{native}:t1"));
         metadata.trace_id = Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into());
@@ -1715,10 +1764,25 @@ mod migration_remaining_contracts {
             .accept_entries("linked", vec![metadata.clone()])
             .await
             .unwrap();
+        let dispatched = flattened(&output);
+        assert_eq!(dispatched.len(), 1);
+        assert_eq!(dispatched[0].session_id, customer);
         assert_eq!(
-            flattened(&output)[0].trace_id.as_deref(),
+            dispatched[0].trace_id.as_deref(),
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
+        assert_eq!(dispatched[0].parent_span_id, None);
+        assert!(!dispatched[0]
+            .extra
+            .contains_key(INVOCATION_SESSION_ID_FIELD));
+        assert!(!root
+            .path()
+            .join(format!("{native}.session-context.done"))
+            .exists());
+        let preserved =
+            std::fs::read_to_string(root.path().join(format!("{native}.jsonl"))).unwrap();
+        let record: serde_json::Value = serde_json::from_str(preserved.trim()).unwrap();
+        assert_eq!(record["traceparent"], format!("00-{trace}-{span}-01"));
         let mut input = metadata;
         input.event_id = "input".into();
         input.input_messages_delta = Some(
@@ -1730,6 +1794,10 @@ mod migration_remaining_contracts {
         assert_eq!(linked.session_id, customer);
         assert_eq!(linked.trace_id.as_deref(), Some(trace));
         assert_eq!(linked.parent_span_id.as_deref(), Some(span));
+        assert!(root
+            .path()
+            .join(format!("{native}.session-context.done"))
+            .is_file());
         assert!(!linked.extra.contains_key(INVOCATION_SESSION_ID_FIELD));
         assert_eq!(
             std::fs::read_to_string(root.path().join(format!("{customer}.jsonl"))).unwrap(),
@@ -1986,6 +2054,306 @@ mod migration_remaining_contracts {
                 .await
                 .unwrap();
             assert_eq!(flattened(&healthy).len(), 1);
+        }
+    }
+
+    struct LifecycleUploader {
+        shutdowns: std::sync::atomic::AtomicUsize,
+        panic_on_shutdown: bool,
+        must_follow: Option<Arc<AtomicBool>>,
+    }
+    #[async_trait]
+    impl crate::multimodal::types::Uploader for LifecycleUploader {
+        async fn upload(
+            &self,
+            _: crate::multimodal::types::UploadItem,
+            _: crate::multimodal::types::UploadOptions,
+        ) -> bool {
+            panic!("lifecycle fixtures must not submit images or external uploads")
+        }
+        async fn shutdown(&self) {
+            self.shutdowns.fetch_add(1, Ordering::SeqCst);
+            if let Some(accepted) = &self.must_follow {
+                assert!(
+                    accepted.load(Ordering::SeqCst),
+                    "actual processor shutdown must follow queue acceptance"
+                );
+            }
+            assert!(
+                !self.panic_on_shutdown,
+                "synthetic uploader shutdown failure"
+            );
+        }
+    }
+    fn lifecycle_processor(
+        origin: &str,
+        panic_on_shutdown: bool,
+        must_follow: Option<Arc<AtomicBool>>,
+    ) -> (Arc<MultimodalProcessor>, Arc<LifecycleUploader>) {
+        let uploader = Arc::new(LifecycleUploader {
+            shutdowns: std::sync::atomic::AtomicUsize::new(0),
+            panic_on_shutdown,
+            must_follow,
+        });
+        let processor = MultimodalProcessor::new(Some(origin), uploader.clone(), None).unwrap();
+        (processor, uploader)
+    }
+    struct QueuedOutput {
+        entered: Notify,
+        release: Semaphore,
+        accepted: Arc<AtomicBool>,
+    }
+    #[async_trait]
+    impl BaseFlusher for QueuedOutput {
+        fn name(&self) -> &str {
+            "controlled-queue"
+        }
+        async fn send(&self, entry: AgentActivityEntry, _: Option<f64>) -> Result<(), FlushError> {
+            self.send_batch(vec![entry], None).await
+        }
+        async fn send_batch(
+            &self,
+            entries: Vec<AgentActivityEntry>,
+            _: Option<Vec<f64>>,
+        ) -> Result<(), FlushError> {
+            assert_eq!(entries.len(), 1);
+            self.entered.notify_one();
+            self.release.acquire().await.unwrap().forget();
+            self.accepted.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        async fn flush(&self) -> Result<(), FlushError> {
+            Ok(())
+        }
+        async fn shutdown(&self) -> Result<(), FlushError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn actual_multimodal_processor_shutdown_waits_for_the_real_non_codex_queue() {
+        let manager = Arc::new(InputManager::new());
+        register(&manager, "queued-source", "cursor");
+        let accepted = Arc::new(AtomicBool::new(false));
+        let output = Arc::new(QueuedOutput {
+            entered: Notify::new(),
+            release: Semaphore::new(0),
+            accepted: accepted.clone(),
+        });
+        manager.set_flusher(output.clone());
+        let (processor, uploader) =
+            lifecycle_processor("oss://fixture/first", false, Some(accepted.clone()));
+        manager.set_multimodal_processor(processor);
+        manager.bind_entries(
+            "queued-source",
+            vec![entry("queued-before-multimodal", AgentEventName::Other)],
+        );
+        tokio::time::timeout(Duration::from_secs(3), output.entered.notified())
+            .await
+            .unwrap();
+        let owner = manager.clone();
+        let stopping = tokio::spawn(async move { owner.stop_all().await });
+        assert!(tokio::time::timeout(Duration::from_millis(25), async {
+            while !stopping.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .is_err());
+        assert_eq!(uploader.shutdowns.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            manager.multimodal_storage_base_path().as_deref(),
+            Some("oss://fixture/first")
+        );
+        output.release.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(3), stopping)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(accepted.load(Ordering::SeqCst));
+        assert_eq!(uploader.shutdowns.load(Ordering::SeqCst), 1);
+        assert!(manager.multimodal_storage_base_path().is_none());
+    }
+
+    #[tokio::test]
+    async fn actual_multimodal_shutdown_task_failure_is_contained_after_clearing_the_slot() {
+        let manager = InputManager::new();
+        let (processor, uploader) = lifecycle_processor("oss://fixture/failing", true, None);
+        manager.set_multimodal_processor(processor);
+        tokio::time::timeout(Duration::from_secs(3), manager.stop_all())
+            .await
+            .unwrap();
+        assert_eq!(uploader.shutdowns.load(Ordering::SeqCst), 1);
+        assert!(manager.multimodal_storage_base_path().is_none());
+        manager.stop_all().await;
+        assert_eq!(uploader.shutdowns.load(Ordering::SeqCst), 1);
+        let (healthy, healthy_uploader) =
+            lifecycle_processor("oss://fixture/recovered", false, None);
+        manager.set_multimodal_processor(healthy);
+        manager.stop_all().await;
+        assert_eq!(healthy_uploader.shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn active_processor_replacement_is_rejected_and_stop_reinstall_uses_new_real_instance() {
+        let manager = InputManager::new();
+        let (first, first_uploader) = lifecycle_processor("oss://fixture/first", false, None);
+        let (second, second_uploader) = lifecycle_processor("oss://fixture/second", false, None);
+        manager.set_multimodal_processor(first.clone());
+        manager.set_multimodal_processor(first);
+        manager.set_multimodal_processor(second.clone());
+        assert_eq!(
+            manager.multimodal_storage_base_path().as_deref(),
+            Some("oss://fixture/first")
+        );
+        manager.stop_all().await;
+        assert_eq!(first_uploader.shutdowns.load(Ordering::SeqCst), 1);
+        assert_eq!(second_uploader.shutdowns.load(Ordering::SeqCst), 0);
+        manager.set_multimodal_processor(second);
+        assert_eq!(
+            manager.multimodal_storage_base_path().as_deref(),
+            Some("oss://fixture/second")
+        );
+        manager.stop_all().await;
+        assert_eq!(first_uploader.shutdowns.load(Ordering::SeqCst), 1);
+        assert_eq!(second_uploader.shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn actual_git_probe_failure_does_not_drop_the_batch_or_later_entries() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("definitely-missing-workspace");
+        assert!(!missing.exists());
+        let manager = InputManager::new();
+        register(&manager, "git-failure", "codex");
+        manager.set_configured_user_id("configured-after-probe");
+        let output = Sink::new();
+        manager.set_flusher(output.clone());
+        let mut first = entry("failed-probe", AgentEventName::Other);
+        first.agent_type = "codex".into();
+        first.extra.insert("agent.codex.cwd".into(), json!(missing));
+        let mut later = first.clone();
+        later.event_id = "later-entry".into();
+        manager
+            .accept_entries("git-failure", vec![first, later])
+            .await
+            .unwrap();
+        let rows = flattened(&output);
+        assert_eq!(
+            rows.iter()
+                .map(|entry| entry.event_id.as_str())
+                .collect::<Vec<_>>(),
+            ["failed-probe", "later-entry"]
+        );
+        assert!(rows
+            .iter()
+            .all(|entry| entry.workspace_path.as_deref() == missing.to_str()));
+        assert!(rows
+            .iter()
+            .all(|entry| entry.user_id == "configured-after-probe" && entry.git_repo.is_none()));
+        assert_eq!(manager.get_input_counters()["git-failure"].out_events, 2);
+    }
+
+    #[tokio::test]
+    async fn real_boundary_state_failure_preserves_current_records_and_recovers_next_batch() {
+        let manager = InputManager::new();
+        register(&manager, "boundary-error", "cursor");
+        let sinks = [Sink::new(), Sink::new()];
+        manager.set_flusher(Arc::new(MultiFlusher::new(
+            sinks
+                .iter()
+                .map(|sink| sink.clone() as Arc<dyn BaseFlusher>)
+                .collect(),
+        )));
+        let poisoned = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _state = manager.turn_boundary.lock().unwrap();
+                    panic!("synthetic previous boundary-state failure");
+                })
+                .join()
+        });
+        assert!(poisoned.is_err());
+        assert!(manager.turn_boundary.is_poisoned());
+        let mut source = entry("original-on-enrichment-error", AgentEventName::LlmRequest);
+        source.turn_id = Some("failed-turn".into());
+        source.turn_end = Some(false);
+        manager
+            .accept_entries("boundary-error", vec![source.clone()])
+            .await
+            .unwrap();
+        assert!(!manager.turn_boundary.is_poisoned());
+        for sink in &sinks {
+            let rows = flattened(sink);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(
+                rows[0], source,
+                "failed derived enrichment must not mutate facts/boundaries"
+            );
+            assert_eq!(rows[0].turn_start, None);
+            assert_eq!(rows[0].turn_end, Some(false));
+        }
+        let mut recovered = entry("after-enrichment-error", AgentEventName::LlmRequest);
+        recovered.turn_id = Some("recovered-turn".into());
+        manager
+            .accept_entries("boundary-error", vec![recovered])
+            .await
+            .unwrap();
+        for sink in sinks {
+            let rows = flattened(&sink);
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[1].event_id, "after-enrichment-error");
+            assert_eq!(rows[1].turn_start, Some(true));
+        }
+    }
+
+    #[tokio::test]
+    async fn interceptor_prepared_batch_exclusions_precede_identity_and_every_destination() {
+        use crate::interceptor::{build_blocked_qoder_prompt_entry, HookRequest};
+        use crate::normalization::INVOCATION_SESSION_ID_FIELD;
+        let root = tempfile::tempdir().unwrap();
+        let excluded = root.path().join("private");
+        std::fs::create_dir(&excluded).unwrap();
+        let manager = InputManager::new();
+        manager.set_workspace_policy(
+            WorkspacePolicy::new(&[excluded.to_string_lossy().into_owned()], None).unwrap(),
+        );
+        manager.set_configured_user_id("configured-user");
+        manager.set_mask_config(all_mask());
+        let sinks = [Sink::new(), Sink::new()];
+        manager.set_flusher(Arc::new(MultiFlusher::new(
+            sinks
+                .iter()
+                .map(|sink| sink.clone() as Arc<dyn BaseFlusher>)
+                .collect(),
+        )));
+        let request:HookRequest=serde_json::from_value(json!({
+            "agent":"qodercli","event":"UserPromptSubmit","prompt":"synthetic hidden prompt","sessionId":"native-private"
+        })).unwrap();
+        let mut early = build_blocked_qoder_prompt_entry(&request, Some(1_700_000_000_000));
+        early.event_id = "early-private".into();
+        early.extra.insert(
+            INVOCATION_SESSION_ID_FIELD.into(),
+            json!("rewritten-customer-session"),
+        );
+        let mut known = early.clone();
+        known.event_id = "known-private".into();
+        known.workspace_path = Some(excluded.to_string_lossy().into_owned());
+        let mut allowed = early.clone();
+        allowed.event_id = "public".into();
+        allowed.session_id = "native-public".into();
+        allowed.git_repo = Some("synthetic/repo".into());
+        allowed.git_branch = Some("fixture".into());
+        manager
+            .flush_prepared_entries(vec![early, allowed, known])
+            .await
+            .unwrap();
+        for sink in sinks {
+            let rows = flattened(&sink);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].event_id, "public");
+            assert_eq!(rows[0].session_id, "rewritten-customer-session");
+            assert_eq!(rows[0].user_id, "configured-user");
         }
     }
 }

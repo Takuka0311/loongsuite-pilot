@@ -97,55 +97,12 @@ async fn process_file<T: SessionBody>(
     rt: &InputRuntime,
     file_path: &str,
 ) -> anyhow::Result<Vec<AgentActivityEntry>> {
-    let meta = match tokio::fs::metadata(file_path).await {
-        Ok(meta) => meta,
-        Err(_) => return Ok(Vec::new()),
-    };
-    let state_key = format!("{}:{file_path}", rt.id);
-    let ino = file_inode(&meta);
-    let prev = {
-        let store = &rt.state_store;
-        let _ = store;
-        // State is keyed by the per-file id, not the input id.
-        rt.state_store.get(&state_key)
-    };
-    let prev_inode = prev
-        .extra()
-        .and_then(|extra| extra.get("inode").and_then(json_inode));
-    if prev_inode.is_some() && prev_inode != Some(ino) {
-        rt.state_store.set_offset(&state_key, 0.0);
-        rt.state_store.update(
-            &state_key,
-            InputStatePatch {
-                extra: Some(json!({ "inode": ino })),
-                ..InputStatePatch::default()
-            },
-        );
-    }
-    let mut offset = rt.state_store.get_offset(&state_key);
-    if offset > 0.0 && (meta.len() as f64) < offset {
-        rt.info(
-            "file truncated or rotated, resetting offset",
-            json!({ "file": file_path, "recorded": offset, "actual": meta.len() }).as_object(),
-        );
-        offset = 0.0;
-        rt.state_store.set_offset(&state_key, 0.0);
-        rt.state_store.update(
-            &state_key,
-            InputStatePatch {
-                extra: Some(json!({ "inode": ino })),
-                ..InputStatePatch::default()
-            },
-        );
-    }
-    if (meta.len() as f64) <= offset {
-        return Ok(Vec::new());
-    }
-    let requested = meta.len().saturating_sub(offset as u64);
-    rt.with_accumulator(|acc| acc.observe_backlog(requested));
-    let read = match jsonl::read_file_slice(file_path, offset as u64).await {
-        Ok(Some(read)) => read,
-        Ok(None) => return Ok(Vec::new()),
+    // Identity and bytes must refer to the same opened file. In particular,
+    // Windows cannot use MetadataExt::ino (the former fallback was always 0),
+    // and a rename between path metadata and a later open must not lend the
+    // old checkpoint to replacement content.
+    let opened = match tokio::fs::File::open(file_path).await {
+        Ok(file) => file.into_std().await,
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) if InputRuntime::is_unreadable_error(&err) => {
             rt.diagnose_unreadable_path(file_path, "event file").await;
@@ -153,7 +110,57 @@ async fn process_file<T: SessionBody>(
         }
         Err(err) => return Err(err.into()),
     };
+    let identity = crate::utils::file_identity::identity_from_open(&opened)?;
+    let state_key = format!("{}:{file_path}", rt.id);
+    let previous = rt.state_store.get(&state_key);
+    let extra = previous.extra();
+    let previous_inode = extra
+        .as_ref()
+        .and_then(|extra| extra.get("inode"))
+        .and_then(json_inode);
+    let previous_device = extra
+        .as_ref()
+        .and_then(|extra| extra.get("device"))
+        .and_then(json_inode);
+    let identity_changed = previous_inode
+        .filter(|inode| *inode != 0)
+        .is_some_and(|inode| inode != identity.ino)
+        || previous_device.is_some_and(|device| device != identity.dev);
+    let mut offset = previous.last_offset().unwrap_or(0.0);
+    if identity_changed || (identity.size as f64) < offset {
+        rt.info(
+            "file truncated or rotated, resetting offset",
+            json!({ "file": file_path, "recorded": offset, "actual": identity.size }).as_object(),
+        );
+        offset = 0.0;
+        rt.state_store.set_offset(&state_key, 0.0);
+    }
+    let identity_changed_or_missing =
+        previous_inode != Some(identity.ino) || previous_device != Some(identity.dev);
+    if identity_changed_or_missing && (identity.size > 0 || previous_inode.is_some()) {
+        rt.state_store.update(
+            &state_key,
+            InputStatePatch {
+                extra: Some(json!({ "inode": identity.ino, "device": identity.dev })),
+                ..InputStatePatch::default()
+            },
+        );
+    }
+    if (identity.size as f64) <= offset {
+        return Ok(Vec::new());
+    }
+    let requested = identity.size.saturating_sub(offset as u64);
+    rt.with_accumulator(|acc| acc.observe_backlog(requested));
     let started = InputRuntimeAccumulator::now();
+    let read = match read_opened_file_slice(opened, identity.size, offset as u64).await {
+        Ok(read) => read,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) if InputRuntime::is_unreadable_error(&err) => {
+            rt.diagnose_unreadable_path(file_path, "event file").await;
+            return Ok(Vec::new());
+        }
+        Err(err) => return Err(err.into()),
+    };
     rt.with_accumulator(|acc| {
         acc.observe_read(
             read.bytes.len() as u64,
@@ -161,13 +168,6 @@ async fn process_file<T: SessionBody>(
             InputRuntimeAccumulator::now() - started,
         );
     });
-    rt.state_store.update(
-        &state_key,
-        InputStatePatch {
-            extra: Some(json!({ "inode": ino })),
-            ..InputStatePatch::default()
-        },
-    );
     let Some(newline) = jsonl::last_newline(&read.bytes) else {
         return Ok(Vec::new());
     };
@@ -229,17 +229,19 @@ async fn process_file<T: SessionBody>(
     Ok(entries)
 }
 
-fn file_inode(meta: &std::fs::Metadata) -> u64 {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        meta.ino()
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = meta;
-        0
-    }
+async fn read_opened_file_slice(
+    file: std::fs::File,
+    size: u64,
+    offset: u64,
+) -> std::io::Result<jsonl::FileSlice> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut file = tokio::fs::File::from_std(file);
+    file.seek(std::io::SeekFrom::Start(offset)).await?;
+    let mut bytes = Vec::new();
+    file.take(size.saturating_sub(offset))
+        .read_to_end(&mut bytes)
+        .await?;
+    Ok(jsonl::FileSlice { bytes, size })
 }
 
 fn json_inode(value: &Value) -> Option<u64> {

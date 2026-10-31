@@ -1514,6 +1514,1232 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/core/input-manager.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "5cdafefd0c18724bbe939744dee655134f256d3be397bd72a40904eb7dc8097b",
+      "note": "冻结main f84e388实际AST逐声明重新核准45项：旧草案有1项过期TRACEPARENT声明，当前native-session带/不带input参数化合同改为真实Rust正负控，未冒充退役。Linux glibc2.34/Rust1.99.1验证；其他平台另验。",
+      "cases": [
+        {
+          "source": {
+            "id": "L75:C3",
+            "title": "filters excluded sessions before identity rewriting and every output destination",
+            "suites": [
+              "InputManager"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "filters excluded sessions before identity rewriting and every output destination；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::whole_batch_privacy_preflight_precedes_identity_and_fanout"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L88:C3",
+            "title": "keeps the shared Codex checkpoint behind durable output acceptance (failure=%s)",
+            "suites": [
+              "InputManager"
+            ],
+            "parameters": [
+              "it.each([undefined, 'CodexTurnJournalError', 'CodexOutputDurabilityError'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "Actual global StateStore + Manager bind queue + real MultiFlusher, with one controlled durable sink and one healthy sink. All three source variants cover pending disk1, success disk2/other3, journal/durability failure freezes repeated saves and disk1; healthy sibling receives once and stop drains without recursive save.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::shared_codex_checkpoint_waits_for_all_destinations_and_freezes_both_durability_failures"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L135:C5",
+            "title": "counts raw input independently from normalized entry emission",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "counts raw input independently from normalized entry emission；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::raw_runtime_counters_sum_independently_and_reset_only_window_maxima"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L194:C5",
+            "title": "subscribes to entries events and calls flusher.sendBatch",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual HostedInput emits to its real subscribed callback, registered LiveInput start/stop and Manager cancellable queue; final Sink receives exact event/counters.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::hosted_entries_subscription_reaches_actual_manager_queue_and_flusher"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L206:C5",
+            "title": "passes the existing serialized sizes aligned with final dispatched events",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "passes the existing serialized sizes aligned with final dispatched events；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L216:C5",
+            "title": "last-mile enriches every Codex transcript path before dispatch",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual manager git/workspace stage handles completed, interrupted and subagent native paths without dropping any; prefilled git repo/branch prevents real-home git configuration reads.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::all_codex_completion_interrupt_and_subagent_paths_receive_workspace_context"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L251:C5",
+            "title": "dispatches the batch when last-mile git enrichment fails unexpectedly",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Rust Vec cannot override/throw Symbol.iterator. Actual missing cwd fails the production git spawn before config reads; manager dispatches both current/later records. Existing normalization probe-error unit supplements native failure semantics.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_git_probe_failure_does_not_drop_the_batch_or_later_entries"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L274:C5",
+            "title": "serializes multiple entry batches from the same input",
+            "suites": [
+              "InputManager",
+              "registerInput and event dispatch (T030)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "serializes multiple entry batches from the same input；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::queued_batches_stay_ordered_and_shutdown_waits_for_non_codex_acceptance"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L301:C5",
+            "title": "fills userId for entries missing it",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "fills userId for entries missing it；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L315:C5",
+            "title": "does not overwrite existing userId",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not overwrite existing userId；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L328:C5",
+            "title": "uses configured user.id before userId fallback",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses configured user.id before userId fallback；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L343:C5",
+            "title": "configured user.id overwrites an existing user.id",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "configured user.id overwrites an existing user.id；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L356:C5",
+            "title": "invocation env identity overrides configured/native identity and is consumed",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "invocation env identity overrides configured/native identity and is consumed；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::identity_precedence_is_applied_through_dispatch_and_consumes_transport_overrides"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L375:C5",
+            "title": "links native-session input before applying invocation identity (input=%s)",
+            "suites": [
+              "InputManager",
+              "userId injection (T031)"
+            ],
+            "parameters": [
+              "it.each([false, true])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "实际manager负控metadata不消耗native关联：customer identity/本地trace/无parent/关联文件保留；随后实际用户输入正控使用native session关联上游后再重写invocation identity；客户decoy文件未变。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::native_correlation_precedes_invocation_identity_and_metadata_cannot_consume_it"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L429:C5",
+            "title": "preserves content when legacy captureMessageContent is false",
+            "suites": [
+              "InputManager",
+              "legacy message content config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "All legacy input/output/tool/content/diff fields preserved for false/true/default across both hook/sqlite IDs and three real MultiFlusher children.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L455:C5",
+            "title": "preserves sensitive fields when message content capture is enabled by default",
+            "suites": [
+              "InputManager",
+              "legacy message content config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Default configuration has no content opt-out; all five legacy content fields retained through actual manager/multiple destinations.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L470:C5",
+            "title": "ignores legacy config across every input for the agent",
+            "suites": [
+              "InputManager",
+              "legacy message content config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Distinct hook/sqlite registrations for same agent both retain exact source content for false/true/default config.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L496:C5",
+            "title": "dispatches content to all child flushers despite legacy config",
+            "suites": [
+              "InputManager",
+              "legacy message content config"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual MultiFlusher three child outputs each retain exact legacy output.messages, agent/event identity and other content fields.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L526:C5",
+            "title": "fills boundaries once before dispatching the same records to every flusher",
+            "suites": [
+              "InputManager",
+              "turn boundary enrichment"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual request/terminal response get start/end markers; all child outputs equal exact ordered two records.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::shared_turn_boundaries_are_inferred_once_and_identical_for_every_destination"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L564:C5",
+            "title": "fails open and dispatches original entries when enrichment throws",
+            "suites": [
+              "InputManager",
+              "turn boundary enrichment"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual previous thread fault poisons boundary state. Manager restores only derived flags, resets cache, dispatches original facts, and next request successfully derives start marker.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::real_boundary_state_failure_preserves_current_records_and_recovers_next_batch"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L590:C5",
+            "title": "applies user id, content policy, and mask before the shared flusher",
+            "suites": [
+              "InputManager",
+              "blocked prompt flush"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Production blocked-prompt builder -> prepared manager output -> two child destinations preserves guardrail block, configured identity and masked prompt; no trace or inferred turn start.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_blocked_prompt_builder_flows_through_identity_mask_and_shared_output"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L616:C5",
+            "title": "keeps blocked prompt content and masks it despite the legacy qoder opt-out",
+            "suites": [
+              "InputManager",
+              "blocked prompt flush"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Both actual Qoder/QoderCli request variants exercise ignored legacy opt-out and exact APIKEY masking; no clear synthetic key remains.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_blocked_prompt_builder_flows_through_identity_mask_and_shared_output"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L638:C5",
+            "title": "masks whitelisted content fields before dispatching to the flusher",
+            "suites": [
+              "InputManager",
+              "collector mask"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "masks whitelisted content fields before dispatching to the flusher；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_content_mask_tests::legacy_and_canonical_content_masking_preserves_non_content_fields_across_every_sink"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L660:C5",
+            "title": "still masks content when legacy captureMessageContent is false",
+            "suites": [
+              "InputManager",
+              "collector mask"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "still masks content when legacy captureMessageContent is false；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_content_mask_tests::legacy_and_canonical_content_masking_preserves_non_content_fields_across_every_sink"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L685:C5",
+            "title": "dispatches masked entries consistently to all child flushers",
+            "suites": [
+              "InputManager",
+              "collector mask"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "dispatches masked entries consistently to all child flushers；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_content_mask_tests::legacy_and_canonical_content_masking_preserves_non_content_fields_across_every_sink"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L718:C5",
+            "title": "dual-writes masked input other after shared enrichment",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "dual-writes masked input other after shared enrichment；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L763:C5",
+            "title": "generates agent.input despite legacy captureMessageContent=false",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "generates agent.input despite legacy captureMessageContent=false；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L788:C5",
+            "title": "does not copy a non-input other event",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not copy a non-input other event；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::non_input_metadata_is_not_copied_and_failed_expanded_batch_counts_both_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L801:C5",
+            "title": "dispatches the same expanded pair to every child flusher",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "dispatches the same expanded pair to every child flusher；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L823:C5",
+            "title": "counts ingress before expansion and successful egress after expansion",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "counts ingress before expansion and successful egress after expansion；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::dual_write_masks_before_expansion_and_fans_out_identical_boundaries_and_serialized_sizes"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L850:C5",
+            "title": "counts the full expanded batch when dispatch fails",
+            "suites": [
+              "InputManager",
+              "agent.input compatibility dual-write"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "counts the full expanded batch when dispatch fails；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::non_input_metadata_is_not_copied_and_failed_expanded_batch_counts_both_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L870:C5",
+            "title": "records the collection method and the owning agent separately",
+            "suites": [
+              "InputManager",
+              "counter identity"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "records the collection method and the owning agent separately；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::raw_runtime_counters_sum_independently_and_reset_only_window_maxima"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L883:C5",
+            "title": "ignores duplicate registration for same id",
+            "suites": [
+              "InputManager",
+              "registerInput deduplication (T032)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Original native test only registered same Arc twice and checked count: insufficient for historical two distinct instances. Small queued strengthening asserts first Arc retained and original agent metadata; do not mark verified from the old weak assertion.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "tests::duplicate_registration_is_ignored"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L894:C5",
+            "title": "proxies start to the registered input",
+            "suites": [
+              "InputManager",
+              "startInput / stopInput (T033)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "proxies start to the registered input；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L901:C5",
+            "title": "proxies stop to the registered input",
+            "suites": [
+              "InputManager",
+              "startInput / stopInput (T033)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "proxies stop to the registered input；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L909:C5",
+            "title": "startInput is a no-op for unknown id",
+            "suites": [
+              "InputManager",
+              "startInput / stopInput (T033)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "startInput is a no-op for unknown id；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L913:C5",
+            "title": "stopInput is a no-op for unknown id",
+            "suites": [
+              "InputManager",
+              "startInput / stopInput (T033)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stopInput is a no-op for unknown id；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L919:C5",
+            "title": "stops all running inputs",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stops all running inputs；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::lifecycle_proxies_known_ids_ignores_unknowns_and_stops_every_running_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L932:C5",
+            "title": "waits for queued entries before completing shutdown",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "waits for queued entries before completing shutdown；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::queued_batches_stay_ordered_and_shutdown_waits_for_non_codex_acceptance"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L964:C5",
+            "title": "shuts down multimodal processor after draining queues",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual processor plus controlled uploader stays installed/unclosed while actual non-Codex queue is blocked; acceptance release precedes uploader shutdown and slot clearing.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_multimodal_processor_shutdown_waits_for_the_real_non_codex_queue"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L971:C5",
+            "title": "continues stopAll when multimodal processor shutdown fails",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual processor invokes uploader task that panics. Supervised shutdown JoinError is logged and contained; slot clears and new real processor can be installed. Native shutdown API returns(), so no fictitious Result::Err is asserted.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::actual_multimodal_shutdown_task_failure_is_contained_after_clearing_the_slot"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L980:C5",
+            "title": "rejects replacing an active multimodal processor with a different instance",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Actual first/second processor origins and uploader shutdown counts prove first retained, second never closed while rejected, identical first reinstall remains idempotent.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::active_processor_replacement_is_rejected_and_stop_reinstall_uses_new_real_instance"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L990:C5",
+            "title": "allows reinstalling multimodal processor after stopAll clears it",
+            "suites": [
+              "InputManager",
+              "stopAll"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Real stop clears first; second actual processor then installs with different origin and closes once on subsequent stop.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::active_processor_replacement_is_rejected_and_stop_reinstall_uses_new_real_instance"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1004:C5",
+            "title": "joins tool.call and tool.result before invocation identity rewrite",
+            "suites": [
+              "InputManager",
+              "interceptor result linking"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "joins tool.call and tool.result before invocation identity rewrite；原生 manager 实际处理与可断言接收器，；root glibc2.34全workspace4库1609通过前已实际执行，Windows仍待平台执行。；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_pipeline_tests::tool_verdicts_join_native_identity_before_invocation_rewrite"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1044:C5",
+            "title": "drops entries when no flusher is set",
+            "suites": [
+              "InputManager",
+              "no flusher warning"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Existing native accept_entries completes without backend and actual egress remains0, matching historical no-crash/dropped-output assertion.；2026-10-31 glibc2.34执行，Windows/macOS另验。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "tests::drops_entries_when_no_flusher_is_set"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
