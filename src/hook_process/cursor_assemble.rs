@@ -3935,3 +3935,558 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod transcript_history_contracts {
+    use super::*;
+    fn iso(ms: i64) -> String {
+        (chrono::DateTime::parse_from_rfc3339("2026-06-17T10:00:00Z").unwrap()
+            + chrono::Duration::milliseconds(ms))
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    }
+    fn event(name: &str, patch: Value) -> Value {
+        let ms = match name {
+            "afterAgentThought" => 1000,
+            "preToolUse" => 1500,
+            "postToolUse" => 3000,
+            "afterAgentResponse" => 5000,
+            "stop" => 5200,
+            _ => 0,
+        };
+        let mut event = json!({"_journal_ts":iso(ms),"hook_event":name,"conversation_id":"conv-abc","generation_id":"turn-abc","model":"default"});
+        let details = match name {
+            "beforeSubmitPrompt" => json!({"prompt":"你好","composer_mode":"agent"}),
+            "afterAgentThought" => {
+                json!({"text":"用户想了解天气。","duration_ms":800,"input_tokens":100,"output_tokens":30,"cache_read_tokens":0,"cache_write_tokens":0})
+            }
+            "preToolUse" => {
+                json!({"tool_name":"WebSearch","tool_use_id":"tool-001","tool_input":"{\"query\":\"上海天气\"}"})
+            }
+            "postToolUse" => {
+                json!({"tool_name":"WebSearch","tool_use_id":"tool-001","tool_output":"晴天 28℃","duration_ms":1500})
+            }
+            "afterAgentResponse" => {
+                json!({"text":"根据最新天气预报...","input_tokens":500,"output_tokens":200,"cache_read_tokens":100,"cache_write_tokens":0})
+            }
+            "stop" => json!({"input_tokens":500,"output_tokens":200}),
+            _ => json!({}),
+        };
+        event
+            .as_object_mut()
+            .unwrap()
+            .extend(details.as_object().unwrap().clone());
+        event
+            .as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
+        event
+    }
+    fn user(text: &str) -> Value {
+        json!({"role":"user","message":{"content":[{"type":"text","text":format!("<user_query>\n{text}\n</user_query>")}]}})
+    }
+    fn assistant(text: &str) -> Value {
+        json!({"role":"assistant","message":{"content":[{"type":"text","text":text}]}})
+    }
+    fn weather() -> Vec<Value> {
+        vec![
+            user("查询上海天气"),
+            json!({"role":"assistant","message":{"content":[{"type":"text","text":"正在查询上海当前天气。\n\n[REDACTED]"},{"type":"tool_use","id":"","name":"WebSearch","input":{"query":"上海天气"}}]}}),
+            assistant("根据最新预报，上海今天晴天，28℃。"),
+            json!({"type":"turn_ended","status":"success"}),
+        ]
+    }
+    fn weather_events() -> Vec<Value> {
+        vec![
+            event("beforeSubmitPrompt", json!({"prompt":"查询上海天气"})),
+            event(
+                "afterAgentThought",
+                json!({"text":"用户要查天气，我调用 WebSearch。","input_tokens":200,"output_tokens":25}),
+            ),
+            event("preToolUse", json!({"tool_use_id":"tool-ws-001"})),
+            event("postToolUse", json!({"tool_use_id":"tool-ws-001"})),
+            event(
+                "afterAgentResponse",
+                json!({"text":"根据最新预报，上海今天晴天，28℃。"}),
+            ),
+            event("stop", json!({})),
+        ]
+    }
+    fn convert(rows: &[Value], events: &[Value], variant: &str) -> Option<Vec<Obj>> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        let mut body = rows
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        body.push('\n');
+        fs::write(&path, body).unwrap();
+        build_cursor_records_from_transcript(
+            path.to_str().unwrap(),
+            events,
+            "conv-abc",
+            variant,
+            "fixture-user",
+        )
+    }
+    fn names(records: &[Obj]) -> Vec<&str> {
+        records
+            .iter()
+            .map(|r| r["event.name"].as_str().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn nonexistent_transcript_and_missing_prompt_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(build_cursor_records_from_transcript(
+            dir.path().join("missing.jsonl").to_str().unwrap(),
+            &[event("beforeSubmitPrompt", json!({}))],
+            "conv-abc",
+            "cursor",
+            "fixture-user"
+        )
+        .is_none());
+        assert!(convert(
+            &[user("你好"), assistant("你好！")],
+            &[event("stop", json!({}))],
+            "cursor"
+        )
+        .is_none());
+    }
+    #[test]
+    fn simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish() {
+        let events = [
+            event("beforeSubmitPrompt", json!({})),
+            event("afterAgentResponse", json!({"text":"你好！我是 AI 助手。"})),
+            event("stop", json!({})),
+        ];
+        let records = convert(
+            &[
+                user("你好"),
+                assistant("你好！我是 AI 助手。"),
+                json!({"type":"turn_ended","status":"success"}),
+            ],
+            &events,
+            "cursor",
+        )
+        .unwrap();
+        assert_eq!(records.len(), 3);
+        assert_eq!(names(&records), ["other", "llm.request", "llm.response"]);
+        assert_eq!(
+            records[0]["gen_ai.input.messages_delta"][0]["parts"][0]["content"],
+            "你好"
+        );
+        assert!(records[1]["gen_ai.step.id"]
+            .as_str()
+            .unwrap()
+            .ends_with(":s1"));
+        let expected = json!([{"role":"user","parts":[{"type":"text","content":"你好"}]}]);
+        assert_eq!(records[1]["gen_ai.input.messages_delta"], expected);
+        assert_eq!(records[1]["gen_ai.input.messages"], expected);
+        assert!(records[1].contains_key("gen_ai.response.id"));
+        assert_eq!(
+            records[1]["gen_ai.response.id"],
+            records[2]["gen_ai.response.id"]
+        );
+        assert_eq!(
+            records[2]["gen_ai.output.messages"][0]["parts"][0],
+            json!({"type":"text","content":"你好！我是 AI 助手。"})
+        );
+        assert_eq!(
+            records[2]["gen_ai.output.messages"][0]["finish_reason"],
+            "stop"
+        );
+        assert_eq!(
+            records[2]["gen_ai.response.finish_reasons"],
+            json!(["stop"])
+        );
+        for (key, count) in [
+            ("gen_ai.usage.input_tokens", 500),
+            ("gen_ai.usage.output_tokens", 200),
+            ("gen_ai.usage.cache_read.input_tokens", 100),
+        ] {
+            assert_eq!(records[2][key], count);
+        }
+        for record in records {
+            assert_eq!(record["gen_ai.agent.id"], "conv-abc");
+            assert_eq!(record["gen_ai.session.id"], "conv-abc");
+            assert_eq!(record["gen_ai.agent.type"], "cursor");
+            for key in [
+                "gen_ai.turn.id",
+                "user.id",
+                "trace_id",
+                "event.id",
+                "time_unix_nano",
+            ] {
+                assert!(record.contains_key(key), "{key}");
+            }
+        }
+    }
+    #[test]
+    fn cli_transcript_retains_hyphenated_windows_workspace_namespace() {
+        let records = convert(
+            &[user("inspect"), assistant("done")],
+            &[
+                event(
+                    "beforeSubmitPrompt",
+                    json!({"cwd":"C:\\Users\\alice\\project"}),
+                ),
+                event("afterAgentResponse", json!({"text":"done"})),
+                event("stop", json!({})),
+            ],
+            "cursor-cli",
+        )
+        .unwrap();
+        assert!(records
+            .iter()
+            .all(|r| r["gen_ai.agent.type"] == "cursor-cli"
+                && r["agent.cursor-cli.cwd"] == "C:\\Users\\alice\\project"));
+    }
+    #[test]
+    fn weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage() {
+        let records = convert(&weather(), &weather_events(), "cursor").unwrap();
+        assert_eq!(records.len(), 7);
+        assert_eq!(
+            names(&records),
+            [
+                "other",
+                "llm.request",
+                "tool.call",
+                "tool.result",
+                "llm.response",
+                "llm.request",
+                "llm.response"
+            ]
+        );
+        let first = &records[4];
+        assert!(first["gen_ai.step.id"].as_str().unwrap().ends_with(":s1"));
+        let parts = first["gen_ai.output.messages"][0]["parts"]
+            .as_array()
+            .unwrap();
+        assert!(parts.iter().any(|p| p["type"] == "reasoning"));
+        assert!(parts.iter().any(|p| p["type"] == "tool_call"));
+        assert_eq!(
+            first["gen_ai.output.messages"][0]["finish_reason"],
+            "tool_calls"
+        );
+        assert_eq!(
+            first["gen_ai.response.finish_reasons"],
+            json!(["tool_calls"])
+        );
+        assert_eq!(first["gen_ai.usage.input_tokens"], 0);
+        assert_eq!(first["gen_ai.usage.output_tokens"], 0);
+        let input = records[5]["gen_ai.input.messages"].as_array().unwrap();
+        assert_eq!(
+            input
+                .iter()
+                .map(|m| m["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["user", "assistant", "tool"]
+        );
+        let call = input[1]["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["type"] == "tool_call")
+            .unwrap();
+        assert_eq!(call["id"], "tool-ws-001");
+        assert_eq!(call["name"], "WebSearch");
+        assert_eq!(call["arguments"], json!({"query":"上海天气"}));
+        assert_eq!(
+            input[2]["parts"][0],
+            json!({"type":"tool_call_response","id":"tool-ws-001","response":""})
+        );
+        let delta = records[5]["gen_ai.input.messages_delta"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            delta
+                .iter()
+                .map(|m| m["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["assistant", "tool"]
+        );
+        assert_eq!(delta[0]["parts"][0], *call);
+        assert_eq!(
+            delta[1]["parts"][0],
+            json!({"type":"tool_call_response","id":"tool-ws-001","response":""})
+        );
+        let last = &records[6];
+        assert!(last["gen_ai.step.id"].as_str().unwrap().ends_with(":s2"));
+        assert_eq!(
+            last["gen_ai.output.messages"][0]["parts"][0],
+            json!({"type":"text","content":"根据最新预报，上海今天晴天，28℃。"})
+        );
+        assert_eq!(last["gen_ai.output.messages"][0]["finish_reason"], "stop");
+        assert_eq!(last["gen_ai.usage.input_tokens"], 500);
+        assert_eq!(last["gen_ai.usage.output_tokens"], 200);
+        assert_eq!(records[2]["gen_ai.tool.name"], "WebSearch");
+        assert_eq!(records[2]["gen_ai.tool.call.id"], "tool-ws-001");
+        assert_eq!(records[3]["gen_ai.tool.call.id"], "tool-ws-001");
+        assert_eq!(
+            records[1]["gen_ai.response.id"],
+            first["gen_ai.response.id"]
+        );
+        assert_eq!(records[5]["gen_ai.response.id"], last["gen_ai.response.id"]);
+        assert_ne!(first["gen_ai.response.id"], last["gen_ai.response.id"]);
+        assert!(
+            records[5]["time_unix_nano"]
+                .as_str()
+                .unwrap()
+                .parse::<u128>()
+                .unwrap()
+                >= records[3]["time_unix_nano"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<u128>()
+                    .unwrap()
+        );
+        let requests = records
+            .iter()
+            .filter(|r| r["event.name"] == "llm.request" && r.contains_key("gen_ai.step.id"))
+            .count();
+        let responses = records
+            .iter()
+            .filter(|r| r["event.name"] == "llm.response")
+            .count();
+        assert_eq!((requests, responses), (2, 2));
+    }
+    #[test]
+    fn latest_turn_text_model_resolution_and_legacy_content_independence_are_preserved() {
+        let rows = [
+            user("旧问题"),
+            assistant("旧回答"),
+            json!({"type":"turn_ended","status":"success"}),
+            user("新问题"),
+            assistant("新回答"),
+            json!({"type":"turn_ended","status":"success"}),
+        ];
+        let records = convert(
+            &rows,
+            &[
+                event("beforeSubmitPrompt", json!({"prompt":"新问题"})),
+                event("afterAgentResponse", json!({"text":"新回答"})),
+                event("stop", json!({})),
+            ],
+            "cursor",
+        )
+        .unwrap();
+        assert_eq!(
+            records[0]["gen_ai.input.messages_delta"][0]["parts"][0]["content"],
+            "新问题"
+        );
+        assert_eq!(
+            records.last().unwrap()["gen_ai.output.messages"][0]["parts"][0]["content"],
+            "新回答"
+        );
+        assert!(!serde_json::to_string(&records).unwrap().contains("旧回答"));
+        let records = convert(
+            &[user("你好"), assistant("你好！")],
+            &[
+                event("beforeSubmitPrompt", json!({"model":"unknown"})),
+                event("afterAgentThought", json!({"model":"claude-3-5-sonnet"})),
+                event("afterAgentResponse", json!({"model":"claude-3-5-sonnet"})),
+                event("stop", json!({})),
+            ],
+            "cursor",
+        )
+        .unwrap();
+        let request = records
+            .iter()
+            .find(|r| r["event.name"] == "llm.request" && r.contains_key("gen_ai.step.id"))
+            .unwrap();
+        assert_eq!(request["gen_ai.request.model"], "claude-3-5-sonnet");
+        assert!(records
+            .iter()
+            .any(|r| r.contains_key("gen_ai.input.messages_delta")));
+        assert!(records
+            .iter()
+            .any(|r| r.contains_key("gen_ai.input.messages")));
+    }
+    #[test]
+    fn transcript_only_tool_intent_has_stable_id_arguments_and_real_final_response() {
+        let events = [
+            event("beforeSubmitPrompt", json!({"prompt":"查询上海天气"})),
+            event(
+                "afterAgentThought",
+                json!({"input_tokens":200,"output_tokens":25}),
+            ),
+            event(
+                "afterAgentResponse",
+                json!({"input_tokens":500,"output_tokens":200}),
+            ),
+            event("stop", json!({})),
+        ];
+        let records = convert(&weather(), &events, "cursor").unwrap();
+        let call = records
+            .iter()
+            .find(|r| r["event.name"] == "tool.call")
+            .unwrap();
+        assert_eq!(call["gen_ai.tool.name"], "WebSearch");
+        assert!(call["gen_ai.tool.call.id"]
+            .as_str()
+            .unwrap()
+            .ends_with(":s1:t1"));
+        assert!(call.contains_key("gen_ai.tool.call.arguments"));
+        let first = records
+            .iter()
+            .find(|r| {
+                r["event.name"] == "llm.response"
+                    && r["gen_ai.step.id"].as_str().unwrap().ends_with(":s1")
+            })
+            .unwrap();
+        assert!(first["gen_ai.output.messages"][0]["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["type"] == "tool_call"));
+        assert_eq!(
+            first["gen_ai.output.messages"][0]["finish_reason"],
+            "tool_calls"
+        );
+        let last = records
+            .iter()
+            .rev()
+            .find(|r| r["event.name"] == "llm.response")
+            .unwrap();
+        assert!(last["gen_ai.output.messages"][0]["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["type"] == "text"));
+        let replay = convert(&weather(), &events, "cursor").unwrap();
+        assert_eq!(
+            call["gen_ai.tool.call.id"],
+            replay
+                .iter()
+                .find(|r| r["event.name"] == "tool.call")
+                .unwrap()["gen_ai.tool.call.id"]
+        );
+    }
+    #[test]
+    fn multiple_previous_tools_keep_one_assistant_and_each_matching_tool_response() {
+        let rows = [
+            user("inspect"),
+            json!({"role":"assistant","message":{"content":[{"type":"text","text":"checking"},{"type":"tool_use","id":"call-read","name":"Read","input":{"file_path":"a"}},{"type":"tool_use","id":"call-shell","name":"Shell","input":{"command":"pwd"}}]}}),
+            assistant("done"),
+            json!({"type":"turn_ended","status":"success"}),
+        ];
+        let events = [
+            event("beforeSubmitPrompt", json!({"prompt":"inspect"})),
+            event("afterAgentThought", json!({"text":"checking"})),
+            event(
+                "preToolUse",
+                json!({"tool_name":"Read","tool_use_id":"call-read"}),
+            ),
+            event(
+                "postToolUse",
+                json!({"tool_name":"Read","tool_use_id":"call-read"}),
+            ),
+            event(
+                "preToolUse",
+                json!({"tool_name":"Shell","tool_use_id":"call-shell","_journal_ts":iso(3200)}),
+            ),
+            event(
+                "postToolUse",
+                json!({"tool_name":"Shell","tool_use_id":"call-shell","_journal_ts":iso(4000)}),
+            ),
+            event("afterAgentResponse", json!({"text":"done"})),
+            event("stop", json!({})),
+        ];
+        let records = convert(&rows, &events, "cursor").unwrap();
+        let request = records
+            .iter()
+            .find(|r| {
+                r["event.name"] == "llm.request"
+                    && r["gen_ai.step.id"].as_str().unwrap().ends_with(":s2")
+            })
+            .unwrap();
+        let input = request["gen_ai.input.messages"].as_array().unwrap();
+        assert_eq!(
+            input
+                .iter()
+                .map(|m| m["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["user", "assistant", "tool", "tool"]
+        );
+        assert_eq!(
+            input[1]["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["type"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["reasoning", "tool_call", "tool_call"]
+        );
+        assert_eq!(
+            input[2..]
+                .iter()
+                .map(|m| m["parts"][0]["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["call-read", "call-shell"]
+        );
+    }
+    #[test]
+    fn missing_tool_ids_never_bind_unrelated_calls_or_results() {
+        let rows = [
+            user("inspect"),
+            json!({"role":"assistant","message":{"content":[{"type":"text","text":"checking"},{"type":"tool_use","id":"transcript-read","name":"Read","input":{}},{"type":"tool_use","id":"transcript-shell","name":"Shell","input":{}},{"type":"tool_use","id":"transcript-grep","name":"Grep","input":{}}]}}),
+            assistant("done"),
+            json!({"type":"turn_ended","status":"success"}),
+        ];
+        let mut shell_call = event(
+            "preToolUse",
+            json!({"tool_name":"Shell","_journal_ts":iso(1600)}),
+        );
+        shell_call.as_object_mut().unwrap().remove("tool_use_id");
+        let mut read_result = event("postToolUse", json!({"tool_name":"Read"}));
+        read_result.as_object_mut().unwrap().remove("tool_use_id");
+        let mut shell_result = event(
+            "postToolUse",
+            json!({"tool_name":"Shell","_journal_ts":iso(3200)}),
+        );
+        shell_result.as_object_mut().unwrap().remove("tool_use_id");
+        let records = convert(
+            &rows,
+            &[
+                event("beforeSubmitPrompt", json!({"prompt":"inspect"})),
+                event("afterAgentThought", json!({"text":"checking"})),
+                event(
+                    "preToolUse",
+                    json!({"tool_name":"Read","tool_use_id":"call-read"}),
+                ),
+                shell_call,
+                event(
+                    "preToolUse",
+                    json!({"tool_name":"Grep","tool_use_id":"call-grep","_journal_ts":iso(1700)}),
+                ),
+                read_result,
+                event(
+                    "postToolUse",
+                    json!({"tool_name":"Grep","tool_use_id":"call-grep","_journal_ts":iso(3100)}),
+                ),
+                shell_result,
+                event("afterAgentResponse", json!({"text":"done"})),
+                event("stop", json!({})),
+            ],
+            "cursor",
+        )
+        .unwrap();
+        let request = records
+            .iter()
+            .find(|r| {
+                r["event.name"] == "llm.request"
+                    && r["gen_ai.step.id"].as_str().unwrap().ends_with(":s2")
+            })
+            .unwrap();
+        let input = request["gen_ai.input.messages"].as_array().unwrap();
+        assert_eq!(
+            input[2..]
+                .iter()
+                .map(|m| m["parts"][0].get("id").and_then(Value::as_str))
+                .collect::<Vec<_>>(),
+            [Some("call-grep"), None, None]
+        );
+    }
+}

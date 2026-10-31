@@ -1827,6 +1827,11 @@ mod migration_remaining_contracts {
             )));
             for id in ["cursor-hook", "cursor-sqlite"] {
                 let mut source = entry(id, AgentEventName::Other);
+                source.input_messages = Some(
+                    json!([{"role":"user","parts":[{"type":"text","content":format!("{id} canonical prompt")}]}]),
+                );
+                source.input_messages_delta = source.input_messages.clone();
+
                 source.extra.insert(
                     "input.messages".into(),
                     json!([{"role":"user","content":format!("{id} prompt")}]),
@@ -1849,24 +1854,37 @@ mod migration_remaining_contracts {
             }
             for sink in sinks {
                 let rows = flattened(&sink);
-                assert_eq!(rows.len(), 2);
-                for (row, id) in rows.iter().zip(["cursor-hook", "cursor-sqlite"]) {
-                    assert_eq!(
-                        row.extra["input.messages"],
-                        json!([{"role":"user","content":format!("{id} prompt")}])
-                    );
-                    assert_eq!(
-                        row.extra["output.messages"],
-                        json!([{"type":"text","content":"synthetic response"}])
-                    );
-                    assert_eq!(
-                        row.extra["tool.result.payload"],
-                        json!({"output":"synthetic tool output"})
-                    );
-                    assert_eq!(row.extra["content"], "synthetic legacy source");
-                    assert_eq!(row.extra["inlineDiffMessage"], "synthetic diff");
-                    assert_eq!(row.agent_type, "cursor");
-                    assert_eq!(row.event_name, Some(AgentEventName::Other));
+                assert_eq!(rows.len(), 4);
+                for (pair, id) in rows
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(["cursor-hook", "cursor-sqlite"])
+                {
+                    assert_eq!(pair[0].event_name, Some(AgentEventName::Other));
+                    assert_eq!(pair[0].event_id, id);
+                    assert_eq!(pair[1].event_name, Some(AgentEventName::AgentInput));
+                    assert_ne!(pair[1].event_id, pair[0].event_id);
+                    for row in pair {
+                        assert_eq!(
+                            row.extra["input.messages"],
+                            json!([{"role":"user","content":format!("{id} prompt")}])
+                        );
+                        assert_eq!(
+                            row.extra["output.messages"],
+                            json!([{"type":"text","content":"synthetic response"}])
+                        );
+                        assert_eq!(
+                            row.extra["tool.result.payload"],
+                            json!({"output":"synthetic tool output"})
+                        );
+                        assert_eq!(row.extra["content"], "synthetic legacy source");
+                        assert_eq!(row.extra["inlineDiffMessage"], "synthetic diff");
+                        let canonical = json!([{"role":"user","parts":[{"type":"text","content":format!("{id} canonical prompt")}]}]);
+                        assert_eq!(row.input_messages.as_ref(), Some(&canonical));
+                        assert_eq!(row.input_messages_delta.as_ref(), Some(&canonical));
+                        assert_eq!(row.agent_type, "cursor");
+                    }
                 }
             }
         }

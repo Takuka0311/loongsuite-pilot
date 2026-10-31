@@ -955,3 +955,211 @@ fn copy_number(target: &mut Obj, key: &str, value: Option<f64>) {
         target.insert(key.to_string(), json_number(value));
     }
 }
+
+#[cfg(test)]
+mod journal_history_contracts {
+    use super::*;
+    use serde_json::json;
+    use std::sync::{mpsc, Arc};
+    #[test]
+    fn journal_read_observes_post_transaction_contents_only_after_real_lock_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = Arc::new(Journal::open(dir.path()));
+        journal
+            .append(
+                json!({"hook_event":"beforeSubmitPrompt","generation_id":"old"})
+                    .as_object()
+                    .unwrap(),
+            )
+            .unwrap();
+        let (held_tx, held_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let holder = Arc::clone(&journal);
+        let transaction = std::thread::spawn(move || {
+            holder
+                .with_lock(|| {
+                    held_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                    fs::write(
+                        holder.file(),
+                        "{\"hook_event\":\"beforeSubmitPrompt\",\"generation_id\":\"new\"}\n",
+                    )
+                    .unwrap();
+                    Ok(())
+                })
+                .unwrap()
+                .unwrap()
+        });
+        held_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(journal.lock_file().is_file());
+        let (started_tx, started_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let reader = Arc::clone(&journal);
+        let read = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            result_tx.send(reader.read_all()).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(
+            result_rx.recv_timeout(Duration::from_millis(75)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        release_tx.send(()).unwrap();
+        transaction.join().unwrap();
+        let actual = result_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        read.join().unwrap();
+        assert_eq!(
+            actual,
+            json!([{"hook_event":"beforeSubmitPrompt","generation_id":"new"}])
+                .as_array()
+                .unwrap()
+                .clone()
+        );
+        assert!(!journal.lock_file().exists());
+    }
+}
+
+#[cfg(test)]
+mod workspace_history_contracts {
+    use super::*;
+    use serde_json::json;
+    fn configure(root: &Path) {
+        fs::write(
+            root.join("config.json"),
+            json!({"privacy":{"excludeWorkspaces":[root.join("private")]}}).to_string(),
+        )
+        .unwrap();
+    }
+    fn invoke(root: &Path, name: &str, workspace: &str, version: &str) {
+        let mut payload = json!({"hook_event_name":name,"conversation_id":workspace,"session_id":workspace,"generation_id":format!("{workspace}-turn"),"cursor_version":version,"model":"gpt-5","workspace_roots":[root.join(workspace)],"cwd":root.join(workspace)});
+        if name == "beforeSubmitPrompt" {
+            payload["prompt"] = format!("{workspace}-prompt").into();
+        }
+        if name == "afterAgentResponse" {
+            payload["text"] = format!("{workspace}-response").into();
+        }
+        if name == "stop" {
+            payload["status"] = "completed".into();
+        }
+        let env = Env::from([
+            (
+                "LOONGSUITE_PILOT_DATA_DIR".into(),
+                root.to_string_lossy().into_owned(),
+            ),
+            (
+                "AGENT_DATA_COLLECTION_CONFIG".into(),
+                root.join("config.json").to_string_lossy().into_owned(),
+            ),
+        ]);
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let mut stdout = Vec::new();
+        let mut request = HookRequest {
+            args: &[],
+            stdin: &bytes,
+            env: &env,
+            stdout: &mut stdout,
+        };
+        assert_eq!(run(&mut request), 0);
+        assert_eq!(String::from_utf8(stdout).unwrap().trim(), "{}");
+    }
+    fn history(root: &Path) -> String {
+        let dir = root.join("logs/cursor/history");
+        let Ok(entries) = fs::read_dir(dir) else {
+            return String::new();
+        };
+        entries
+            .flatten()
+            .filter(|p| p.path().extension().and_then(|s| s.to_str()) == Some("jsonl"))
+            .map(|p| fs::read_to_string(p.path()).unwrap())
+            .collect()
+    }
+    fn journal(root: &Path) -> String {
+        fs::read_to_string(root.join("state/cursor/event-journal.jsonl")).unwrap_or_default()
+    }
+    #[test]
+    fn excluded_history_is_filtered_and_public_survives_normal_and_deferred_lifecycles() {
+        for deferred in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            configure(root);
+            let version = if deferred { "2026.07.31" } else { "1.7.0" };
+            let sequence = if deferred {
+                ["beforeSubmitPrompt", "stop", "afterAgentResponse"]
+            } else {
+                ["beforeSubmitPrompt", "afterAgentResponse", "stop"]
+            };
+            for name in sequence {
+                invoke(root, name, "private", version);
+            }
+            assert!(history(root).is_empty());
+            assert!(!journal(root).contains("private-prompt"));
+            for name in sequence {
+                invoke(root, name, "public", version);
+            }
+            assert!(history(root).contains("public-prompt"));
+            assert!(!history(root).contains("private-prompt"));
+        }
+    }
+    #[test]
+    fn invalid_privacy_retains_normal_and_deferred_journal_until_repaired_then_consumes_once() {
+        for deferred in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            configure(root);
+            let version = if deferred { "2026.07.31" } else { "1.7.0" };
+            invoke(root, "beforeSubmitPrompt", "public", version);
+            invoke(
+                root,
+                if deferred {
+                    "stop"
+                } else {
+                    "afterAgentResponse"
+                },
+                "public",
+                version,
+            );
+            fs::write(root.join("config.json"), "{\"privacy\":").unwrap();
+            invoke(
+                root,
+                if deferred {
+                    "afterAgentResponse"
+                } else {
+                    "stop"
+                },
+                "public",
+                version,
+            );
+            assert!(history(root).is_empty());
+            assert!(journal(root).contains("public-prompt"));
+            configure(root);
+            invoke(root, "stop", "public", version);
+            let rows = history(root);
+            assert!(rows.contains("public-prompt"));
+            assert!(!journal(root).contains("public-prompt"));
+            invoke(root, "stop", "public", version);
+            assert_eq!(history(root), rows);
+        }
+    }
+    #[test]
+    fn cli_context_from_other_conversation_cannot_activate_desktop_identity() {
+        let mut records = vec![json!({"gen_ai.agent.type":"cursor"})
+            .as_object()
+            .unwrap()
+            .clone()];
+        let original = records.clone();
+        let events = [
+            json!({"hook_event":"beforeSubmitPrompt","conversation_id":"cli-conversation","cursor_version":"2026.07.31"}),
+            json!({"hook_event":"beforeSubmitPrompt","conversation_id":"desktop-conversation","cursor_version":"1.7.0","resource_attributes":{"agentteams.worker.name":"desktop-worker"}}),
+        ];
+        apply_cursor_cli_resource_context(
+            &mut records,
+            &events,
+            "desktop-conversation",
+            "cursor-cli",
+        );
+        assert_eq!(records, original);
+    }
+}

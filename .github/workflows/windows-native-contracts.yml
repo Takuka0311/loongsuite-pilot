@@ -67,13 +67,13 @@ jobs:
           set -euo pipefail
           cargo build --locked -p xtask --bin xtask
           cargo test --locked -p xtask --bin xtask --test windows_services --no-run
-          cargo test --locked -p loongsuite-pilot --lib --test hooks_native --test installer_native --test cli_native --test interceptor_native --test upstream_context --test hook_timing --no-run
+          cargo test --locked -p loongsuite-pilot --lib --test hooks_native --test installer_native --test cli_native --test interceptor_native --test upstream_context --test hook_timing --test claude_entry_history --no-run
       - name: Generated Hook wrappers match production assets
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: ./target/debug/xtask.exe sync-hook-wrappers --check
       - name: Positive native raw stdin and argv in PS5.1 and PS7 including CLM
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-        run: cargo test --locked -p loongsuite-pilot --test hooks_native -- --nocapture
+        run: cargo test --locked -p loongsuite-pilot --test hooks_native --test claude_entry_history -- --nocapture
       - name: Native installer and uninstall contracts
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: cargo test --locked -p loongsuite-pilot --test installer_native -- --nocapture

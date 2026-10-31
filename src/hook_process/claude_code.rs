@@ -691,7 +691,24 @@ fn parse_claude_transcript(path: &Path, byte_offset: u64) -> Result<ParsedTransc
     let mut buffer = vec![0u8; (file_size - actual_offset) as usize];
     file.read_exact(&mut buffer)
         .map_err(|err| err.to_string())?;
-    let mut owned = String::from_utf8_lossy(&buffer).into_owned();
+    // A producer can be between writes, including in the middle of UTF-8.
+    // Do not ACK an incomplete final JSON value: the next stop must resume at
+    // the untouched byte prefix. Complete malformed lines remain skippable.
+    let complete_bytes = if buffer.last() != Some(&b'\n') {
+        let tail = buffer
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |at| at + 1);
+        if serde_json::from_slice::<Value>(&buffer[tail..]).is_err() {
+            tail
+        } else {
+            buffer.len()
+        }
+    } else {
+        buffer.len()
+    };
+    let file_size_for_offset = actual_offset + complete_bytes as u64;
+    let mut owned = String::from_utf8_lossy(&buffer[..complete_bytes]).into_owned();
     if actual_offset > byte_offset {
         if let Some(index) = owned.find('\n') {
             owned = owned[index + 1..].to_string();
@@ -699,7 +716,6 @@ fn parse_claude_transcript(path: &Path, byte_offset: u64) -> Result<ParsedTransc
             owned.clear();
         }
     }
-    let file_size_for_offset = file_size;
     let content = owned;
     let mut groups: HashMap<String, AssistantGroup> = HashMap::new();
     let mut conversation = Vec::new();
@@ -3044,5 +3060,418 @@ impl Clone for ToolDetail {
             status: self.status.clone(),
             is_async: self.is_async,
         }
+    }
+}
+
+#[cfg(test)]
+mod transcript_history_contracts {
+    use super::*;
+    fn fixture(write_line: u32) -> (tempfile::TempDir, PathBuf) {
+        // AST-extracted literal-only synthetic fixtures from immutable ef8953.
+        // No JS test, source module, real HOME, or runtime config is executed.
+        let fixtures: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/claude-parser-history.json"
+        ))
+        .unwrap();
+        let rows = fixtures[format!("write-L{write_line}")].as_array().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("native transcript 中文.jsonl");
+        write_rows(&file, rows);
+        (dir, file)
+    }
+    fn write_rows(path: &Path, rows: &[Value]) {
+        let mut text = rows
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        text.push('\n');
+        fs::write(path, text).unwrap();
+    }
+    fn parse(write_line: u32) -> ParsedTranscript {
+        let (_dir, file) = fixture(write_line);
+        parse_claude_transcript(&file, 0).unwrap()
+    }
+    fn at(second: &str) -> String {
+        format!("2026-06-04T02:57:{second}Z")
+    }
+
+    #[test]
+    fn parses_turn_usage_and_real_next_byte_offset() {
+        let (_dir, file) = fixture(27);
+        let parsed = parse_claude_transcript(&file, 0).unwrap();
+        assert_eq!(parsed.next_offset, fs::metadata(file).unwrap().len());
+        assert_eq!(parsed.turns.len(), 1);
+        let calls = &parsed.turns[0].llm_calls;
+        assert_eq!(calls.len(), 1);
+        assert_eq!((calls[0].input_tokens, calls[0].output_tokens), (10, 5));
+        assert_eq!(calls[0].stop_reason, "end_turn");
+    }
+    #[test]
+    fn complete_checkpoint_resumes_at_eof_without_replaying_turns() {
+        let (_dir, file) = fixture(52);
+        let first = parse_claude_transcript(&file, 0).unwrap();
+        assert_eq!(first.turns.len(), 1);
+        let next = parse_claude_transcript(&file, first.next_offset).unwrap();
+        assert!(next.turns.is_empty());
+        assert_eq!(next.next_offset, first.next_offset);
+    }
+    #[test]
+    fn chunks_of_same_message_merge_and_longest_text_survives() {
+        let parsed = parse(65);
+        let calls = &parsed.turns[0].llm_calls;
+        assert_eq!(calls.len(), 1);
+        let text = calls[0]
+            .output_content
+            .iter()
+            .find(|b| b["type"] == "text")
+            .unwrap();
+        assert_eq!(text["text"], "hello world");
+    }
+    #[test]
+    fn prompt_ids_split_turns_and_preserve_distinct_prompt_timestamps() {
+        let parsed = parse(78);
+        assert_eq!(parsed.turns.len(), 2);
+        for (i, (prompt, ts)) in [
+            ("q1", "2026-06-04T02:57:32.000Z"),
+            ("q2", "2026-06-04T02:58:00.000Z"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(parsed.turns[i].prompt, prompt);
+            assert_eq!(parsed.turns[i].prompt_timestamp.as_deref(), Some(ts));
+            assert_eq!(parsed.turns[i].llm_calls.len(), 1);
+        }
+    }
+    #[test]
+    fn resume_meta_does_not_replace_real_prompt_or_enter_llm_input() {
+        let parsed = parse(96);
+        let turn = &parsed.turns[0];
+        assert_eq!(turn.prompt, "real user prompt");
+        assert!(!serde_json::to_string(&turn.llm_calls[0].input_messages)
+            .unwrap()
+            .contains("Continue from where you left off."));
+    }
+    #[test]
+    fn meta_only_uses_boundary_time_without_exposing_meta_text() {
+        let parsed = parse(109);
+        let turn = &parsed.turns[0];
+        assert_eq!(turn.prompt, "");
+        assert_eq!(
+            turn.prompt_timestamp.as_deref(),
+            Some(at("30.000").as_str())
+        );
+        assert_eq!(
+            turn.llm_calls[0].request_start.as_deref(),
+            Some(at("30.000").as_str())
+        );
+        assert!(!serde_json::to_string(&turn.llm_calls[0].input_messages)
+            .unwrap()
+            .contains("Continue from where you left off."));
+    }
+    #[test]
+    fn resume_synthetic_placeholder_does_not_create_call_or_move_real_start() {
+        let parsed = parse(122);
+        let calls = &parsed.turns[0].llm_calls;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].model, "qwen3.7-max");
+        assert_eq!(
+            calls[0].request_start.as_deref(),
+            Some(at("32.000").as_str())
+        );
+    }
+    #[test]
+    fn synthetic_api_error_is_structured_failure_and_discards_private_error_body() {
+        let parsed = parse(138);
+        assert_eq!(parsed.turns.len(), 1);
+        let calls = &parsed.turns[0].llm_calls;
+        assert_eq!(calls.len(), 1);
+        let call = &calls[0];
+        assert_eq!(call.model, "unknown");
+        assert_eq!(call.message_id, "synthetic-error-message");
+        assert!(call.output_content.is_empty());
+        assert_eq!(call.stop_reason, "error");
+        let error = call.api_error.as_ref().unwrap();
+        assert_eq!(error.kind, "server_error");
+        assert_eq!(error.status, Some(529));
+        assert_eq!(error.request_id.as_deref(), Some("req-error-11"));
+        assert!(!serde_json::to_string(&call.input_messages)
+            .unwrap()
+            .contains("private upstream detail"));
+    }
+    #[test]
+    fn tool_result_stays_in_same_turn_and_next_input_is_exact_delta() {
+        let parsed = parse(177);
+        assert_eq!(parsed.turns.len(), 1);
+        let calls = &parsed.turns[0].llm_calls;
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            calls[0].input_messages,
+            json!([{"role":"user","content":[{"type":"text","text":"do it"}]}])
+                .as_array()
+                .unwrap()
+                .clone()
+        );
+        assert_eq!(calls[1].input_messages,json!([{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}]).as_array().unwrap().clone());
+    }
+    #[test]
+    fn tool_result_request_start_does_not_cross_prompt_id_boundary() {
+        let parsed = parse(204);
+        assert_eq!(parsed.turns.len(), 2);
+        assert_eq!(
+            parsed.turns[1].llm_calls[0].request_start.as_deref(),
+            Some("2026-06-04T03:12:32.000Z")
+        );
+    }
+    #[test]
+    fn streaming_first_response_timestamp_and_tool_result_request_boundary_are_exact() {
+        let parsed = parse(219);
+        assert_eq!(parsed.turns.len(), 1);
+        let calls = &parsed.turns[0].llm_calls;
+        assert_eq!(calls[0].timestamp.as_deref(), Some(at("49.546").as_str()));
+        assert_eq!(
+            calls[1].request_start.as_deref(),
+            Some(at("51.879").as_str())
+        );
+        assert_eq!(calls[1].timestamp.as_deref(), Some(at("56.868").as_str()));
+    }
+    #[test]
+    fn declared_tool_ids_accumulate_across_streaming_message_chunks() {
+        let parsed = parse(238);
+        assert_eq!(parsed.turns[0].llm_calls[0].declared, ["tool_A", "tool_B"]);
+    }
+    #[test]
+    fn tool_detail_preserves_actual_call_result_time_content_and_success() {
+        let parsed = parse(253);
+        let detail = &parsed.turns[0].llm_calls[0].tools["tool_X"];
+        assert_eq!(detail.call.as_deref(), Some(at("49.000").as_str()));
+        assert_eq!(detail.result.as_deref(), Some(at("49.200").as_str()));
+        assert_eq!(detail.result_content, "data");
+        assert!(!detail.is_error);
+    }
+    #[test]
+    fn parallel_streamed_tools_all_belong_to_declaring_call_and_exact_next_input() {
+        let parsed = parse(271);
+        assert_eq!(parsed.turns.len(), 1);
+        let calls = &parsed.turns[0].llm_calls;
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].declared, ["read_1", "read_2", "read_3"]);
+        assert_eq!(calls[0].tools.len(), 3);
+        assert!(calls[1].declared.is_empty());
+        assert_eq!(
+            calls[1].request_start.as_deref(),
+            Some(at("53.000").as_str())
+        );
+        let expected = json!([{"role":"assistant","content":[{"type":"thinking","thinking":"reading..."},{"type":"tool_use","id":"read_1","name":"Read","input":{"file_path":"/a.txt"}},{"type":"tool_use","id":"read_2","name":"Read","input":{"file_path":"/b.txt"}},{"type":"tool_use","id":"read_3","name":"Read","input":{"file_path":"/c.txt"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"read_1","content":"aaa"}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"read_2","content":"bbb"}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"read_3","content":"ccc"}]}]);
+        assert_eq!(
+            calls[1].input_messages,
+            expected.as_array().unwrap().clone()
+        );
+    }
+    #[test]
+    fn missing_message_id_still_exports_final_call_with_local_identity() {
+        let parsed = parse(320);
+        assert_eq!(parsed.turns.len(), 1);
+        let calls = &parsed.turns[0].llm_calls;
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1].stop_reason, "end_turn");
+        assert_eq!(calls[1].model, "claude-opus-4-6");
+        assert_eq!(calls[1].output_tokens, 30);
+        assert!(calls[1].message_id.starts_with("_syn_"));
+    }
+    #[test]
+    fn missing_prompt_id_sequence_fills_starts_and_keeps_tool_boundary_with_or_without_ids() {
+        for missing_id in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("no-prompt.jsonl");
+            let assistant = |id: &str, ts: &str, content: Value| {
+                let mut row =
+                    json!({"type":"assistant","timestamp":at(ts),"message":{"content":content}});
+                if !missing_id {
+                    row["message"]["id"] = id.into();
+                }
+                row
+            };
+            let rows = vec![
+                json!({"type":"user","timestamp":at("32.000"),"message":{"content":"hello"}}),
+                assistant("m1", "40.000", json!([{"type":"text","text":"first"}])),
+                assistant("m2", "41.000", json!([{"type":"text","text":"second"}])),
+                assistant(
+                    "m3",
+                    "42.000",
+                    json!([{"type":"tool_use","id":"t1","name":"Bash","input":{}}]),
+                ),
+                json!({"type":"user","timestamp":at("43.000"),"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}),
+                assistant("m4", "44.000", json!([{"type":"text","text":"done"}])),
+            ];
+            write_rows(&file, &rows);
+            let parsed = parse_claude_transcript(&file, 0).unwrap();
+            assert_eq!(parsed.turns.len(), 1);
+            let turn = &parsed.turns[0];
+            assert!(turn.prompt_id.is_none());
+            assert_eq!(
+                turn.llm_calls
+                    .iter()
+                    .map(|c| c.request_start.clone().unwrap())
+                    .collect::<Vec<_>>(),
+                [at("40.000"), at("40.000"), at("41.000"), at("43.000")]
+            );
+        }
+    }
+    #[test]
+    fn orphan_call_uses_own_time_without_leaking_other_turn_boundary() {
+        let parsed = parse(368);
+        assert_eq!(parsed.turns.len(), 2);
+        let prompt = parsed
+            .turns
+            .iter()
+            .find(|t| t.prompt_id.as_deref() == Some("p1"))
+            .unwrap();
+        assert_eq!(
+            prompt.llm_calls[0].request_start.as_deref(),
+            Some(at("32.000").as_str())
+        );
+        let orphan = parsed.turns.iter().find(|t| t.prompt_id.is_none()).unwrap();
+        assert_eq!(
+            orphan.llm_calls[0].request_start.as_deref(),
+            Some(at("30.000").as_str())
+        );
+    }
+    #[test]
+    fn assistant_only_appended_fragment_starts_from_fragment_time() {
+        let (_dir, file) = fixture(383);
+        let first = parse_claude_transcript(&file, 0).unwrap();
+        let row =
+            json!({"type":"assistant","timestamp":at("45.000"),"message":{"id":"m2","content":[]}});
+        let mut writer = OpenOptions::new().append(true).open(&file).unwrap();
+        writeln!(writer, "{row}").unwrap();
+        drop(writer);
+        let next = parse_claude_transcript(&file, first.next_offset).unwrap();
+        assert_eq!(next.next_offset, fs::metadata(&file).unwrap().len());
+        assert_eq!(next.turns.len(), 1);
+        assert_eq!(next.turns[0].llm_calls.len(), 1);
+        assert_eq!(
+            next.turns[0].llm_calls[0].request_start.as_deref(),
+            Some(at("45.000").as_str())
+        );
+    }
+    #[test]
+    fn missing_prompt_id_never_places_request_start_after_response() {
+        let parsed = parse(401);
+        assert_eq!(
+            parsed.turns[0].llm_calls[0].request_start.as_deref(),
+            Some(at("40.000").as_str())
+        );
+    }
+    #[test]
+    fn first_call_request_start_uses_real_prompt_timestamp() {
+        let parsed = parse(411);
+        let turn = &parsed.turns[0];
+        assert_eq!(
+            turn.llm_calls[0].request_start.as_deref(),
+            Some(at("32.000").as_str())
+        );
+        assert_eq!(
+            turn.prompt_timestamp.as_deref(),
+            Some(at("32.000").as_str())
+        );
+    }
+    #[test]
+    fn content_text_dedup_keeps_longest_observed_version() {
+        let blocks = json!([{"type":"text","text":"a"},{"type":"text","text":"abc"},{"type":"text","text":"ab"}]);
+        let blocks = dedup_blocks(blocks.as_array().unwrap());
+        assert_eq!(
+            blocks.iter().find(|b| b["type"] == "text").unwrap()["text"],
+            "abc"
+        );
+    }
+    #[test]
+    fn content_tool_dedup_uses_real_tool_id() {
+        let blocks = json!([{"type":"tool_use","id":"t1","name":"Bash","input":{"x":1}},{"type":"tool_use","id":"t1","name":"Bash","input":{"x":1}},{"type":"tool_use","id":"t2","name":"Read","input":{}}]);
+        let blocks = dedup_blocks(blocks.as_array().unwrap());
+        assert_eq!(blocks.iter().filter(|b| b["type"] == "tool_use").count(), 2);
+    }
+    #[test]
+    fn content_blocks_keep_thinking_then_text_then_tool_natural_order() {
+        let blocks = json!([{"type":"tool_use","id":"t1","name":"X"},{"type":"text","text":"reasoning result"},{"type":"thinking","thinking":"hmm"}]);
+        let blocks = dedup_blocks(blocks.as_array().unwrap());
+        assert_eq!(
+            blocks
+                .iter()
+                .map(|b| b["type"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["thinking", "text", "tool_use"]
+        );
+    }
+}
+
+#[cfg(test)]
+mod partial_transcript_recovery_contracts {
+    use super::*;
+    #[test]
+    fn incomplete_multibyte_tail_keeps_checkpoint_before_tail_then_recovers_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("partial transcript.jsonl");
+        let first = json!({"type":"assistant","timestamp":"2026-06-04T02:57:40.000Z","message":{"id":"first","content":[{"type":"text","text":"first answer"}]}});
+        let next = json!({"type":"assistant","timestamp":"2026-06-04T02:57:45.000Z","message":{"id":"next","content":[{"type":"text","text":"你好 recovered"}],"usage":{"input_tokens":3,"output_tokens":2},"stop_reason":"end_turn"}});
+        let mut prefix = serde_json::to_vec(&first).unwrap();
+        prefix.push(b'\n');
+        let bytes = serde_json::to_vec(&next).unwrap();
+        let split = bytes
+            .windows("你".len())
+            .position(|w| w == "你".as_bytes())
+            .unwrap()
+            + 1;
+        let mut pending = prefix.clone();
+        pending.extend_from_slice(&bytes[..split]);
+        fs::write(&file, pending).unwrap();
+        let observed = parse_claude_transcript(&file, 0).unwrap();
+        assert_eq!(observed.next_offset, prefix.len() as u64);
+        assert_eq!(observed.turns.len(), 1);
+        assert_eq!(observed.turns[0].llm_calls[0].message_id, "first");
+        let waiting = parse_claude_transcript(&file, observed.next_offset).unwrap();
+        assert_eq!(waiting.next_offset, observed.next_offset);
+        assert!(waiting.turns.is_empty());
+        let mut writer = OpenOptions::new().append(true).open(&file).unwrap();
+        writer.write_all(&bytes[split..]).unwrap();
+        writer.write_all(b"\n").unwrap();
+        drop(writer);
+        let recovered = parse_claude_transcript(&file, observed.next_offset).unwrap();
+        assert_eq!(recovered.next_offset, fs::metadata(&file).unwrap().len());
+        assert_eq!(recovered.turns.len(), 1);
+        assert_eq!(recovered.turns[0].llm_calls.len(), 1);
+        let call = &recovered.turns[0].llm_calls[0];
+        assert_eq!(call.message_id, "next");
+        assert_eq!(
+            call.output_content,
+            json!([{"type":"text","text":"你好 recovered"}])
+                .as_array()
+                .unwrap()
+                .clone()
+        );
+        assert_eq!((call.input_tokens, call.output_tokens), (3, 2));
+        assert!(parse_claude_transcript(&file, recovered.next_offset)
+            .unwrap()
+            .turns
+            .is_empty());
+    }
+    #[test]
+    fn malformed_complete_line_does_not_block_next_valid_record_and_complete_tail_is_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("malformed.jsonl");
+        let row = json!({"type":"assistant","timestamp":"2026-06-04T02:57:40.000Z","message":{"id":"valid","content":[{"type":"text","text":"valid answer"}]}});
+        fs::write(&file, format!("{{broken JSON}}\n{row}")).unwrap();
+        let parsed = parse_claude_transcript(&file, 0).unwrap();
+        assert_eq!(parsed.next_offset, fs::metadata(&file).unwrap().len());
+        assert_eq!(parsed.turns.len(), 1);
+        assert_eq!(parsed.turns[0].llm_calls[0].message_id, "valid");
+        assert_eq!(
+            parsed.turns[0].llm_calls[0].output_content,
+            json!([{"type":"text","text":"valid answer"}])
+                .as_array()
+                .unwrap()
+                .clone()
+        );
     }
 }

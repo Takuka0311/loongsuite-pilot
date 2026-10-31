@@ -35109,6 +35109,2588 @@
       ],
       "rust": [],
       "note": "冻结baseline逐声明映射；main仅用于解释已变fixture，不新增baseline分母。hard64/6为已授权修正旧65/5，保持Codex无SignalB抢占。真实Rust API背压与JS fire-and-forget时序差异明确列出，不能只按测试名升级complete。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/inputs/cursor-hook-input.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "950538bb8cacb4d3fb5091a81251768d9b2b2911692d5ac037e6f6be8a29d579",
+      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L43:C3",
+            "title": "processes canonical tool.call record",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "processes canonical tool.call record；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::processes_canonical_tool_call"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L79:C3",
+            "title": "preserves all canonical fields",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves all canonical fields；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::preserves_canonical_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L121:C3",
+            "title": "enriches Cursor CLI records from the hyphenated producer namespace",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "enriches Cursor CLI records from the hyphenated producer namespace；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::enriches_cursor_cli_from_hyphenated_namespace"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L146:C3",
+            "title": "processes canonical tool.result record",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "processes canonical tool.result record；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::processes_tool_result_and_llm_response_and_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L176:C3",
+            "title": "processes canonical llm.response record",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "processes canonical llm.response record；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::processes_llm_response_reasoning"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L203:C3",
+            "title": "processes canonical other record with usage fields",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "processes canonical other record with usage fields；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::processes_other_record_with_usage_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L247:C3",
+            "title": "processes canonical tool.result with error fields",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "processes canonical tool.result with error fields；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::processes_tool_result_error_fields"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L276:C3",
+            "title": "returns null for non-canonical records (no event.name or gen_ai.agent.type)",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns null for non-canonical records (no event.name or gen_ai.agent.type)；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::skips_non_canonical_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L299:C3",
+            "title": "strips token/cost fields from canonical stop records",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "strips token/cost fields from canonical stop records；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::strips_token_fields_from_stop_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L334:C3",
+            "title": "preserves token fields on canonical afterAgentResponse records",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves token fields on canonical afterAgentResponse records；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::preserves_tokens_on_after_agent_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L369:C3",
+            "title": "first-run guard skips existing history on fresh start",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "first-run guard skips existing history on fresh start；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::first_run_guard_skips_existing_history"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L398:C3",
+            "title": "first-run guard allows new records appended after startup",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "first-run guard allows new records appended after startup；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::first_run_guard_reads_records_appended_after_startup"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L454:C3",
+            "title": "date rollover: reads today records when lastFile points to yesterday",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "date rollover: reads today records when lastFile points to yesterday；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::date_rollover_reads_today_when_last_file_is_yesterday"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L490:C3",
+            "title": "first-run guard does not re-fire when file did not exist initially",
+            "suites": [
+              "CursorHookInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "first-run guard does not re-fire when file did not exist initially；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/cursor-hook/mod.rs",
+                "test": "tests::first_run_guard_does_not_refire_when_file_was_missing"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/cursor-source-event.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "ac73f9f35ecc42fcdf19ff641590c704e1a4964f81d4090647c3a48755c4c156",
+      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L5:C3",
+            "title": "preserves zero duration_ms on postToolUse instead of falling back to duration",
+            "suites": [
+              "Cursor source event"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves zero duration_ms on postToolUse instead of falling back to duration；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_source_event_preserves_zero_duration_and_workspace"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L18:C3",
+            "title": "preserves zero duration_ms on postToolUseFailure instead of falling back to duration",
+            "suites": [
+              "Cursor source event"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves zero duration_ms on postToolUseFailure instead of falling back to duration；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_source_event_preserves_zero_duration_and_workspace"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L31:C3",
+            "title": "preserves cwd and workspace roots on non-tool events",
+            "suites": [
+              "Cursor source event"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves cwd and workspace roots on non-tool events；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_source_event_preserves_zero_duration_and_workspace"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/cursor-event-journal.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "d0f14fa8dca8048f6be0631be79a77b9ad5ab4bb3c0b077f3e9b8e2fb2c470bf",
+      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L32:C3",
+            "title": "rewrite preserves events appended after the read snapshot",
+            "suites": [
+              "Cursor event journal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rewrite preserves events appended after the read snapshot；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_journal_preserves_concurrent_appends_and_dedups_by_key"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L58:C3",
+            "title": "readAllEvents reads under the journal lock",
+            "suites": [
+              "Cursor event journal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "readAllEvents reads under the journal lock；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor.rs",
+                "test": "journal_history_contracts::journal_read_observes_post_transaction_contents_only_after_real_lock_release"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L79:C3",
+            "title": "lock timeout is longer than stale lock threshold",
+            "suites": [
+              "Cursor event journal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "lock timeout is longer than stale lock threshold；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_journal_preserves_concurrent_appends_and_dedups_by_key"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L85:C3",
+            "title": "mergeConcurrentAppends deduplicates events regardless of property order",
+            "suites": [
+              "Cursor event journal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "mergeConcurrentAppends deduplicates events regardless of property order；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_journal_preserves_concurrent_appends_and_dedups_by_key"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L122:C3",
+            "title": "mergeConcurrentAppends does NOT deduplicate genuinely different events",
+            "suites": [
+              "Cursor event journal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "mergeConcurrentAppends does NOT deduplicate genuinely different events；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_journal_preserves_concurrent_appends_and_dedups_by_key"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/claude-code/transcript-parser.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "236b9e65429e91101e124960d9a67771d3e8728b5e6295ada5a4dae1c3308a74",
+      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L25:C3",
+            "title": "返回 turns + nextOffset",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "返回 turns + nextOffset；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::parses_turn_usage_and_real_next_byte_offset"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L50:C3",
+            "title": "byteOffset 增量读 (7.5)",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "byteOffset 增量读 (7.5)；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::complete_checkpoint_resumes_at_eof_without_replaying_turns"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L63:C3",
+            "title": "streaming chunks 同 message.id 合并 + 去重 text",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "streaming chunks 同 message.id 合并 + 去重 text；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::chunks_of_same_message_merge_and_longest_text_survives"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L76:C3",
+            "title": "多 turn 按 promptId 切分",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "多 turn 按 promptId 切分；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::prompt_ids_split_turns_and_preserve_distinct_prompt_timestamps"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L94:C3",
+            "title": "resume meta user record 不作为真实 prompt 或 LLM 输入",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resume meta user record 不作为真实 prompt 或 LLM 输入；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::resume_meta_does_not_replace_real_prompt_or_enter_llm_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L107:C3",
+            "title": "resume meta-only turn 使用 meta 时间做边界但不暴露 prompt 文本",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resume meta-only turn 使用 meta 时间做边界但不暴露 prompt 文本；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::meta_only_uses_boundary_time_without_exposing_meta_text"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L120:C3",
+            "title": "resume synthetic 占位不会生成 LLM 调用或影响后续真实 LLM 起点",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resume synthetic 占位不会生成 LLM 调用或影响后续真实 LLM 起点；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::resume_synthetic_placeholder_does_not_create_call_or_move_real_start"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L136:C3",
+            "title": "API error synthetic assistant 保留为失败 LLM 调用",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "API error synthetic assistant 保留为失败 LLM 调用；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::synthetic_api_error_is_structured_failure_and_discards_private_error_body"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L175:C3",
+            "title": "同一 promptId 内 tool_result 不切分 turn",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "同一 promptId 内 tool_result 不切分 turn；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::tool_result_stays_in_same_turn_and_next_input_is_exact_delta"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L202:C3",
+            "title": "tool_result request_start_time 不跨 promptId 污染下一轮",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool_result request_start_time 不跨 promptId 污染下一轮；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::tool_result_request_start_does_not_cross_prompt_id_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L217:C3",
+            "title": "transcript record.timestamp 正确提取为 llm_call 时间戳",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "transcript record.timestamp 正确提取为 llm_call 时间戳；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::streaming_first_response_timestamp_and_tool_result_request_boundary_are_exact"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L236:C3",
+            "title": "tool_use.id 正确提取到 declaredToolIds",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool_use.id 正确提取到 declaredToolIds；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::declared_tool_ids_accumulate_across_streaming_message_chunks"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L251:C3",
+            "title": "toolDetails 正确提取 call/result 时间和内容",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "toolDetails 正确提取 call/result 时间和内容；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::tool_detail_preserves_actual_call_result_time_content_and_success"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L269:C3",
+            "title": "并行 tool_use（同一 message.id 多个 tool_use block）全部正确归属",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "并行 tool_use（同一 message.id 多个 tool_use block）全部正确归属；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::parallel_streamed_tools_all_belong_to_declaring_call_and_exact_next_input"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L318:C3",
+            "title": "msg.id 缺失的 end_turn assistant 被正确解析",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "msg.id 缺失的 end_turn assistant 被正确解析；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::missing_message_id_still_exports_final_call_with_local_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L341:C3",
+            "title": "无 promptId 的连续调用补齐起点并保留工具边界 (missing message.id=%s)",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": [
+              "test.each([false, true])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "无 promptId 的连续调用补齐起点并保留工具边界 (missing message.id=%s)；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::missing_prompt_id_sequence_fills_starts_and_keeps_tool_boundary_with_or_without_ids"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L366:C3",
+            "title": "孤立 assistant 补齐起点且不使用其他 turn 的边界",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "孤立 assistant 补齐起点且不使用其他 turn 的边界；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::orphan_call_uses_own_time_without_leaking_other_turn_boundary"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L381:C3",
+            "title": "增量片段只有 assistant 时使用片段内时间补齐起点",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "增量片段只有 assistant 时使用片段内时间补齐起点；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::assistant_only_appended_fragment_starts_from_fragment_time"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L399:C3",
+            "title": "无 promptId 时同样限制请求起点不能晚于响应",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无 promptId 时同样限制请求起点不能晚于响应；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::missing_prompt_id_never_places_request_start_after_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L409:C3",
+            "title": "首个 llmCall 的 request_start_time 使用 prompt 时间",
+            "suites": [
+              "parseClaudeTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "首个 llmCall 的 request_start_time 使用 prompt 时间；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::first_call_request_start_uses_real_prompt_timestamp"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L424:C3",
+            "title": "text 取最长",
+            "suites": [
+              "deduplicateContentBlocks"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "text 取最长；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::content_text_dedup_keeps_longest_observed_version"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L434:C3",
+            "title": "tool_use 按 id 去重",
+            "suites": [
+              "deduplicateContentBlocks"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool_use 按 id 去重；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::content_tool_dedup_uses_real_tool_id"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L445:C3",
+            "title": "thinking + text + tool_use 自然顺序",
+            "suites": [
+              "deduplicateContentBlocks"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "thinking + text + tool_use 自然顺序；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/claude_code.rs",
+                "test": "transcript_history_contracts::content_blocks_keep_thinking_then_text_then_tool_natural_order"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/claude-code/entry-allowlist.test.mjs",
+      "coverage": "partial",
+      "rust": [],
+      "source_hash": "65f6f0150a079ae9d0f07ccf6e804c79aba86ef05de15b3f78bad5b4eb2ac401",
+      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L24:C3",
+            "title": "agents.d maps StopFailure to stop-failure subcommand",
+            "suites": [
+              "claude-code hook entry allowlists cover agents.d events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "agents.d maps StopFailure to stop-failure subcommand；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_entry_history.rs",
+                "test": "claude_definition_keeps_kebab_case_stop_failure_in_declared_events"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L29:C3",
+            "title": ".sh allowlist covers every declared event",
+            "suites": [
+              "claude-code hook entry allowlists cover agents.d events"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": ".sh allowlist covers every declared event；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_entry_history.rs",
+                "test": "shell_entry_routes_every_declared_event_to_bridge_and_rejects_unknown_event"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": ".ps1 allowlist covers every declared event",
+            "suites": [
+              "claude-code hook entry allowlists cover agents.d events"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": ".ps1 allowlist covers every declared event；新增真实组件/临时fixture断言，rustfmt及隔离git apply --check通过，尚未由root运行Cargo；Windows/macOS未执行。 直接运行未改动的实际入口脚本；共享bridge仅捕获argv，无真实Agent或服务副作用。 Windows PowerShell5.1实际执行尚待，绝不以Linux或源码存在代验。",
+          "platforms": [
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/claude_entry_history.rs",
+                "test": "powershell_51_entry_routes_every_declared_event_to_bridge_and_rejects_unknown_event"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/cursor-transcript-assembler.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "b9fd572b51b27895b70b761e61b062dac69f36fae4f3c98198e498b87400617e",
+      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L161:C3",
+            "title": "returns null when transcript file does not exist",
+            "suites": [
+              "buildCursorRecordsFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns null when transcript file does not exist；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::nonexistent_transcript_and_missing_prompt_are_rejected"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L170:C3",
+            "title": "returns null when no beforeSubmitPrompt event in journal",
+            "suites": [
+              "buildCursorRecordsFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns null when no beforeSubmitPrompt event in journal；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::nonexistent_transcript_and_missing_prompt_are_rejected"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L180:C3",
+            "title": "preserves Cursor CLI identity and cwd on the Windows transcript path",
+            "suites": [
+              "buildCursorRecordsFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves Cursor CLI identity and cwd on the Windows transcript path；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::cli_transcript_retains_hyphenated_windows_workspace_namespace"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L215:C5",
+            "title": "returns 3 records: other + llm.request + llm.response",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns 3 records: other + llm.request + llm.response；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L220:C5",
+            "title": "first record is \"other\" with user text from transcript",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "first record is \"other\" with user text from transcript；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L227:C5",
+            "title": "llm.request has step.id",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "llm.request has step.id；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L233:C5",
+            "title": "llm.request emits the user message as both delta and full input",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "llm.request emits the user message as both delta and full input；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L243:C5",
+            "title": "llm.request and llm.response share the same response.id",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "llm.request and llm.response share the same response.id；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L250:C5",
+            "title": "llm.response has correct text from transcript (not garbled)",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "llm.response has correct text from transcript (not garbled)；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L257:C5",
+            "title": "llm.response finish_reason is \"stop\"",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "llm.response finish_reason is \"stop\"；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L264:C5",
+            "title": "llm.response has tokens from journal responseEvent",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "llm.response has tokens from journal responseEvent；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L271:C5",
+            "title": "all records have gen_ai.agent.id",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "all records have gen_ai.agent.id；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L278:C5",
+            "title": "all records have required base fields",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "simple turn (no tool calls)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "all records have required base fields；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::simple_transcript_keeps_unicode_inputs_outputs_identity_ids_usage_and_finish"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L311:C5",
+            "title": "returns 7 records: other + s1(req,call,result,resp) + s2(req,resp)",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns 7 records: other + s1(req,call,result,resp) + s2(req,resp)；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L317:C5",
+            "title": "event names in correct order",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "event names in correct order；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L325:C5",
+            "title": "step 1 llm.response has reasoning part + tool_call part",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 1 llm.response has reasoning part + tool_call part；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L334:C5",
+            "title": "step 1 llm.response finish_reason is \"tool_calls\"",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 1 llm.response finish_reason is \"tool_calls\"；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L341:C5",
+            "title": "step 1 llm.response tokens are 0 (intermediate step)",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 1 llm.response tokens are 0 (intermediate step)；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L347:C5",
+            "title": "step 2 input preserves the assistant tool call before its matching result",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 2 input preserves the assistant tool call before its matching result；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L363:C5",
+            "title": "step 2 input delta contains only the new assistant call and tool result",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 2 input delta contains only the new assistant call and tool result；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L380:C5",
+            "title": "step 2 llm.response has correct final text",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 2 llm.response has correct final text；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L388:C5",
+            "title": "step 2 llm.response finish_reason is \"stop\"",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 2 llm.response finish_reason is \"stop\"；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L394:C5",
+            "title": "step 2 llm.response has real tokens",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 2 llm.response has real tokens；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L400:C5",
+            "title": "tool.call has correct tool_use_id from journal",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool.call has correct tool_use_id from journal；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L407:C5",
+            "title": "tool.result has correct tool_use_id from journal",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool.result has correct tool_use_id from journal；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L413:C5",
+            "title": "s1 llm.request and llm.response share response.id",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "s1 llm.request and llm.response share response.id；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L419:C5",
+            "title": "s2 llm.request and llm.response share response.id",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "s2 llm.request and llm.response share response.id；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L425:C5",
+            "title": "s1 and s2 have different response.ids",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "s1 and s2 have different response.ids；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L431:C5",
+            "title": "s2 llm.request timestamp > last tool.result timestamp",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "turn with tool call (2-step weather query)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "s2 llm.request timestamp > last tool.result timestamp；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L441:C5",
+            "title": "only processes current turn, not previous turn text",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "multi-turn transcript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "only processes current turn, not previous turn text；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::latest_turn_text_model_resolution_and_legacy_content_independence_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L468:C5",
+            "title": "resolves model from afterAgentThought event (not \"unknown\")",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "model resolution"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resolves model from afterAgentThought event (not \"unknown\")；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::latest_turn_text_model_resolution_and_legacy_content_independence_are_preserved"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L485:C5",
+            "title": "keeps delta and full input when legacy message capture is disabled",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "legacy content capture policy"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps delta and full input when legacy message capture is disabled；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::latest_turn_text_model_resolution_and_legacy_content_independence_are_preserved"
+              },
+              {
+                "file": "src/core/input_manager.rs",
+                "test": "migration_remaining_contracts::legacy_content_setting_preserves_every_legacy_field_across_inputs_and_destinations"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L525:C5",
+            "title": "still generates tool.call from transcript data",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "synthetic tool calls (no journal preToolUse — Cursor hook timing race)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "still generates tool.call from transcript data；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::transcript_only_tool_intent_has_stable_id_arguments_and_real_final_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L531:C5",
+            "title": "tool.call has correct tool name from transcript",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "synthetic tool calls (no journal preToolUse — Cursor hook timing race)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool.call has correct tool name from transcript；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::transcript_only_tool_intent_has_stable_id_arguments_and_real_final_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L536:C5",
+            "title": "tool.call has synthetic stable ID (turnId:sN:tN format)",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "synthetic tool calls (no journal preToolUse — Cursor hook timing race)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool.call has synthetic stable ID (turnId:sN:tN format)；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::transcript_only_tool_intent_has_stable_id_arguments_and_real_final_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L541:C5",
+            "title": "tool.call has tool arguments from transcript",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "synthetic tool calls (no journal preToolUse — Cursor hook timing race)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "tool.call has tool arguments from transcript；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::transcript_only_tool_intent_has_stable_id_arguments_and_real_final_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L546:C5",
+            "title": "step 1 llm.response has tool_call part and finish_reason=tool_calls",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "synthetic tool calls (no journal preToolUse — Cursor hook timing race)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "step 1 llm.response has tool_call part and finish_reason=tool_calls；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::transcript_only_tool_intent_has_stable_id_arguments_and_real_final_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L556:C5",
+            "title": "final step llm.response has correct text",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "synthetic tool calls (no journal preToolUse — Cursor hook timing race)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "final step llm.response has correct text；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::transcript_only_tool_intent_has_stable_id_arguments_and_real_final_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L563:C3",
+            "title": "expands multiple previous tools into independent assistant/tool message pairs",
+            "suites": [
+              "buildCursorRecordsFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "expands multiple previous tools into independent assistant/tool message pairs；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::multiple_previous_tools_keep_one_assistant_and_each_matching_tool_response"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L601:C3",
+            "title": "only pairs tool calls and results when both have non-empty ids",
+            "suites": [
+              "buildCursorRecordsFromTranscript"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "only pairs tool calls and results when both have non-empty ids；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::missing_tool_ids_never_bind_unrelated_calls_or_results"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L639:C5",
+            "title": "STEP count == LLM call count",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "SPEC compliance"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "STEP count == LLM call count；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L658:C5",
+            "title": "only last llm.response has non-zero tokens",
+            "suites": [
+              "buildCursorRecordsFromTranscript",
+              "SPEC compliance"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "only last llm.response has non-zero tokens；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor_assemble.rs",
+                "test": "transcript_history_contracts::weather_steps_preserve_exact_tool_pairs_message_order_timing_and_only_final_usage"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/cursor/resource-context.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "2463daa3cd6061d6bea9855f56e50e29ebf390aee4a6808a0ebd0f465a8219eb",
+      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L61:C3",
+            "title": "does not let another CLI conversation activate context for Desktop",
+            "suites": [
+              "Cursor CLI custom resource context"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not let another CLI conversation activate context for Desktop；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor.rs",
+                "test": "workspace_history_contracts::cli_context_from_other_conversation_cannot_activate_desktop_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L82:C3",
+            "title": "persists prompt context across the CLI deferred-stop path",
+            "suites": [
+              "Cursor CLI custom resource context"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "persists prompt context across the CLI deferred-stop path；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_cli_resource_context_survives_deferred_stop"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L111:C3",
+            "title": "does not change Cursor Desktop records even when the variables exist",
+            "suites": [
+              "Cursor CLI custom resource context"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not change Cursor Desktop records even when the variables exist；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/mod.rs",
+                "test": "tests::cursor_desktop_ignores_resource_env"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/cursor/workspace-privacy.test.mjs",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "130941ccc60711f064712b7bb06e0866b8f97c464c400d84a33d45d790498f86",
+      "note": "固定ef8953逐声明映射；2026-10-31独立7854e04 clone+专用target实际验证。源码hash/ID保持原样。94声明Linux目标已实过，Windows专用入口1声明保留partial；其余Windows/macOS平台没有冒充已验。 集成到1563f83后的主工作区，2026-10-31严格Clippy与完整workspace验证通过；PS5.1专用入口仍保持partial，待真实Windows执行。",
+      "cases": [
+        {
+          "source": {
+            "id": "L40:C1",
+            "title": "filters Cursor history on %s and still writes public sessions",
+            "suites": [],
+            "parameters": [
+              "it.each([\n  ['normal stop', ['beforeSubmitPrompt', 'afterAgentResponse', 'stop']],\n  ['deferred response', ['beforeSubmitPrompt', 'stop', 'afterAgentResponse']],\n])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "filters Cursor history on %s and still writes public sessions；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor.rs",
+                "test": "workspace_history_contracts::excluded_history_is_filtered_and_public_survives_normal_and_deferred_lifecycles"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L54:C1",
+            "title": "retains the %s journal on invalid configuration and retries after repair",
+            "suites": [],
+            "parameters": [
+              "it.each(['normal', 'deferred'])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "retains the %s journal on invalid configuration and retries after repair；固定7854e0448f225ad2e24c33c76d1dec000b533c1d隔离clone，Rust1.99.1/glibc2.34/network-none实际通过targeted；strict alltargets/allfeatures通过，本库1721全通过。Windows/macOS仍待真实平台执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/cursor.rs",
+                "test": "workspace_history_contracts::invalid_privacy_retains_normal_and_deferred_journal_until_repaired_then_consumes_once"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

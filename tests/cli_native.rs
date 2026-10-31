@@ -10,6 +10,15 @@ use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 fn invoke(binary: &Path, root: &Path, args: &[&str]) -> Output {
+    invoke_with_resource_root(binary, root, args, None)
+}
+
+fn invoke_with_resource_root(
+    binary: &Path,
+    root: &Path,
+    args: &[&str],
+    resources: Option<&Path>,
+) -> Output {
     let mut command = Command::new(binary);
     command
         .args(args)
@@ -29,6 +38,9 @@ fn invoke(binary: &Path, root: &Path, args: &[&str]) -> Output {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(resources) = resources {
+        command.env("LOONGSUITE_PILOT_RESOURCE_ROOT", resources);
+    }
     for key in ["SystemRoot", "WINDIR"] {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
@@ -155,7 +167,14 @@ fn check_accepts_optional_span_enrichers_without_loading_or_rewriting_plugins() 
     )
     .unwrap();
     let before = snapshot(root.path());
-    let output = invoke(executable(), root.path(), &["check", "--json"]);
+    // A custom isolated CARGO_TARGET_DIR need not be inside the source tree.
+    // This fixture checks plugin/config preflight, not resource auto-discovery.
+    let output = invoke_with_resource_root(
+        executable(),
+        root.path(),
+        &["check", "--json"],
+        Some(Path::new(env!("CARGO_MANIFEST_DIR"))),
+    );
     assert!(output.status.success(), "{output:?}");
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["ok"], true);
