@@ -4069,3 +4069,380 @@ async fn four_original_children_finish_independently_before_parent_with_full_cur
         assert_eq!(link.confidence.as_str(), "agent_path");
     }
 }
+#[tokio::test]
+async fn completed_and_aborted_original_children_close_independently_and_accept_direct_user_followup(
+) {
+    let f = Fixture::new();
+    f.input.start().await.expect("start");
+    let mut parent_lines: Vec<_> = NATIVE_PARENT.lines().collect();
+    let terminal = parent_lines.pop().expect("terminal");
+    let parent =
+        write_native_fixture(&f, NATIVE_PARENT_NAME, &(parent_lines.join("\n") + "\n")).await;
+    f.input.run_cycle().await;
+    assert_eq!(f.input.subagent_link_snapshot().detected_spawns, 4);
+    let mut paths = Vec::new();
+    for (n, child) in NATIVE_CHILDREN.iter().enumerate() {
+        let mut lines: Vec<_> = child.3.lines().map(str::to_owned).collect();
+        if n == 0 {
+            let mut end: Value =
+                serde_json::from_str(lines.last().expect("terminal")).expect("terminal");
+            end["payload"]["type"] = json!("turn_aborted");
+            end["payload"]
+                .as_object_mut()
+                .expect("payload")
+                .remove("last_agent_message");
+            end["payload"]["reason"] = json!("interrupted");
+            *lines.last_mut().expect("end") = end.to_string();
+        }
+        let p = write_native_fixture(&f, child.0, &(lines.join("\n") + "\n")).await;
+        paths.push(p);
+        f.input.run_cycle().await;
+    }
+    let all = f.records();
+    for (n, child) in NATIVE_CHILDREN.iter().enumerate() {
+        assert_eq!(responses_for(&all, child.2).len(), 1);
+        let cp = f.checkpoint(&paths[n]);
+        assert_eq!(
+            cp.scan_offset,
+            tokio::fs::metadata(&paths[n]).await.expect("stat").len() as i64
+        );
+        assert!(cp.pending_subagent.is_none() && cp.active_turn.is_none());
+    }
+    let followup = simple_turn("child-followup-turn", 10, 2, 0)
+        .into_iter()
+        .skip(1)
+        .map(|s| s.replace("2026-06-24T06:00", "2026-08-07T02:02"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    f.append(&paths[0], &followup).await;
+    f.input.run_cycle().await;
+    let followup = responses_for(&f.records(), "child-followup-turn");
+    assert_eq!(followup.len(), 1);
+    assert!(followup[0]
+        .get("gen_ai.agent.parent.invocation.id")
+        .is_none());
+    assert!(f.checkpoint(&paths[0]).pending_subagent.is_none());
+    f.append(&parent, &(terminal.to_owned() + "\n")).await;
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("stop");
+    let all = f.records();
+    for child in NATIVE_CHILDREN {
+        assert_eq!(responses_for(&all, child.2).len(), 1);
+    }
+    let aborted: Vec<_> = all
+        .iter()
+        .filter(|e| e["agent.codex.transcript_turn_id"] == "child-turn-1")
+        .collect();
+    assert!(aborted
+        .iter()
+        .any(|e| e["agent.codex.turn_status"] == "interrupted"));
+    assert!(aborted
+        .iter()
+        .all(|e| e["gen_ai.agent.scope"] == "subagent"));
+    assert!(f.checkpoint(&parent).pending_fusion.is_none());
+}
+#[tokio::test]
+async fn original_active_child_is_never_forced_to_end_by_its_parent_terminal() {
+    use crate::inputs::base::InputBody;
+    let f = Fixture::new();
+    let mut parent_lines: Vec<_> = NATIVE_PARENT.lines().collect();
+    let parent_end = parent_lines.pop().expect("terminal");
+    let parent =
+        write_native_fixture(&f, NATIVE_PARENT_NAME, &(parent_lines.join("\n") + "\n")).await;
+    f.process(&parent).await;
+    let mut child_lines: Vec<_> = NATIVE_CHILDREN[0].3.lines().collect();
+    child_lines.pop();
+    let child =
+        write_native_fixture(&f, NATIVE_CHILDREN[0].0, &(child_lines.join("\n") + "\n")).await;
+    f.process(&child).await;
+    assert!(responses_for(&f.records(), "child-turn-1").is_empty());
+    let cp = f.checkpoint(&child);
+    assert_eq!(
+        cp.scan_offset,
+        tokio::fs::metadata(&child).await.expect("stat").len() as i64
+    );
+    assert!(cp.pending_subagent.is_none());
+    let active = cp.active_turn.expect("running");
+    assert_eq!(active.turn_id, "child-turn-1");
+    assert_eq!(active.emitted_step_count, 0);
+    f.append(&parent, &(parent_end.to_owned() + "\n")).await;
+    f.process(&parent).await;
+    assert!(f.checkpoint(&parent).pending_fusion.is_none());
+    assert_eq!(responses_for(&f.records(), "parent-turn-1").len(), 2);
+    f.input
+        .inner
+        .body
+        .collect(f.rt())
+        .await
+        .expect("real cycle");
+    assert!(responses_for(&f.records(), "child-turn-1").is_empty());
+    let cp = f.checkpoint(&child);
+    assert_eq!(
+        cp.active_turn.expect("child still running").turn_id,
+        "child-turn-1"
+    );
+    assert!(cp.pending_subagent.is_none());
+    f.append(&child,&(record("2026-08-07T02:05:00Z","event_msg",json!({"type":"task_complete","turn_id":"child-turn-1","last_agent_message":"background complete"}))+"\n")).await;
+    f.process(&child).await;
+    let r = responses_for(&f.records(), "child-turn-1");
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0]["gen_ai.session.id"], NATIVE_CHILDREN[0].1);
+    assert_eq!(
+        r[0]["gen_ai.turn.id"],
+        format!("{}:child-turn-1", NATIVE_CHILDREN[0].1)
+    );
+    assert_eq!(r[0]["gen_ai.agent.scope"], "subagent");
+    assert_eq!(
+        r[0]["gen_ai.subagent.parent_tool_call.id"],
+        "call-subagent-1"
+    );
+    let cp = f.checkpoint(&child);
+    assert!(cp.active_turn.is_none() && cp.pending_subagent.is_none());
+    let cp = f.checkpoint(&parent);
+    assert!(cp.active_turn.is_none() && cp.pending_fusion.is_none());
+}
+#[tokio::test]
+async fn original_child_body_arriving_after_parent_end_keeps_own_identity_and_lineage() {
+    use crate::inputs::base::InputBody;
+    let f = Fixture::new();
+    let mut parent_lines: Vec<_> = NATIVE_PARENT.lines().collect();
+    let parent_end = parent_lines.pop().expect("terminal");
+    let parent =
+        write_native_fixture(&f, NATIVE_PARENT_NAME, &(parent_lines.join("\n") + "\n")).await;
+    f.process(&parent).await;
+    let child_lines: Vec<_> = NATIVE_CHILDREN[0].3.lines().collect();
+    let child = f
+        .write(
+            &format!("2026/08/07/{}", NATIVE_CHILDREN[0].0),
+            &(child_lines[0].to_owned() + "\n"),
+        )
+        .await;
+    f.process(&child).await;
+    f.append(&parent, &(parent_end.to_owned() + "\n")).await;
+    f.process(&parent).await;
+    assert!(f.checkpoint(&parent).pending_fusion.is_none());
+    f.input
+        .inner
+        .body
+        .collect(f.rt())
+        .await
+        .expect("real cycle");
+    assert_eq!(responses_for(&f.records(), "parent-turn-1").len(), 2);
+    let cp = f.checkpoint(&parent);
+    assert!(cp.active_turn.is_none() && cp.pending_fusion.is_none());
+    f.append(&child, &(child_lines[1..].join("\n") + "\n"))
+        .await;
+    initial_hook(
+        &f,
+        NATIVE_CHILDREN[0].1,
+        "child-turn-1",
+        &child,
+        "subagent-stop",
+    )
+    .await;
+    f.process(&child).await;
+    let r = responses_for(&f.records(), "child-turn-1");
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0]["gen_ai.session.id"], NATIVE_CHILDREN[0].1);
+    assert_eq!(r[0]["gen_ai.agent.scope"], "subagent");
+    assert!(r[0]["gen_ai.agent.parent.invocation.id"].is_string());
+    let cp = f.checkpoint(&child);
+    assert!(cp.active_turn.is_none() && cp.pending_subagent.is_none());
+}
+#[tokio::test]
+async fn later_ambiguous_spawn_never_replays_a_completed_original_child() {
+    let f = Fixture::new();
+    let parent_text = NATIVE_PARENT
+        .lines()
+        .filter(|l| {
+            !l.contains("call-subagent-2")
+                && !l.contains("call-subagent-3")
+                && !l.contains("call-subagent-4")
+                && !l.contains("\"type\":\"task_complete\"")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let parent = write_native_fixture(&f, NATIVE_PARENT_NAME, &parent_text).await;
+    f.process(&parent).await;
+    let child = write_native_fixture(&f, NATIVE_CHILDREN[0].0, NATIVE_CHILDREN[0].3).await;
+    f.process(&child).await;
+    let cp = f.checkpoint(&child);
+    assert!(cp.pending_subagent.is_none() && cp.active_turn.is_none());
+    assert_eq!(responses_for(&f.records(), "child-turn-1").len(), 1);
+    f.append(&parent,&([
+ record("2026-08-07T02:00:07Z","response_item",json!({"type":"function_call","call_id":"call-subagent-late","name":"spawn_agent","arguments":json!({"task_name":"fixture_child","message":"redacted"}).to_string()})),
+ record("2026-08-07T02:00:08Z","response_item",json!({"type":"function_call_output","call_id":"call-subagent-late","output":json!({"task_name":"/root/fixture_child"}).to_string()})),
+ record("2026-08-07T02:00:09Z","event_msg",usage(120,12))].join("\n")+"\n")).await;
+    f.process(&parent).await;
+    f.process(&child).await;
+    let links = f.input.subagent_link_snapshot().links;
+    let link = links
+        .iter()
+        .find(|l| l.child_thread_id == NATIVE_CHILDREN[0].1)
+        .expect("child link");
+    assert_eq!(link.confidence.as_str(), "orphan");
+    assert_eq!(
+        link.orphan_reason.map(|r| r.as_str()),
+        Some("ambiguous_agent_path")
+    );
+    assert_eq!(responses_for(&f.records(), "child-turn-1").len(), 1);
+    assert!(f.checkpoint(&child).pending_subagent.is_none());
+}
+#[tokio::test]
+async fn explicit_original_child_ids_disambiguate_reused_paths_without_holding_children() {
+    use crate::inputs::base::InputBody;
+    let f = Fixture::new();
+    let mut lines: Vec<_> = NATIVE_PARENT.lines().collect();
+    let terminal = lines.pop().expect("terminal");
+    let mut reduced: Vec<_> = lines
+        .into_iter()
+        .filter(|l| !l.contains("call-subagent-3") && !l.contains("call-subagent-4"))
+        .map(|l| l.replace("fixture_child_2", "fixture_child"))
+        .collect();
+    let at = reduced.len() - 1;
+    reduced.splice(at..at,[
+ record("2026-08-07T02:00:04.400Z","event_msg",json!({"type":"sub_agent_activity","kind":"started","event_id":"call-subagent-1","agent_thread_id":NATIVE_CHILDREN[0].1,"agent_path":"/root/fixture_child","occurred_at_ms":1_786_068_004_400_u64})),
+ record("2026-08-07T02:00:04.450Z","event_msg",json!({"type":"sub_agent_activity","kind":"started","event_id":"call-subagent-2","agent_thread_id":NATIVE_CHILDREN[1].1,"agent_path":"/root/fixture_child","occurred_at_ms":1_786_068_004_450_u64}))]);
+    let parent = write_native_fixture(&f, NATIVE_PARENT_NAME, &(reduced.join("\n") + "\n")).await;
+    f.process(&parent).await;
+    let mut children = Vec::new();
+    for (n, child) in NATIVE_CHILDREN[..2].iter().enumerate() {
+        let text = if n == 1 {
+            child
+                .3
+                .replace("/root/fixture_child_2", "/root/fixture_child")
+        } else {
+            child.3.to_owned()
+        };
+        let p = write_native_fixture(&f, child.0, &text).await;
+        f.process(&p).await;
+        children.push(p);
+    }
+    for p in &children {
+        let cp = f.checkpoint(p);
+        assert!(cp.pending_subagent.is_none() && cp.active_turn.is_none());
+    }
+    let links = f.input.subagent_link_snapshot().links;
+    for (n, child) in NATIVE_CHILDREN[..2].iter().enumerate() {
+        let l = links
+            .iter()
+            .find(|l| l.child_thread_id == child.1)
+            .expect("explicit link");
+        assert_eq!(l.confidence.as_str(), "explicit_id");
+        assert_eq!(
+            l.parent_tool_call_id.as_deref(),
+            Some(format!("call-subagent-{}", n + 1).as_str())
+        );
+    }
+    f.append(&parent, &(terminal.to_owned() + "\n")).await;
+    f.process(&parent).await;
+    assert!(f.checkpoint(&parent).pending_fusion.is_none());
+    f.input
+        .inner
+        .body
+        .collect(f.rt())
+        .await
+        .expect("real cycle");
+    let all = f.records();
+    for child in &NATIVE_CHILDREN[..2] {
+        assert_eq!(responses_for(&all, child.2).len(), 1);
+    }
+    let parents: std::collections::BTreeSet<_> = all
+        .iter()
+        .filter(|e| e["gen_ai.agent.scope"] == "subagent")
+        .filter_map(|e| e["gen_ai.subagent.parent_tool_call.id"].as_str())
+        .collect();
+    assert_eq!(
+        parents,
+        ["call-subagent-1", "call-subagent-2"].into_iter().collect()
+    );
+}
+#[tokio::test]
+async fn persisted_legacy_parent_and_child_holds_migrate_to_independent_native_completion() {
+    let first = Fixture::new();
+    first.input.start().await.expect("start");
+    let mut parent_lines: Vec<_> = NATIVE_PARENT.lines().collect();
+    let parent_end = parent_lines.pop().expect("terminal");
+    let parent = write_native_fixture(
+        &first,
+        NATIVE_PARENT_NAME,
+        &(parent_lines.join("\n") + "\n"),
+    )
+    .await;
+    first.input.run_cycle().await;
+    let mut child_lines: Vec<_> = NATIVE_CHILDREN[0].3.lines().collect();
+    let child_end = child_lines.pop().expect("terminal");
+    let child = write_native_fixture(
+        &first,
+        NATIVE_CHILDREN[0].0,
+        &(child_lines.join("\n") + "\n"),
+    )
+    .await;
+    first.input.run_cycle().await;
+    first.input.stop().await.expect("stop");
+    let all = first.records();
+    let invoke = all
+        .iter()
+        .find(|e| {
+            e["event.name"] == "gen_ai.agent.invoke"
+                && e["gen_ai.tool.call.id"] == "call-subagent-1"
+        })
+        .expect("invoke");
+    let parent_trace = invoke["trace_id"].clone();
+    let parent_cp = first.checkpoint(&parent);
+    let child_cp = first.checkpoint(&child);
+    let mut legacy_active =
+        serde_json::to_value(child_cp.active_turn.as_ref().expect("child active")).expect("active");
+    legacy_active
+        .as_object_mut()
+        .expect("object")
+        .remove("delegation");
+    legacy_active
+        .as_object_mut()
+        .expect("object")
+        .remove("emittedTraceId");
+    first.append(&parent, &(parent_end.to_owned() + "\n")).await;
+    first.append(&child, &(child_end.to_owned() + "\n")).await;
+    let parent_size = tokio::fs::metadata(&parent).await.expect("stat").len();
+    let child_size = tokio::fs::metadata(&child).await.expect("stat").len();
+    let mut child_value = checkpoint_to_value(&child_cp);
+    child_value["scanOffset"] = json!(child_size);
+    child_value["activeTurn"] = Value::Null;
+    child_value["pendingSubagent"] = json!({"turnId":"child-turn-1","parentThreadId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","parentTurnId":"parent-turn-1","parentTraceId":parent_trace,"parentToolCallId":"call-subagent-1","confidence":"agent_path","terminalEndOffset":child_size,"activeTurn":legacy_active});
+    first.rt().state_store.update(
+        &first.engine().state_key(&child),
+        InputStatePatch {
+            last_offset: Some(child_size as f64),
+            extra: Some(json!({"codexTranscript":child_value})),
+            ..Default::default()
+        },
+    );
+    let mut parent_value = checkpoint_to_value(&parent_cp);
+    parent_value["scanOffset"] = json!(parent_size);
+    parent_value["pendingFusion"] = json!({"turnId":"parent-turn-1","parentThreadId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","parentTraceId":parent_trace,"terminalEndOffset":parent_size,"children":[{"parentToolCallId":"call-subagent-1","parentTraceId":parent_trace,"spawnedAtMs":1_786_068_004_000_u64,"childThreadId":NATIVE_CHILDREN[0].1}]});
+    first.rt().state_store.update(
+        &first.engine().state_key(&parent),
+        InputStatePatch {
+            last_offset: Some(parent_size as f64),
+            extra: Some(json!({"codexTranscript":parent_value})),
+            ..Default::default()
+        },
+    );
+    let recovered = first.restart().await;
+    start_until_first_native_cycle(&recovered).await;
+    let r = responses_for(&recovered.records(), "child-turn-1");
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0]["gen_ai.session.id"], NATIVE_CHILDREN[0].1);
+    assert_eq!(
+        r[0]["gen_ai.turn.id"],
+        format!("{}:child-turn-1", NATIVE_CHILDREN[0].1)
+    );
+    let mut combined = first.records();
+    combined.extend(recovered.records());
+    assert_eq!(responses_for(&combined, "parent-turn-1").len(), 2);
+    let cp = recovered.checkpoint(&parent);
+    assert!(cp.pending_fusion.is_none() && cp.active_turn.is_none());
+    assert!(recovered.checkpoint(&child).pending_subagent.is_none());
+}

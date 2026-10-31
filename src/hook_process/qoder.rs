@@ -1435,28 +1435,9 @@ fn lock_is_stale(lock: Option<&Value>) -> bool {
 }
 
 fn pid_alive(pid: u32) -> bool {
-    // kill(-1, 0) signals every process, so a pid that does not fit in a
-    // positive i32 must not be treated as alive.
-    if pid == 0 || pid > i32::MAX as u32 {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        let rc = unsafe {
-            extern "C" {
-                fn kill(pid: i32, sig: i32) -> i32;
-            }
-            kill(pid as i32, 0)
-        };
-        if rc == 0 {
-            return true;
-        }
-        std::io::Error::last_os_error().raw_os_error() == Some(1)
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
+    // The shared probe handles EPERM, oversized Unix PIDs and terminated
+    // Windows process handles; a non-Unix constant would keep dead retry locks.
+    crate::utils::is_process_alive(pid)
 }
 
 fn waiting(reason: &str) -> TurnWindow {
@@ -4815,3 +4796,7 @@ mod tests {
 #[cfg(test)]
 #[path = "qoder_identity_tests.rs"]
 mod identity_tests;
+
+#[cfg(test)]
+#[path = "qoder_retry_lock_history_tests.rs"]
+mod retry_lock_history_tests;

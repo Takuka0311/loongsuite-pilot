@@ -6803,6 +6803,197 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/inputs/codex-transcript/codex-transcript-input.test.ts",
+      "coverage": "partial",
+      "rust": [],
+      "source_hash": "ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9",
+      "note": "仅固定f84e3881958b39c5c7cbe8a035f50ccd80a25783当前文件7个已实际逐assert承接的replacement合同，独立main补充映射；整文件有123个AST声明，仅本7被登记，绝不将全文件算complete，不改变ef8953固定109分母。source IDs/title/suites/parameters与f84 AST完全一致。Linux95targeted实际过，Windows/macOS未代验。",
+      "cases": [
+        {
+          "source": {
+            "id": "L996:C3",
+            "title": "emits completed children with their own identity before the parent terminal",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "emits completed children with their own identity before the parent terminal；固定f84 exact当前合同及仍有效原fixture字段由真实CodexInput/engine/StateStore、必要实际start/stop/durable reload逐断言承接；95 targeted与strict workspace/alltargets/allfeatures实际通过。Linux Rust1.99.1/glibc2.34/network-none；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "four_original_children_finish_independently_before_parent_with_full_current_lineage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1267:C3",
+            "title": "ends child turns independently and keeps scanning later child turns",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "ends child turns independently and keeps scanning later child turns；固定f84 exact当前合同及仍有效原fixture字段由真实CodexInput/engine/StateStore、必要实际start/stop/durable reload逐断言承接；95 targeted与strict workspace/alltargets/allfeatures实际通过。Linux Rust1.99.1/glibc2.34/network-none；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "completed_and_aborted_original_children_close_independently_and_accept_direct_user_followup"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1333:C3",
+            "title": "keeps a reliably linked child running after its parent reaches task_complete",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps a reliably linked child running after its parent reaches task_complete；固定f84 exact当前合同及仍有效原fixture字段由真实CodexInput/engine/StateStore、必要实际start/stop/durable reload逐断言承接；95 targeted与strict workspace/alltargets/allfeatures实际通过。Linux Rust1.99.1/glibc2.34/network-none；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "original_active_child_is_never_forced_to_end_by_its_parent_terminal"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1398:C3",
+            "title": "emits a linked child arriving after the parent without changing its identity",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "emits a linked child arriving after the parent without changing its identity；固定f84 exact当前合同及仍有效原fixture字段由真实CodexInput/engine/StateStore、必要实际start/stop/durable reload逐断言承接；95 targeted与strict workspace/alltargets/allfeatures实际通过。Linux Rust1.99.1/glibc2.34/network-none；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "original_child_body_arriving_after_parent_end_keeps_own_identity_and_lineage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2059:C3",
+            "title": "does not replay a completed child if a later spawn makes its path ambiguous",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not replay a completed child if a later spawn makes its path ambiguous；固定f84 exact当前合同及仍有效原fixture字段由真实CodexInput/engine/StateStore、必要实际start/stop/durable reload逐断言承接；95 targeted与strict workspace/alltargets/allfeatures实际通过。Linux Rust1.99.1/glibc2.34/network-none；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "later_ambiguous_spawn_never_replays_a_completed_original_child"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2112:C3",
+            "title": "uses explicit child ids and parentToolCallId to keep repeated paths as distinct candidates",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses explicit child ids and parentToolCallId to keep repeated paths as distinct candidates；固定f84 exact当前合同及仍有效原fixture字段由真实CodexInput/engine/StateStore、必要实际start/stop/durable reload逐断言承接；95 targeted与strict workspace/alltargets/allfeatures实际通过。Linux Rust1.99.1/glibc2.34/network-none；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "explicit_original_child_ids_disambiguate_reused_paths_without_holding_children"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2253:C3",
+            "title": "migrates legacy pending child and parent checkpoints into independent terminal emission",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "migrates legacy pending child and parent checkpoints into independent terminal emission；固定f84 exact当前合同及仍有效原fixture字段由真实CodexInput/engine/StateStore、必要实际start/stop/durable reload逐断言承接；95 targeted与strict workspace/alltargets/allfeatures实际通过。Linux Rust1.99.1/glibc2.34/network-none；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "persisted_legacy_parent_and_child_holds_migrate_to_independent_native_completion"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

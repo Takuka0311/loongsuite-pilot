@@ -42954,7 +42954,7 @@
       "coverage": "partial",
       "rust": [],
       "source_hash": "6ae448fd44164a31545a3cd7b51a228903393ec938ac7c35b7f9d71bcb6d172e",
-      "note": "固定ef8953的109条声明，当前逐条审定91条（90条Rust承接、1条被固定main f84明确替代的旧父子融合机制），其余18条仍待审。保留源文件hash和精确AST id/title/suites/parameters；platforms表示合同适用范围，Linux glibc2.34/Rust1.99.1定向89项与严格Clippy验证单独记录，未将Windows/macOS视为已执行。",
+      "note": "固定ef8953的109条声明，当前逐条审定97条（90条Rust承接、7条被固定main f84明确替代的旧父子融合机制），其余12条待审。7条替代均保留仍有效字段并执行main当前合同，未恢复废弃身份改写；源hash与AST精确核对。Linux glibc2.34/Rust1.99.1定向与全量执行证据单独记录，Windows/macOS不据此视为通过。",
       "cases": [
         {
           "source": {
@@ -43405,6 +43405,87 @@
         },
         {
           "source": {
+            "id": "L1127:C3",
+            "title": "captures child terminals before the parent terminal and keeps scanning later child turns",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "上游明确改为独立child而废止旧融合等待/父身份重写/强制中断，逐项替代原因见target.reason；真实原fixture/native Input/StateStore与相应公开生命周期，Linux strict+95targeted实过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "已逐断言检查旧source；固定main f84e3881958b39c5c7cbe8a035f50ccd80a25783同文件L1267:C3“ends child turns independently and keeps scanning later child turns”显式取代旧融合/forced-finalize承载（main SHA256 ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9）。旧4 child先captured/pendingSubagent且0响应直到父结束，明确改为4 child先独立结束各响应1，pending/active均None、scan=filesize；首child aborted/interrupted/scope保留，followup继续1响应且不继承parent invocation，父结束不重放。 未检查或仅按名字的断言没有退役；replacement保留仍有效字段并精确实现已读main合同。",
+            "replacement": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "completed_and_aborted_original_children_close_independently_and_accept_direct_user_followup"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1197:C3",
+            "title": "forces a reliably linked active child to finalize when the parent reaches task_complete",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "上游明确改为独立child而废止旧融合等待/父身份重写/强制中断，逐项替代原因见target.reason；真实原fixture/native Input/StateStore与相应公开生命周期，Linux strict+95targeted实过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "已逐断言检查旧source；固定main f84e3881958b39c5c7cbe8a035f50ccd80a25783同文件L1333:C3“keeps a reliably linked child running after its parent reaches task_complete”显式取代旧融合/forced-finalize承载（main SHA256 ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9）。旧父task_complete强制可靠active child interrupted并清active；明确改为父完整结束/无fusion后真实collect仍child0响应/active同turn且emittedStepCount0，只有子自己的task_complete才响应1、own session/turn+原scope/tool-parent，双方状态清空。 未检查或仅按名字的断言没有退役；replacement保留仍有效字段并精确实现已读main合同。",
+            "replacement": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "original_active_child_is_never_forced_to_end_by_its_parent_terminal"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1256:C3",
+            "title": "releases the parent when a reliable child cannot be rebuilt and emits that child independently later",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "上游明确改为独立child而废止旧融合等待/父身份重写/强制中断，逐项替代原因见target.reason；真实原fixture/native Input/StateStore与相应公开生命周期，Linux strict+95targeted实过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "已逐断言检查旧source；固定main f84e3881958b39c5c7cbe8a035f50ccd80a25783同文件L1398:C3“emits a linked child arriving after the parent without changing its identity”显式取代旧融合/forced-finalize承载（main SHA256 ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9）。旧父待fusion/rebuild失败后子later释放且丢subagent scope；明确改为父无需等待已完整2响应，metadata-only child后续body到达仍own identity且scope=subagent/parent invocation string，原回调数量与checkpoint清理保留。 未检查或仅按名字的断言没有退役；replacement保留仍有效字段并精确实现已读main合同。",
+            "replacement": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "original_child_body_arriving_after_parent_end_keeps_own_identity_and_lineage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L1309:C3",
             "title": "emits an orphan child as an independent trace instead of holding its rollout",
             "suites": [
@@ -43483,6 +43564,60 @@
         },
         {
           "source": {
+            "id": "L1379:C3",
+            "title": "releases a captured agent_path candidate if a later spawn makes the path ambiguous",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "上游明确改为独立child而废止旧融合等待/父身份重写/强制中断，逐项替代原因见target.reason；真实原fixture/native Input/StateStore与相应公开生命周期，Linux strict+95targeted实过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "已逐断言检查旧source；固定main f84e3881958b39c5c7cbe8a035f50ccd80a25783同文件L2059:C3“does not replay a completed child if a later spawn makes its path ambiguous”显式取代旧融合/forced-finalize承载（main SHA256 ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9）。旧child先captured PendingSome，后spawn歧义才释放；明确改为child先已complete/no pending，later ambiguity仍snapshot orphan/ambiguous_agent_path且响应总数1不重放。 未检查或仅按名字的断言没有退役；replacement保留仍有效字段并精确实现已读main合同。",
+            "replacement": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "later_ambiguous_spawn_never_replays_a_completed_original_child"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1434:C3",
+            "title": "uses explicit child ids and parentToolCallId to keep repeated paths as distinct candidates",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "上游明确改为独立child而废止旧融合等待/父身份重写/强制中断，逐项替代原因见target.reason；真实原fixture/native Input/StateStore与相应公开生命周期，Linux strict+95targeted实过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "已逐断言检查旧source；固定main f84e3881958b39c5c7cbe8a035f50ccd80a25783同文件L2112:C3“uses explicit child ids and parentToolCallId to keep repeated paths as distinct candidates”显式取代旧融合/forced-finalize承载（main SHA256 ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9）。旧explicit-ID分别进入pending、父fusion children2；明确取消这些holding状态，保留且实测2 explicit-ID link分别call1/call2、reused path不混，子各1响应，scope子集的parent tool IDs精确集合{1,2}，双方无pending。 未检查或仅按名字的断言没有退役；replacement保留仍有效字段并精确实现已读main合同。",
+            "replacement": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "explicit_original_child_ids_disambiguate_reused_paths_without_holding_children"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L1505:C3",
             "title": "keeps time_order links diagnostic-only and emits the child independently",
             "suites": [
@@ -43503,6 +43638,33 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "original_time_order_only_link_stays_diagnostic_and_never_holds_child"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1541:C3",
+            "title": "recovers a persisted parent fusion when child rollouts appear before restart",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "上游明确改为独立child而废止旧融合等待/父身份重写/强制中断，逐项替代原因见target.reason；真实原fixture/native Input/StateStore与相应公开生命周期，Linux strict+95targeted实过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "已逐断言检查旧source；固定main f84e3881958b39c5c7cbe8a035f50ccd80a25783同文件L2253:C3“migrates legacy pending child and parent checkpoints into independent terminal emission”显式取代旧融合/forced-finalize承载（main SHA256 ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9）。旧4 pending child复原后重写全部事件为父session的融合重启scenario，被main明确替换为种入legacy parent pendingFusion+child pendingSubagent的durable迁移验收：真实公开start/stop保存v2前置事实，追加真实terminals后写旧shape（删delegation/emittedTraceId），save/load再真实start，child1 own session/turn、两次parent response合计2、legacy hold全清。旧跨child重写身份断言不得恢复。 未检查或仅按名字的断言没有退役；replacement保留仍有效字段并精确实现已读main合同。",
+            "replacement": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "persisted_legacy_parent_and_child_holds_migrate_to_independent_native_completion"
               }
             ]
           }
@@ -50424,6 +50586,561 @@
               {
                 "file": "tests/qoder_trace_collect_history.rs",
                 "test": "runtime_l3125_physical_complete_records_and_half_line"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/hooks/qoder-hook-processor-retry.test.mjs",
+      "coverage": "partial",
+      "rust": [],
+      "source_hash": "a398f659aca526811ec264992e290aae0251947252573822f74f471b880b6a5c",
+      "note": "首批21/56；Linux/glibc2.34/Rust1.99.1实际21及原20Qoder回归通过；Windows/macOS仅适用性。",
+      "cases": [
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": "hashes transcript path so different paths get different lock files",
+            "suites": [
+              "retryLockPath"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "hashes transcript path so different paths get different lock files；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l36_different_paths_have_distinct_lock_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L44:C3",
+            "title": "returns stable path for same input",
+            "suites": [
+              "retryLockPath"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns stable path for same input；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l44_same_input_stable"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L51:C3",
+            "title": "first acquire succeeds and writes pid/sessionId",
+            "suites": [
+              "tryAcquireRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "first acquire succeeds and writes pid/sessionId；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l51_first_acquire_records_owner_and_session"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L60:C3",
+            "title": "second acquire while live lock exists fails",
+            "suites": [
+              "tryAcquireRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "second acquire while live lock exists fails；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l60_live_second_acquire_refused"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L65:C3",
+            "title": "overwrites a stale lock (dead pid)",
+            "suites": [
+              "tryAcquireRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "overwrites a stale lock (dead pid)；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l65_dead_owner_replaced"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L76:C3",
+            "title": "overwrites an expired lock (startedAt too old)",
+            "suites": [
+              "tryAcquireRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "overwrites an expired lock (startedAt too old)；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l76_expired_live_owner_replaced"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L86:C3",
+            "title": "waits for a peer lock and acquires it after release",
+            "suites": [
+              "acquireRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "waits for a peer lock and acquires it after release；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l86_waits_for_peer_release"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L99:C3",
+            "title": "times out without deleting a live peer lock",
+            "suites": [
+              "acquireRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "times out without deleting a live peer lock；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l99_timeout_keeps_live_peer"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L112:C3",
+            "title": "removes a lock owned by current pid",
+            "suites": [
+              "releaseRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "removes a lock owned by current pid；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l112_release_own_pid"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L118:C3",
+            "title": "leaves a peer pid lock alone",
+            "suites": [
+              "releaseRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "leaves a peer pid lock alone；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l118_preserves_other_pid"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L127:C3",
+            "title": "does nothing for missing lock",
+            "suites": [
+              "releaseRetryLock"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does nothing for missing lock；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l127_missing_release_no_error"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L133:C3",
+            "title": "returns true for null lock",
+            "suites": [
+              "isRetryLockStale"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns true for null lock；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l133_null_is_stale"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L137:C3",
+            "title": "returns true for old lock",
+            "suites": [
+              "isRetryLockStale"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns true for old lock；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l137_old_is_stale"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L141:C3",
+            "title": "returns false for fresh, live lock",
+            "suites": [
+              "isRetryLockStale"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns false for fresh, live lock；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l141_fresh_live_is_not_stale"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L145:C3",
+            "title": "returns true for fresh lock with dead pid",
+            "suites": [
+              "isRetryLockStale"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "returns true for fresh lock with dead pid；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "lock_l145_fresh_dead_is_stale"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L153:C3",
+            "title": "keeps all normal Qoder incremental turns",
+            "suites": [
+              "selectTurnSegmentsForCollection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps all normal Qoder incremental turns；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "segments_l153_normal_qoder_keeps_all"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L157:C3",
+            "title": "keeps only the latest turn when any Qoder-family cursor is recovered",
+            "suites": [
+              "selectTurnSegmentsForCollection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps only the latest turn when any Qoder-family cursor is recovered；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "segments_l157_recovered_cursor_only_latest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L166:C3",
+            "title": "keeps only the latest QoderCN turn after its intentional full reparse",
+            "suites": [
+              "selectTurnSegmentsForCollection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps only the latest QoderCN turn after its intentional full reparse；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "segments_l166_cn_full_reparse_only_latest"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L655:C3",
+            "title": "commits the completed turn but preserves the next queued prompt",
+            "suites": [
+              "findIncrementalTurnEndLine"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "commits the completed turn but preserves the next queued prompt；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "increment_l655_preserves_queued_next_prompt"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L671:C3",
+            "title": "uses the scan end when no next prompt has appeared",
+            "suites": [
+              "findIncrementalTurnEndLine"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses the scan end when no next prompt has appeared；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "increment_l671_no_next_prompt_uses_scan_end"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L686:C3",
+            "title": "preserves the next real user row when its progress marker is absent",
+            "suites": [
+              "findIncrementalTurnEndLine"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves the next real user row when its progress marker is absent；原生独立锁文件、同进程/异PID所有权、线程释放等待/超时、物理JSONL快照和逐turn选择。死PID保留原999999并追加已回收真实子进程。Linux实际通过，Windows原生尚待CI。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/hook_process/qoder_retry_lock_history_tests.rs",
+                "test": "increment_l686_real_next_user_without_progress"
               }
             ]
           }
