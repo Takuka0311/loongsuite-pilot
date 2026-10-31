@@ -95,6 +95,13 @@ pub(super) struct Shared {
     pub cached_default: Option<CachedDefault>,
 }
 
+#[cfg(test)]
+#[derive(Clone)]
+struct CodexInitializationWait {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
 pub struct CodexTranscriptBody {
     pub(super) session_dir: String,
     pub(super) wakeup_dir: String,
@@ -107,6 +114,8 @@ pub struct CodexTranscriptBody {
     batch_handlers: Mutex<Vec<BatchHandler>>,
     host: Mutex<Option<Weak<HostedInput<CodexTranscriptBody>>>>,
     watcher_stop: Mutex<Option<WakeupWatcher>>,
+    #[cfg(test)]
+    initialization_wait: Mutex<Option<CodexInitializationWait>>,
 }
 
 impl CodexTranscriptInput {
@@ -154,6 +163,8 @@ impl CodexTranscriptInput {
             batch_handlers: Mutex::new(Vec::new()),
             host: Mutex::new(None),
             watcher_stop: Mutex::new(None),
+            #[cfg(test)]
+            initialization_wait: Mutex::new(None),
         };
         let inner = HostedInput::new(
             body,
@@ -373,6 +384,18 @@ impl InputBody for CodexTranscriptBody {
         ensure_dir(&self.wakeup_dir).await;
         ensure_dir(&self.span_context_dir).await;
         self.start_wakeup_watcher(rt);
+        #[cfg(test)]
+        {
+            let wait = self
+                .initialization_wait
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .clone();
+            if let Some(wait) = wait {
+                wait.entered.notify_one();
+                wait.release.notified().await;
+            }
+        }
         Ok(())
     }
 

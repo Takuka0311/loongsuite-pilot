@@ -1098,30 +1098,72 @@ async fn token_count_before_tool_output_never_commits_an_unfinished_tool_wave() 
     assert_eq!(r[0]["gen_ai.tool.call.result"], "/tmp");
 }
 #[tokio::test]
+
 async fn independent_transcript_files_with_equal_session_turn_ids_are_both_collected() {
     let f = Fixture::new();
-    let one = f.write("rollout-independent-one.jsonl", &completed()).await;
-    let two = f.write("rollout-independent-two.jsonl", &completed()).await;
-    f.process(&one).await;
-    f.process(&two).await;
+    f.input.start().await.expect("native start");
+    f.input.run_cycle().await;
+    let first = simple_turn("turn-1", 100, 10, 0).join("\n") + "\n";
+    let second = simple_turn("turn-1", 100, 10, 600).join("\n")
+        + "\n"
+        + &simple_turn("turn-2", 120, 12, 660)
+            .into_iter()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n")
+        + "\n";
+    let one = f.write("rollout-independent-one.jsonl", &first).await;
+    f.input.run_cycle().await;
+    assert_eq!(responses_for(&f.records(), "turn-1").len(), 1);
+    let two = f.write("rollout-independent-two.jsonl", &second).await;
+    f.input.run_cycle().await;
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("native stop");
     let all = f.records();
-    assert_eq!(events(&all, "llm.response").len(), 6);
-    assert_eq!(f.checkpoint(&one).scan_offset, completed().len() as i64);
-    assert_eq!(f.checkpoint(&two).scan_offset, completed().len() as i64);
+    let repeated = responses_for(&all, "turn-1");
+    let fresh = responses_for(&all, "turn-2");
+    assert_eq!(repeated.len(), 2);
+    assert_eq!(fresh.len(), 1);
+    assert_eq!(repeated[0]["gen_ai.usage.total_tokens"], 110);
+    assert_eq!(fresh[0]["gen_ai.usage.total_tokens"], 132);
+    assert_eq!(f.checkpoint(&one).scan_offset, first.len() as i64);
+    assert_eq!(f.checkpoint(&two).scan_offset, second.len() as i64);
 }
 #[tokio::test]
+
 async fn durable_reload_does_not_restore_cross_transcript_turn_id_suppression() {
+    assert_cross_transcript_restore().await;
+}
+async fn assert_cross_transcript_restore() {
     let first = Fixture::new();
-    let one = first
-        .write("rollout-before-restart.jsonl", &completed())
-        .await;
-    first.process(&one).await;
+    first.input.start().await.expect("native first start");
+    first.input.run_cycle().await;
+    let original = simple_turn("turn-1", 100, 10, 0).join("\n") + "\n";
+    let one = first.write("rollout-before-restart.jsonl", &original).await;
+    first.input.run_cycle().await;
+    assert_eq!(responses_for(&first.records(), "turn-1").len(), 1);
+    first.input.stop().await.expect("native first stop");
     let second = first.restart().await;
-    let two = second
-        .write("rollout-after-restart.jsonl", &completed())
-        .await;
-    second.process(&two).await;
-    assert_eq!(events(&second.records(), "llm.response").len(), 3);
+    second.input.start().await.expect("native restarted start");
+    second.input.run_cycle().await;
+    let fresh = simple_turn("turn-1", 100, 10, 600).join("\n")
+        + "\n"
+        + &simple_turn("turn-2", 120, 12, 660)
+            .into_iter()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n")
+        + "\n";
+    let two = second.write("rollout-after-restart.jsonl", &fresh).await;
+    second.input.run_cycle().await;
+    second.input.run_cycle().await;
+    second.input.stop().await.expect("native restarted stop");
+    assert_eq!(second.checkpoint(&two).scan_offset, fresh.len() as i64);
+    let all = second.records();
+    assert_eq!(responses_for(&all, "turn-1").len(), 1);
+    let later = responses_for(&all, "turn-2");
+    assert_eq!(later.len(), 1);
+    assert_eq!(later[0]["gen_ai.usage.total_tokens"], 132);
     assert_eq!(second.process(&one).await, 0);
 }
 #[tokio::test]
@@ -1251,6 +1293,18 @@ fn extract_media(
     )
     .expect("extract media")
 }
+fn expected_image_part(content: &str, mime: &str) -> Value {
+    let uri = fake_blob(&BlobToUriParams {
+        content: content.into(),
+        mime_type: Some(mime.into()),
+        modality: Some("image".into()),
+        time_unix_ms: None,
+        reuse_key: None,
+    })
+    .expect("expected callback URI");
+    json!({"type":"uri","mime_type":mime,"modality":"image","uri":uri.uri})
+}
+
 fn user_parts(turn: &super::super::super::types::CodexExtractedTranscriptTurn) -> Vec<Value> {
     turn.input_messages[0]["parts"]
         .as_array()
@@ -1339,6 +1393,15 @@ fn multiple_image_wrappers_collapse_only_around_converted_uris_and_keep_adjacent
     assert_eq!(parts[2]["type"], "uri");
     assert_ne!(parts[1]["uri"], parts[2]["uri"]);
     assert_eq!(parts[3], json!({"type":"text","content":"compare these"}));
+    assert_eq!(
+        parts,
+        vec![
+            json!({"type":"text","content":files}),
+            expected_image_part("ZmFrZS1wbmctMQ==", "image/png"),
+            expected_image_part("ZmFrZS1wbmctMg==", "image/png"),
+            json!({"type":"text","content":"compare these"}),
+        ]
+    );
 }
 #[test]
 fn image_tags_with_unconvertible_path_only_image_remain_literal_text() {
@@ -1385,6 +1448,11 @@ fn function_output_image_array_converts_to_uri_using_the_actual_extractor() {
     assert_eq!(output[0]["type"], "uri");
     assert_eq!(output[0]["mime_type"], "image/jpeg");
     assert_eq!(output[0]["modality"], "image");
+    assert_eq!(
+        output.as_slice(),
+        &[expected_image_part("ZmFrZS1qcGVn", "image/jpeg")]
+    );
+
     assert!(output[0]["uri"]
         .as_str()
         .expect("uri")
@@ -1403,6 +1471,14 @@ fn upload_modes_gate_user_and_tool_result_images_as_input_without_base64_leaks()
         let turn = extract_media(&records, Some(&fake_blob), mode);
         let enabled = matches!(mode, Input | All);
         let parts = user_parts(&turn);
+        let mut expected = vec![json!({"type":"text","content":"look"})];
+        if enabled {
+            expected.push(expected_image_part("ZmFrZS1wbmctbW9kZQ==", "image/png"));
+        }
+        assert_eq!(
+            parts, expected,
+            "exact user parts and URI position for {mode:?}"
+        );
         assert_eq!(
             parts.iter().any(|p| p["type"] == "uri"),
             enabled,
@@ -1415,6 +1491,22 @@ fn upload_modes_gate_user_and_tool_result_images_as_input_without_base64_leaks()
             .find(|t| t.call_id == "c1")
             .expect("tool");
         let encoded = serde_json::to_string(&tool.output).expect("tool");
+        if matches!(mode, Output) {
+            assert!(tool
+                .output
+                .as_ref()
+                .expect("output")
+                .as_array()
+                .expect("output parts")
+                .iter()
+                .all(|p| p["type"] != "uri"));
+        }
+        if enabled {
+            assert_eq!(
+                tool.output.as_ref().expect("output"),
+                &json!([expected_image_part("ZmFrZS1wbmctbW9kZQ==", "image/png")])
+            );
+        }
         assert_eq!(encoded.contains("\"type\":\"uri\""), enabled, "{mode:?}");
         assert!(!format!("{turn:?}").contains("ZmFrZS1wbmctbW9kZQ=="));
     }
@@ -1937,6 +2029,23 @@ async fn all_invalid_marker_variants_keep_real_discovery_idle_without_starting_c
             .expect("discovery stop");
     }
 }
+async fn start_until_first_native_cycle(f: &Fixture) {
+    let cycles = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let slot = cycles.clone();
+    f.input.inner.on_runtime_delta(move |_| {
+        slot.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    f.input.start().await.expect("real startup");
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while cycles.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("first actual collection completion");
+    f.input.stop().await.expect("real bounded stop");
+}
+
 fn simple_turn(turn: &str, input: u64, output: u64, seconds: i64) -> Vec<String> {
     let base = chrono::DateTime::parse_from_rfc3339("2026-06-24T06:00:00Z").expect("time")
         + chrono::Duration::seconds(seconds);
@@ -2065,7 +2174,7 @@ async fn truly_unparseable_legacy_pending_range_survives_durable_restart_and_blo
     let (ino, _, _) = file_meta_snapshot(&tokio::fs::metadata(&p).await.expect("stat"));
     first.rt().state_store.update(&first.engine().state_key(&p),InputStatePatch{last_offset:Some(pending.len() as f64),extra:Some(json!({"codexTranscript":{"inode":ino,"scanOffset":pending.len(),"activeTurn":{"turnId":"turn-unparseable","startOffset":0,"startedAtMs":1_782_280_800_000.0},"pendingTerminal":{"turnId":"turn-unparseable","terminalEndOffset":pending.len()},"latestSessionMetaOffset":null,"emittedTerminalTurnIds":[]}})),..Default::default()});
     let second = first.restart().await;
-    second.process(&p).await;
+    start_until_first_native_cycle(&second).await;
     assert!(second.records().is_empty());
     let cp = second.checkpoint(&p);
     assert_eq!(cp.scan_offset, pending.len() as i64);
@@ -2243,8 +2352,15 @@ async fn same_millisecond_uuidv7_causality_collects_first_owned_turn_without_any
     let old = uuid_at("2026-08-05T09:30:00Z", 23);
     let owned = uuid_at("2026-08-05T10:00:00Z", 24);
     let mut lines = vec![owner_meta(&owner, &parent, false)];
+    lines.push(record(
+        "2026-08-05T09:00:00Z",
+        "session_meta",
+        json!({"id":parent,"model_provider":"openai"}),
+    ));
     lines.extend(turn_block(&old, "2026-08-05T09:30:00Z"));
     lines.extend(turn_block(&owned, "2026-08-05T10:00:00Z"));
+    let second_owned = uuid_at("2026-08-05T10:01:00Z", 25);
+    lines.extend(turn_block(&second_owned, "2026-08-05T10:01:00Z"));
     let p = f
         .write(
             &format!("2026/08/05/rollout-2026-08-05T10-00-00-{owner}.jsonl"),
@@ -2255,6 +2371,11 @@ async fn same_millisecond_uuidv7_causality_collects_first_owned_turn_without_any
     let all = f.records();
     assert!(responses_for(&all, &old).is_empty());
     assert_eq!(responses_for(&all, &owned).len(), 1);
+    let first_response = responses_for(&all, &owned);
+    assert_eq!(first_response[0]["gen_ai.response.model"], "gpt-5.5");
+    assert_eq!(first_response[0]["agent.codex.cwd"], "/tmp/p");
+    assert_eq!(responses_for(&all, &second_owned).len(), 1);
+
     assert!(f.checkpoint(&p).fork_bootstrap.is_none());
 }
 #[tokio::test]
@@ -2294,4 +2415,1657 @@ async fn hook_anchor_uses_turn_context_when_task_started_is_absent() {
     assert_eq!(r.len(), 1);
     assert_eq!(r[0]["gen_ai.response.model"], "gpt-5.5");
     assert_eq!(r[0]["agent.codex.cwd"], "/tmp/p");
+}
+fn isolated_diagnostic_records(scenario: &str) -> Vec<Value> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let root = tempfile::tempdir().expect("isolated child home");
+    let mut command = Command::new(std::env::current_exe().expect("native test executable"));
+    command.args(["--exact","inputs::codex_transcript::input::engine::history_contracts::native_diagnostic_records_preserve_control_retry_resource_and_anchor_reasons","--nocapture"]);
+    command
+        .env_clear()
+        .current_dir(root.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for key in [
+        "SystemRoot",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "ComSpec",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "PATHEXT",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    for key in [
+        "HOME",
+        "USERPROFILE",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "CURSOR_AGENT_HOME",
+        "QODER_USER_DATA_DIR",
+        "LOONGSUITE_PILOT_DATA_DIR",
+        "LOONGSUITE_PILOT_CACHE_DIR",
+    ] {
+        command.env(key, root.path());
+    }
+    command
+        .env("PATH", root.path().join("no-runtime"))
+        .env(
+            "AGENT_DATA_COLLECTION_CONFIG",
+            root.path().join("absent-config.json"),
+        )
+        .env("LOG_LEVEL", "debug")
+        .env("PILOT_SYNTHETIC_CODEX_DIAGNOSTIC", scenario);
+    let mut child = command.spawn().expect("native child");
+    let capture = |stream: Box<dyn Read + Send>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stream
+                .take(1_048_577)
+                .read_to_end(&mut bytes)
+                .expect("bounded child capture");
+            assert!(bytes.len() <= 1_048_576, "child exceeded output bound");
+            bytes
+        })
+    };
+    let stdout = capture(Box::new(child.stdout.take().expect("stdout")));
+    let stderr = capture(Box::new(child.stderr.take().expect("stderr")));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("child state") {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("native diagnostic child timed out");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    let out = stdout.join().expect("stdout capture");
+    let err = stderr.join().expect("stderr capture");
+    assert!(
+        status.success(),
+        "native child scenario {scenario}: {}",
+        String::from_utf8_lossy(&err)
+    );
+    out.split(|b| *b == b'\n')
+        .chain(err.split(|b| *b == b'\n'))
+        .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
+        .filter(|line| line.get("msg").is_some())
+        .collect()
+}
+#[tokio::test]
+async fn native_diagnostic_records_preserve_control_retry_resource_and_anchor_reasons() {
+    if let Ok(scenario) = std::env::var("PILOT_SYNTHETIC_CODEX_DIAGNOSTIC") {
+        let f = Fixture::new();
+        match scenario.as_str() {
+            "control" => {
+                let mut lines = control_abort();
+                lines.extend(simple_turn("turn-normal", 120, 12, 60).into_iter().skip(1));
+                let p = f
+                    .write("rollout-control-logs.jsonl", &(lines.join("\n") + "\n"))
+                    .await;
+                f.process(&p).await;
+                assert!(f
+                    .records()
+                    .iter()
+                    .all(|e| e["agent.codex.transcript_turn_id"] != "turn-control"));
+                assert_eq!(responses_for(&f.records(), "turn-normal").len(), 1);
+            }
+            "pending" => {
+                let pending = record(
+                    "2026-06-24T06:00:00.000Z",
+                    "event_msg",
+                    json!({"type":"task_started","turn_id":"turn-unparseable"}),
+                ) + "\n";
+                let p = f
+                    .write(
+                        "rollout-pending-logs.jsonl",
+                        &(pending.clone()
+                            + &simple_turn("turn-normal", 120, 12, 60).join("\n")
+                            + "\n"),
+                    )
+                    .await;
+                let (ino, _, _) = file_meta_snapshot(&tokio::fs::metadata(&p).await.expect("stat"));
+                let mut cp = empty_checkpoint(ino);
+                cp.scan_offset = pending.len() as i64;
+                cp.active_turn = Some(create_active_turn(
+                    "turn-unparseable".into(),
+                    0,
+                    1_782_280_800_000.0,
+                    false,
+                ));
+                cp.pending_terminal =
+                    Some(crate::inputs::codex_transcript::CodexPendingTerminalTurn {
+                        turn_id: "turn-unparseable".into(),
+                        terminal_end_offset: pending.len() as i64,
+                        retry_count: None,
+                        first_pending_at_ms: None,
+                        last_attempt_at_ms: None,
+                        source_record_count: None,
+                    });
+                f.engine()
+                    .save_checkpoint(f.rt(), &f.engine().state_key(&p), &cp);
+                f.process(&p).await;
+                assert!(f.records().is_empty());
+                println!(
+                    "{}",
+                    json!({"msg":"synthetic fixture expected pending path","expectedPath":p})
+                );
+                assert_eq!(
+                    f.checkpoint(&p)
+                        .pending_terminal
+                        .expect("retained")
+                        .retry_count,
+                    Some(1)
+                );
+            }
+            "resource" => {
+                f.marker(
+                    "wakeups",
+                    "session-1.json",
+                    json!({"session_id":"session-1"}),
+                )
+                .await;
+                println!(
+                    "{}",
+                    json!({"msg":"synthetic fixture expected resource marker","expectedMarker":f.root.path().join("wakeups/session-1.json")})
+                );
+                let p = f.write("rollout-resource-logs.jsonl", &completed()).await;
+                f.process(&p).await;
+                assert_eq!(events(&f.records(), "llm.response").len(), 3);
+                assert!(f
+                    .records()
+                    .iter()
+                    .all(|e| e.get("resourceAttributes").is_none()));
+            }
+            "registry" => {
+                assert_cross_transcript_restore().await;
+            }
+            other if other.starts_with("root-cap-") => {
+                let count = other
+                    .trim_start_matches("root-cap-")
+                    .parse::<usize>()
+                    .expect("synthetic count");
+                assert!([33, 64, 65].contains(&count));
+                assert_global_root_priority(count).await;
+            }
+            "anchor" => {
+                let owner = "cccccccc-0004-4004-8004-000000000004";
+                let mut lines = vec![owner_meta(owner, "parent", false)];
+                lines.extend(turn_block("copied-parent-turn", "2026-08-04T10:00:00Z"));
+                lines.extend(turn_block(
+                    "owned-turn-from-soft-path-anchor",
+                    "2026-08-05T10:00:00.010Z",
+                ));
+                let name = format!("rollout-2026-08-05T10-00-00-{owner}.jsonl");
+                let p = f
+                    .write(&format!("2026/08/05/{name}"), &(lines.join("\n") + "\n"))
+                    .await;
+                f.marker("wakeups",&format!("{owner}.json"),json!({"session_id":owner,"initial_turn_id":"owned-turn-from-soft-path-anchor","transcript_path":f.root.path().join("different-spelling").join(name),"hook_event":"stop"})).await;
+                f.process(&p).await;
+                assert!(responses_for(&f.records(), "copied-parent-turn").is_empty());
+                assert_eq!(
+                    responses_for(&f.records(), "owned-turn-from-soft-path-anchor").len(),
+                    1
+                );
+            }
+            other => panic!("unknown synthetic scenario {other}"),
+        }
+        return;
+    }
+    let registry = isolated_diagnostic_records("registry");
+    assert!(!registry
+        .iter()
+        .any(|e| e["msg"] == "skipped terminal Codex turn already present in global registry"));
+    let control = isolated_diagnostic_records("control");
+    let skipped = control
+        .iter()
+        .find(|e| e["msg"] == "processed terminal Codex turn without observable entries")
+        .expect("control explanation diagnostic");
+    assert_eq!(skipped["turnId"], "turn-control");
+    assert_eq!(skipped["terminalStatus"], "interrupted");
+    assert!(!control
+        .iter()
+        .any(|e| e["msg"] == "processed terminal Codex turn produced no explainable new entries"));
+    let pending = isolated_diagnostic_records("pending");
+    let retry = pending
+        .iter()
+        .find(|e| e["msg"] == "pending Codex terminal turn still could not be parsed; will retry")
+        .expect("pending retry diagnostic");
+    assert_eq!(retry["level"], "WARN");
+    assert_eq!(retry["turnId"], "turn-unparseable");
+    assert_eq!(retry["retryCount"], 1);
+    assert_eq!(retry["sourceRecordCount"], 1);
+    let expected_pending = pending
+        .iter()
+        .find(|e| e["msg"] == "synthetic fixture expected pending path")
+        .expect("fixture pending path");
+    assert_eq!(retry["transcriptPath"], expected_pending["expectedPath"]);
+    let resource = isolated_diagnostic_records("resource");
+    let attribution = resource
+        .iter()
+        .find(|e| e["msg"] == "Codex wakeup marker has no resourceAttributes; attribution skipped")
+        .expect("missing resource attribution diagnostic");
+    assert_eq!(attribution["level"], "DEBUG");
+    let expected_resource = resource
+        .iter()
+        .find(|e| e["msg"] == "synthetic fixture expected resource marker")
+        .expect("fixture resource marker");
+    assert_eq!(attribution["marker"], expected_resource["expectedMarker"]);
+    let anchor = isolated_diagnostic_records("anchor");
+    let accepted = anchor
+        .iter()
+        .find(|e| {
+            e["msg"]
+                .as_str()
+                .is_some_and(|s| s.contains("accepting session anchor"))
+        })
+        .expect("soft-path acceptance diagnostic");
+    assert_eq!(accepted["level"], "WARN");
+    assert_eq!(
+        accepted["sessionId"],
+        "cccccccc-0004-4004-8004-000000000004"
+    );
+}
+fn runtime_deltas(f: &Fixture) -> Arc<Mutex<Vec<crate::inputs::base::InputRuntimeDelta>>> {
+    let out = Arc::new(Mutex::new(Vec::new()));
+    let slot = out.clone();
+    f.input
+        .inner
+        .on_runtime_delta(move |delta| slot.lock().expect("deltas").push(delta.clone()));
+    out
+}
+#[tokio::test]
+async fn preexisting_idle_owner_metadata_reuse_has_no_physical_read_in_first_native_cycle() {
+    let f = Fixture::new();
+    let deltas = runtime_deltas(&f);
+    f.write("2026/06/24/rollout-idle-metadata.jsonl", &completed())
+        .await;
+    run_real_lifecycle(&f).await;
+    let deltas = deltas.lock().expect("deltas");
+    assert!(!deltas.is_empty());
+    assert_eq!(deltas[0].raw_read_calls, 0);
+    assert_eq!(deltas[0].raw_read_bytes, 0);
+}
+#[tokio::test]
+async fn cold_historical_files_are_not_restatted_by_each_default_collection_cycle() {
+    let f = Fixture::new();
+    let deltas = runtime_deltas(&f);
+    let mut old_paths = Vec::new();
+    for n in 0..12 {
+        let p = f
+            .write(
+                &format!("2024/01/{:02}/rollout-old-{n}.jsonl", n + 1),
+                &(record(
+                    "2024-01-01T00:00:00Z",
+                    "session_meta",
+                    json!({"id":format!("old-{n}"),"model_provider":"openai"}),
+                ) + "\n"),
+            )
+            .await;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&p)
+            .expect("old file")
+            .set_times(std::fs::FileTimes::new().set_modified(
+                std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 3600),
+            ))
+            .expect("historical age");
+        old_paths.push(p);
+    }
+    let recent = f
+        .write("2026/06/24/rollout-recent.jsonl", &completed())
+        .await;
+    f.input.start().await.expect("start");
+    f.input.run_cycle().await;
+    let cold_offset = f.checkpoint(&old_paths[0]).scan_offset;
+    let recent_offset = f.checkpoint(&recent).scan_offset;
+    let before = deltas.lock().expect("deltas").len();
+    f.append(
+        &old_paths[0],
+        &(record(
+            "2024-01-01T00:00:01Z",
+            "event_msg",
+            json!({"type":"task_started","turn_id":"late-turn"}),
+        ) + "\n"),
+    )
+    .await;
+    f.input.run_cycle().await;
+    assert_eq!(f.checkpoint(&old_paths[0]).scan_offset, cold_offset);
+    let after = deltas.lock().expect("deltas").clone();
+    assert!(after.len() > before);
+    assert_eq!(after.last().expect("cycle").raw_read_calls, 0);
+    f.append(
+        &recent,
+        &(record(
+            "2026-06-24T06:20:00Z",
+            "event_msg",
+            json!({"type":"task_started","turn_id":"turn-2"}),
+        ) + "\n"),
+    )
+    .await;
+    f.input.run_cycle().await;
+    assert!(f.checkpoint(&recent).scan_offset > recent_offset);
+    assert_eq!(f.checkpoint(&old_paths[0]).scan_offset, cold_offset);
+    let created = f
+        .write(
+            "2026/06/25/rollout-new.jsonl",
+            &(record(
+                "2026-06-25T00:00:00Z",
+                "session_meta",
+                json!({"id":"new-session","model_provider":"openai"}),
+            ) + "\n"),
+        )
+        .await;
+    f.input.run_cycle().await;
+    assert!(f
+        .engine()
+        .read_checkpoint(f.rt(), &f.engine().state_key(&created))
+        .is_some());
+    assert_eq!(f.checkpoint(&old_paths[0]).scan_offset, cold_offset);
+    f.input.stop().await.expect("stop");
+}
+#[tokio::test]
+async fn runtime_callbacks_distinguish_physical_reads_from_unique_jsonl_commits_and_parse_failures()
+{
+    let f = Fixture::new();
+    let deltas = runtime_deltas(&f);
+    f.input.start().await.expect("start");
+    f.input.run_cycle().await;
+    let text = completed();
+    let p = f.write("2026/06/24/rollout-runtime.jsonl", &text).await;
+    f.input.run_cycle().await;
+    let first = deltas
+        .lock()
+        .expect("deltas")
+        .iter()
+        .find(|d| d.raw_in_bytes > 0)
+        .expect("consumption delta")
+        .clone();
+    assert!(first.raw_read_calls > 0);
+    assert!(first.raw_read_bytes >= first.raw_in_bytes);
+    assert_eq!(first.raw_in_bytes, text.len() as u64);
+    assert_eq!(first.raw_in_records, text.lines().count() as u64);
+    assert_eq!(first.parse_success_records, text.lines().count() as u64);
+    assert_eq!(first.parse_failed_records, 0);
+    assert!(first.raw_in_max_batch_bytes > 0 && first.raw_in_max_record_bytes > 0);
+    assert!(first.read_duration_ms >= 0.0 && first.process_duration_ms >= 0.0);
+    let diagnostic = format!("{first:?}");
+    for forbidden in ["session_id", "turn_id", "trace_id", "session-1", "turn-1"] {
+        assert!(!diagnostic.contains(forbidden), "{forbidden}");
+    }
+    let invalid = "not-json\n";
+    f.append(&p, invalid).await;
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("stop");
+    let all = deltas.lock().expect("deltas");
+    let invalid_read = all
+        .iter()
+        .find(|d| d.parse_failed_records > 0)
+        .expect("parse failure delta");
+    assert_eq!(invalid_read.raw_in_bytes, invalid.len() as u64);
+    assert_eq!(invalid_read.raw_in_records, 1);
+    assert_eq!(invalid_read.parse_success_records, 0);
+    assert_eq!(invalid_read.parse_failed_records, 1);
+    assert_eq!(
+        all.iter().map(|d| d.raw_in_bytes).sum::<u64>(),
+        (text.len() + invalid.len()) as u64
+    );
+}
+async fn fork_path(f: &Fixture, owner: &str, lines: &[String]) -> String {
+    f.write(
+        &format!("2026/08/05/rollout-2026-08-05T10-00-00-{owner}.jsonl"),
+        &(lines.join("\n") + "\n"),
+    )
+    .await
+}
+async fn initial_hook(f: &Fixture, owner: &str, turn: &str, path: &str, event: &str) {
+    f.marker("wakeups",&format!("{owner}.json"),json!({"session_id":owner,"initial_turn_id":turn,"turn_id":turn,"transcript_path":path,"hook_event":event})).await;
+}
+#[tokio::test]
+async fn non_uuid_fork_remains_pending_until_an_initial_turn_hook_exists() {
+    let f = Fixture::new();
+    let owner = "cccccccc-0001-4001-8001-000000000001";
+    let parent = "aaaaaaaa-0001-4001-8001-000000000001";
+    let mut lines = vec![
+        owner_meta(owner, parent, false),
+        record(
+            "2026-06-01T00:00:00Z",
+            "session_meta",
+            json!({"id":parent,"model_provider":"openai"}),
+        ),
+    ];
+    lines.extend(turn_block("parent-turn-awaiting", "2026-06-01T00:00:10Z"));
+    lines.extend(turn_block("child-turn-awaiting", "2026-08-05T10:00:10Z"));
+    let p = fork_path(&f, owner, &lines).await;
+    f.process(&p).await;
+    assert!(f.records().is_empty());
+    let cp = f.checkpoint(&p);
+    assert_eq!(cp.scan_offset, 0);
+    assert_eq!(
+        cp.fork_bootstrap.expect("pending bootstrap").search_offset,
+        (lines.join("\n") + "\n").len() as i64
+    );
+}
+#[tokio::test]
+async fn later_stop_turn_is_recovery_evidence_without_skipping_earlier_owned_turn() {
+    let f = Fixture::new();
+    let parent = uuid_at("2026-08-05T09:00:00Z", 11);
+    let owner = uuid_at("2026-08-05T10:00:00Z", 12);
+    let old = uuid_at("2026-08-05T09:30:00Z", 13);
+    let first = uuid_at("2026-08-05T10:00:00.010Z", 14);
+    let last = uuid_at("2026-08-05T10:01:00Z", 15);
+    let mut lines = vec![owner_meta(&owner, &parent, false)];
+    lines.extend(turn_block(&old, "2026-08-05T09:30:00Z"));
+    lines.extend(turn_block(&first, "2026-08-05T10:00:00.010Z"));
+    lines.extend(turn_block(&last, "2026-08-05T10:01:00Z"));
+    let p = fork_path(&f, &owner, &lines).await;
+    f.marker("wakeups",&format!("{owner}.json"),json!({"session_id":owner,"turn_id":last,"recovery_turn_id":last,"transcript_path":p,"hook_event":"stop"})).await;
+    f.process(&p).await;
+    let all = f.records();
+    assert!(responses_for(&all, &old).is_empty());
+    assert_eq!(responses_for(&all, &first).len(), 1);
+    assert_eq!(responses_for(&all, &last).len(), 1);
+}
+#[tokio::test]
+async fn initial_hook_before_task_started_keeps_exact_turn_search_resumable() {
+    let f = Fixture::new();
+    let owner = "cccccccc-0002-4002-8002-000000000002";
+    let parent = "aaaaaaaa-0002-4002-8002-000000000002";
+    let turn = "child-turn-late-write";
+    let mut lines = vec![
+        owner_meta(owner, parent, false),
+        record(
+            "2026-06-01T00:00:00Z",
+            "session_meta",
+            json!({"id":parent,"model_provider":"openai"}),
+        ),
+    ];
+    lines.extend(turn_block(
+        "parent-turn-before-hook",
+        "2026-06-01T00:00:10Z",
+    ));
+    let p = fork_path(&f, owner, &lines).await;
+    initial_hook(&f, owner, turn, &p, "user-prompt-submit").await;
+    f.process(&p).await;
+    let pending = f.checkpoint(&p);
+    assert_eq!(pending.scan_offset, 0);
+    let bootstrap = pending.fork_bootstrap.expect("search");
+    assert_eq!(bootstrap.initial_turn_id.as_deref(), Some(turn));
+    assert!(bootstrap.search_offset > 0);
+    f.append(&p,&([
+ record("2026-08-05T10:00:05Z","event_msg",json!({"type":"thread_settings_applied"})),
+ record("2026-08-05T10:00:10Z","event_msg",json!({"type":"task_started","turn_id":turn})),
+ record("2026-08-05T10:00:11Z","turn_context",json!({"turn_id":turn,"model":"gpt-5.5"})),
+ record("2026-08-05T10:00:12Z","response_item",json!({"type":"message","role":"user","content":[{"type":"input_text","text":"new child work"}]})),
+ record("2026-08-05T10:00:13Z","event_msg",json!({"type":"agent_message","message":"done","phase":"final"})),
+ record("2026-08-05T10:00:14Z","event_msg",usage(10,2)),
+ record("2026-08-05T10:00:15Z","event_msg",json!({"type":"task_complete","turn_id":turn}))].join("\n")+"\n")).await;
+    f.process(&p).await;
+    assert!(responses_for(&f.records(), turn).is_empty());
+    f.process(&p).await;
+    let all = f.records();
+    assert_eq!(responses_for(&all, turn).len(), 1);
+    assert!(responses_for(&all, "parent-turn-before-hook").is_empty());
+    assert!(f.checkpoint(&p).fork_bootstrap.is_none());
+}
+#[tokio::test]
+async fn recursive_fork_uses_explicit_hook_turn_instead_of_historical_settings_markers() {
+    let f = Fixture::new();
+    let owner = "cccccccc-0003-4003-8003-000000000003";
+    let parent = "bbbbbbbb-0003-4003-8003-000000000003";
+    let grand = "aaaaaaaa-0003-4003-8003-000000000003";
+    let turn = "current-fork-turn";
+    let mut lines = vec![
+        owner_meta(owner, parent, false),
+        record(
+            "2026-08-04T10:00:00Z",
+            "session_meta",
+            json!({"id":parent,"forked_from_id":grand,"model_provider":"openai"}),
+        ),
+        record(
+            "2026-08-03T10:00:00Z",
+            "session_meta",
+            json!({"id":grand,"model_provider":"openai"}),
+        ),
+    ];
+    lines.extend(turn_block("grandparent-turn", "2026-08-03T10:00:10Z"));
+    lines.push(record(
+        "2026-08-03T10:01:00Z",
+        "event_msg",
+        json!({"type":"thread_settings_applied"}),
+    ));
+    lines.extend(turn_block("parent-turn-a", "2026-08-04T10:00:10Z"));
+    lines.push(record(
+        "2026-08-04T10:01:00Z",
+        "event_msg",
+        json!({"type":"thread_settings_applied"}),
+    ));
+    lines.extend(turn_block("parent-turn-b", "2026-08-04T10:02:10Z"));
+    lines.push(record(
+        "2026-08-05T10:00:05Z",
+        "event_msg",
+        json!({"type":"thread_settings_applied"}),
+    ));
+    lines.extend(turn_block(turn, "2026-08-05T10:00:10Z"));
+    let p = fork_path(&f, owner, &lines).await;
+    initial_hook(&f, owner, turn, &p, "stop").await;
+    f.process(&p).await;
+    let all = f.records();
+    assert_eq!(responses_for(&all, turn).len(), 1);
+    for copied in ["grandparent-turn", "parent-turn-a", "parent-turn-b"] {
+        assert!(responses_for(&all, copied).is_empty());
+    }
+}
+#[tokio::test]
+async fn startup_baseline_keeps_probing_while_copied_fork_history_is_materializing() {
+    let f = Fixture::new();
+    let parent = uuid_at("2026-08-05T09:00:00Z", 61);
+    let owner = uuid_at("2026-08-05T10:00:00Z", 62);
+    let old = uuid_at("2026-08-05T09:20:00Z", 63);
+    let later = uuid_at("2026-08-05T09:30:00Z", 64);
+    let owned = uuid_at("2026-08-05T10:00:00.010Z", 65);
+    let mut lines = vec![owner_meta(&owner, &parent, false)];
+    lines.extend(turn_block(&old, "2026-08-05T09:20:00Z"));
+    let p = fork_path(&f, &owner, &lines).await;
+    let baseline = tokio::fs::metadata(&p).await.expect("size").len() as i64;
+    run_real_lifecycle(&f).await;
+    assert!(f.records().is_empty());
+    let cp = f.checkpoint(&p);
+    assert_eq!(cp.scan_offset, baseline);
+    assert!(cp.fork_bootstrap.is_some());
+    let mut tail = turn_block(&later, "2026-08-05T09:30:00Z");
+    tail.extend(turn_block(&owned, "2026-08-05T10:00:00.010Z"));
+    f.append(&p, &(tail.join("\n") + "\n")).await;
+    f.process(&p).await;
+    let all = f.records();
+    assert!(responses_for(&all, &old).is_empty() && responses_for(&all, &later).is_empty());
+    assert_eq!(responses_for(&all, &owned).len(), 1);
+    let cp = f.checkpoint(&p);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_none()
+    );
+}
+#[tokio::test]
+async fn hook_before_startup_baseline_anchors_later_non_uuid_owned_turn() {
+    let f = Fixture::new();
+    let parent = "aaaaaaaa-0061-4061-8061-000000000061";
+    let owner = "cccccccc-0062-4062-8062-000000000062";
+    let copied = "parent-turn-startup-hook";
+    let child = "child-turn-startup-hook";
+    let mut lines = vec![owner_meta(owner, parent, false)];
+    lines.extend(turn_block(copied, "2026-08-05T09:20:00Z"));
+    let p = fork_path(&f, owner, &lines).await;
+    let baseline = tokio::fs::metadata(&p).await.expect("size").len() as i64;
+    f.marker("wakeups",&format!("{owner}.json"),json!({"session_id":owner,"initial_turn_id":child,"transcript_path":p,"hook_event":"user-prompt-submit"})).await;
+    run_real_lifecycle(&f).await;
+    assert!(f.records().is_empty());
+    let cp = f.checkpoint(&p);
+    assert_eq!(cp.scan_offset, baseline);
+    assert_eq!(
+        cp.fork_bootstrap
+            .expect("pending")
+            .initial_turn_id
+            .as_deref(),
+        Some(child)
+    );
+    f.append(
+        &p,
+        &(turn_block(child, "2026-08-05T10:00:00.010Z").join("\n") + "\n"),
+    )
+    .await;
+    f.process(&p).await;
+    f.process(&p).await;
+    let all = f.records();
+    assert!(responses_for(&all, copied).is_empty());
+    assert_eq!(responses_for(&all, child).len(), 1);
+    let cp = f.checkpoint(&p);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_none()
+    );
+}
+#[test]
+fn default_codex_allowed_root_is_exactly_the_current_home_dot_codex() {
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE")
+    } else {
+        std::env::var_os("HOME")
+    }
+    .expect("controlled test home");
+    let expected = std::path::PathBuf::from(home)
+        .join(".codex")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        crate::inputs::codex_transcript::codex_default_allowed_root_paths(),
+        vec![expected]
+    );
+}
+#[tokio::test]
+async fn appended_owning_session_meta_moves_checkpoint_and_cache_without_idle_reread() {
+    let f = Fixture::new();
+    let deltas = runtime_deltas(&f);
+    let owner = uuid_at("2026-06-24T06:00:00Z", 1);
+    let copied = record(
+        "2026-06-24T06:00:00Z",
+        "session_meta",
+        json!({"id":"copied-parent","model_provider":"openai"}),
+    ) + "\n";
+    let p = f
+        .write(
+            &format!("2026/06/24/rollout-2026-06-24T06-00-00-{owner}.jsonl"),
+            &copied,
+        )
+        .await;
+    f.input.start().await.expect("start");
+    f.input.run_cycle().await;
+    f.append(
+        &p,
+        &(record(
+            "2026-06-24T06:00:01Z",
+            "session_meta",
+            json!({"id":owner,"model_provider":"openai"}),
+        ) + "\n"),
+    )
+    .await;
+    f.input.run_cycle().await;
+    let before = deltas.lock().expect("deltas").len();
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("stop");
+    assert_eq!(
+        f.checkpoint(&p).owner_session_meta_offset,
+        Some(copied.len() as i64)
+    );
+    let deltas = deltas.lock().expect("deltas");
+    assert!(deltas.len() > before);
+    let last = deltas.last().expect("idle delta");
+    assert_eq!(last.raw_read_calls, 0);
+    assert_eq!(last.raw_read_bytes, 0);
+}
+#[tokio::test]
+async fn legacy_latest_parent_meta_checkpoint_rebuilds_true_owner_before_child_recovery() {
+    let first = Fixture::new();
+    let owner = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let parent = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let child = "child-turn-1";
+    let mut owner_record = child_record();
+    owner_record["timestamp"] = json!("2026-08-05T10:00:00Z");
+    owner_record["payload"]["timestamp"] = json!("2026-08-05T10:00:00Z");
+    let first_line = owner_record.to_string();
+    let mut lines = vec![
+        first_line.clone(),
+        record(
+            "2026-06-01T00:00:00Z",
+            "session_meta",
+            json!({"id":parent,"model_provider":"openai"}),
+        ),
+    ];
+    lines.extend(turn_block("parent-turn-1", "2026-06-01T00:00:10Z"));
+    lines.push(record(
+        "2026-08-05T10:00:05Z",
+        "event_msg",
+        json!({"type":"thread_settings_applied"}),
+    ));
+    let copied_end = (lines.join("\n") + "\n").len();
+    lines.extend(turn_block(child, "2026-08-05T10:00:10Z"));
+    let p = fork_path(&first, owner, &lines).await;
+    let (ino, _, _) = file_meta_snapshot(&tokio::fs::metadata(&p).await.expect("stat"));
+    first.rt().state_store.update(&first.engine().state_key(&p),InputStatePatch{last_offset:Some(copied_end as f64),extra:Some(json!({"codexTranscript":{"inode":ino,"scanOffset":copied_end,"activeTurn":null,"pendingTerminal":null,"latestSessionMetaOffset":first_line.len()+1,"emittedTerminalTurnIds":["parent-turn-1"]}})),..Default::default()});
+    initial_hook(&first, owner, child, &p, "subagent-stop").await;
+    let second = first.restart().await;
+    start_until_first_native_cycle(&second).await;
+    assert_eq!(responses_for(&second.records(), child).len(), 1);
+    let cp = second.checkpoint(&p);
+    assert_eq!(cp.owner_session_meta_offset, Some(0));
+    assert!(cp.pending_subagent.is_none() && cp.active_turn.is_none());
+}
+#[tokio::test]
+async fn missing_child_creation_timestamp_still_excludes_copied_parent_turns() {
+    let f = Fixture::new();
+    let owner = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let parent = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let child_meta=json!({"type":"session_meta","payload":{"id":owner,"session_id":parent,"source":{"subagent":{"thread_spawn":{"parent_thread_id":parent,"depth":1,"agent_path":"/root/fixture_child"}}},"thread_source":"subagent","model_provider":"openai","multi_agent_version":"v2"}}).to_string();
+    let parent_meta = record(
+        "2026-08-07T02:00:00Z",
+        "session_meta",
+        json!({"id":parent,"session_id":parent,"source":"vscode","thread_source":"user","model_provider":"openai"}),
+    );
+    let parent_path = f
+        .write(
+            "2026/08/07/rollout-parent-pending.jsonl",
+            &([
+                parent_meta.clone(),
+                record(
+                    "2026-08-07T02:00:01Z",
+                    "turn_context",
+                    json!({"turn_id":"copied-parent-turn","model":"gpt-test"}),
+                ),
+                record(
+                    "2026-08-07T02:00:02Z",
+                    "event_msg",
+                    json!({"type":"task_started","turn_id":"copied-parent-turn"}),
+                ),
+            ]
+            .join("\n")
+                + "\n"),
+        )
+        .await;
+    f.process(&parent_path).await;
+    let lines = vec![
+        child_meta,
+        parent_meta,
+        record(
+            "2026-08-07T02:00:03Z",
+            "turn_context",
+            json!({"turn_id":"copied-parent-turn","model":"gpt-test"}),
+        ),
+        record(
+            "2026-08-07T02:00:04Z",
+            "event_msg",
+            json!({"type":"task_started","turn_id":"copied-parent-turn"}),
+        ),
+        record(
+            "2026-08-07T02:00:05Z",
+            "event_msg",
+            json!({"type":"task_complete","turn_id":"copied-parent-turn"}),
+        ),
+        record(
+            "2026-08-07T02:00:06Z",
+            "turn_context",
+            json!({"turn_id":"owned-child-turn","model":"gpt-test"}),
+        ),
+        record(
+            "2026-08-07T02:00:07Z",
+            "event_msg",
+            json!({"type":"task_started","turn_id":"owned-child-turn"}),
+        ),
+        record(
+            "2026-08-07T02:00:08Z",
+            "response_item",
+            json!({"type":"message","role":"user","content":[{"type":"input_text","text":"child task"}]}),
+        ),
+        record(
+            "2026-08-07T02:00:09Z",
+            "event_msg",
+            json!({"type":"agent_message","message":"child done","phase":"final"}),
+        ),
+        record(
+            "2026-08-07T02:00:10Z",
+            "event_msg",
+            json!({"type":"task_complete","turn_id":"owned-child-turn"}),
+        ),
+    ];
+    let p = fork_path(&f, owner, &lines).await;
+    initial_hook(&f, owner, "owned-child-turn", &p, "subagent-stop").await;
+    f.process(&p).await;
+    let all = f.records();
+    assert!(responses_for(&all, "copied-parent-turn").is_empty());
+    assert_eq!(responses_for(&all, "owned-child-turn").len(), 1);
+    let cp = f.checkpoint(&p);
+    assert!(cp.active_turn.is_none() && cp.pending_terminal.is_none());
+}
+async fn active_owned_prefix(f: &Fixture, padding: usize) -> (String, String, String, i64) {
+    let parent = uuid_at("2026-08-05T09:00:00Z", 71);
+    let owner = uuid_at("2026-08-05T10:00:00Z", 72);
+    let copied = uuid_at("2026-08-05T09:30:00Z", 73);
+    let owned = uuid_at("2026-08-05T10:00:00.010Z", 74);
+    let mut lines = vec![owner_meta(&owner, &parent, false)];
+    lines.extend(turn_block(&copied, "2026-08-05T09:30:00Z"));
+    lines.extend([
+ record("2026-08-05T10:00:00.010Z","turn_context",json!({"turn_id":owned,"model":"gpt-5.5","cwd":if padding==0{"/tmp/owned"}else{"/tmp/large-owned"}})),
+ record("2026-08-05T10:00:01.010Z","event_msg",json!({"type":"task_started","turn_id":owned})),
+ record("2026-08-05T10:00:02.010Z","response_item",json!({"type":"message","role":"user","content":[{"type":"input_text","text":if padding==0{"continue owned turn"}else{"continue large owned turn"}}]}))]);
+    for _ in 0..padding {
+        lines.push(record(
+            "2026-08-05T10:00:03.010Z",
+            "event_msg",
+            json!({"type":"owned_tail_padding","filler":"x".repeat(64*1024)}),
+        ));
+    }
+    let p = fork_path(f, &owner, &lines).await;
+    let size = tokio::fs::metadata(&p).await.expect("stat").len() as i64;
+    (p, copied, owned, size)
+}
+async fn close_owned_tail(f: &Fixture, p: &str, owned: &str) {
+    f.append(
+        p,
+        &([
+            record(
+                "2026-08-05T10:00:04.010Z",
+                "event_msg",
+                json!({"type":"agent_message","message":"owned result","phase":"final"}),
+            ),
+            record("2026-08-05T10:00:05.010Z", "event_msg", usage(100, 10)),
+            record(
+                "2026-08-05T10:00:06.010Z",
+                "event_msg",
+                json!({"type":"task_complete","turn_id":owned,"last_agent_message":"owned result"}),
+            ),
+        ]
+        .join("\n")
+            + "\n"),
+    )
+    .await;
+    f.process(p).await;
+}
+#[tokio::test]
+async fn startup_rebuilds_an_owned_turn_already_active_at_the_fork_baseline() {
+    let f = Fixture::new();
+    let (p, copied, owned, size) = active_owned_prefix(&f, 0).await;
+    run_real_lifecycle(&f).await;
+    assert!(f.records().is_empty());
+    let cp = f.checkpoint(&p);
+    assert_eq!(cp.scan_offset, size);
+    let active = cp.active_turn.expect("owned active");
+    assert_eq!(active.turn_id, owned);
+    assert_eq!(active.start_offset, size);
+    assert_eq!(active.model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(active.cwd.as_deref(), Some("/tmp/owned"));
+    assert!(cp.fork_bootstrap.is_none());
+    close_owned_tail(&f, &p, &owned).await;
+    assert!(responses_for(&f.records(), &copied).is_empty());
+    assert_eq!(responses_for(&f.records(), &owned).len(), 1);
+    let cp = f.checkpoint(&p);
+    assert!(
+        cp.active_turn.is_none() && cp.pending_terminal.is_none() && cp.fork_bootstrap.is_none()
+    );
+}
+#[tokio::test]
+async fn bounded_owned_tail_rebuild_resumes_after_durable_restart_without_exporting_history() {
+    let first = Fixture::new();
+    let (p, copied, owned, size) = active_owned_prefix(&first, 270).await;
+    assert!(size > 16 * 1024 * 1024);
+    start_until_first_native_cycle(&first).await;
+    let cp = first.checkpoint(&p);
+    assert_eq!(cp.scan_offset, size);
+    assert!(cp.active_turn.is_none());
+    let bootstrap = cp.fork_bootstrap.expect("bounded tail");
+    assert_eq!(bootstrap.state, ForkBootstrapState::BaselineTail);
+    assert_eq!(bootstrap.tail_candidate.expect("candidate").turn_id, owned);
+    assert!(bootstrap.search_offset < size);
+    assert!(first.records().is_empty());
+
+    let second = first.restart().await;
+    start_until_first_native_cycle(&second).await;
+    assert!(second.records().is_empty());
+    let cp = second.checkpoint(&p);
+    assert_eq!(cp.scan_offset, size);
+    let active = cp.active_turn.expect("owned active");
+    assert_eq!(active.turn_id, owned);
+    assert_eq!(active.start_offset, size);
+    assert_eq!(active.model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(active.cwd.as_deref(), Some("/tmp/large-owned"));
+    assert!(cp.fork_bootstrap.is_none());
+    close_owned_tail(&second, &p, &owned).await;
+    assert!(responses_for(&second.records(), &copied).is_empty());
+    assert_eq!(responses_for(&second.records(), &owned).len(), 1);
+}
+#[tokio::test]
+async fn hook_anchor_search_advances_in_bounded_sixteen_mib_windows_across_restart() {
+    let first = Fixture::new();
+    let owner = "cccccccc-4444-4444-8444-444444444444";
+    let parent = "aaaaaaaa-7777-4777-8777-777777777777";
+    let mut lines = vec![
+        owner_meta(owner, parent, false),
+        record(
+            "2026-06-01T00:00:00Z",
+            "session_meta",
+            json!({"id":parent,"model_provider":"openai"}),
+        ),
+    ];
+    lines.extend(turn_block("big-ancestor-turn", "2026-06-01T00:00:10Z"));
+    for _ in 0..540 {
+        lines.push(record(
+            "2026-06-01T00:00:20Z",
+            "event_msg",
+            json!({"type":"copied_padding","filler":"x".repeat(64*1024)}),
+        ));
+    }
+    lines.push(record(
+        "2026-08-05T10:00:05Z",
+        "event_msg",
+        json!({"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.5"}}),
+    ));
+    lines.extend(turn_block("big-child-turn", "2026-08-05T10:00:10Z"));
+    let p = fork_path(&first, owner, &lines).await;
+    assert!(tokio::fs::metadata(&p).await.expect("stat").len() > 32 * 1024 * 1024);
+    initial_hook(&first, owner, "big-child-turn", &p, "stop").await;
+    first.process(&p).await;
+    let first_offset = first
+        .checkpoint(&p)
+        .fork_bootstrap
+        .expect("pending")
+        .search_offset;
+    assert!(first_offset > 0 && first_offset <= 16 * 1024 * 1024);
+    assert!(first.records().is_empty());
+    let second = first.restart().await;
+    second.process(&p).await;
+    let second_offset = second
+        .checkpoint(&p)
+        .fork_bootstrap
+        .expect("second pending")
+        .search_offset;
+    assert!(second_offset > first_offset && second_offset <= 32 * 1024 * 1024);
+    assert!(second.records().is_empty());
+    second.process(&p).await;
+    let all = second.records();
+    assert_eq!(responses_for(&all, "big-child-turn").len(), 1);
+    assert!(responses_for(&all, "big-ancestor-turn").is_empty());
+    let cp = second.checkpoint(&p);
+    assert!(cp.scan_offset > 16 * 1024 * 1024);
+    assert!(cp.fork_bootstrap.is_none());
+}
+async fn assert_global_root_priority(count: usize) {
+    let f = Fixture::new();
+    tokio::fs::create_dir_all(&f.input.inner.body.session_dir)
+        .await
+        .expect("default root");
+    let mut expected = Vec::new();
+    for n in 0..count {
+        let home = f.root.path().join(format!("home-{n}"));
+        let legacy = home.join("sessions");
+        tokio::fs::create_dir_all(&legacy)
+            .await
+            .expect("legacy root");
+        let p = f
+            .write(
+                &format!("../home-{n}/u/fixture-user/sessions/2026/06/24/rollout-{n}.jsonl"),
+                &completed(),
+            )
+            .await;
+        let isolated = tokio::fs::canonicalize(home.join("u/fixture-user/sessions"))
+            .await
+            .expect("isolated root")
+            .to_string_lossy()
+            .into_owned();
+        expected.push(isolated);
+        f.marker("wakeups",&format!("{n:03}.json"),json!({"codex_home":home,"session_dir":legacy,"transcript_path":p,"received_at":chrono::Utc::now().to_rfc3339()})).await;
+    }
+    let default = tokio::fs::canonicalize(&f.input.inner.body.session_dir)
+        .await
+        .expect("default canonical")
+        .to_string_lossy()
+        .into_owned();
+    let roots = f.engine().discover_dynamic_session_dirs(&default).await;
+    assert_eq!(roots.len(), 64);
+    let isolated: Vec<_> = roots
+        .into_iter()
+        .filter(|p| {
+            std::path::Path::new(p)
+                .components()
+                .any(|c| c.as_os_str() == std::ffi::OsStr::new("u"))
+        })
+        .collect();
+    expected.reverse();
+    expected.truncate(64);
+    assert_eq!(isolated, expected);
+    let files = f.engine().discover_session_files().await;
+    assert_eq!(files.len(), count.min(64));
+    f.engine().discover_dynamic_session_dirs(&default).await;
+}
+#[tokio::test]
+async fn isolated_roots_keep_global_priority_and_emit_one_throttled_warning_per_overflow() {
+    for count in [33, 64, 65] {
+        let records = isolated_diagnostic_records(&format!("root-cap-{count}"));
+        let warnings: Vec<_> = records
+            .iter()
+            .filter(|e| {
+                e["msg"] == "Codex dynamic session root limit reached within scanned markers"
+            })
+            .collect();
+        assert_eq!(
+            warnings.len(),
+            1,
+            "count={count}, overflow warns once across repeated discoveries"
+        );
+        assert_eq!(warnings[0]["level"], "WARN");
+        assert_eq!(warnings[0]["dropped"], count * 2 - 64);
+        assert_eq!(warnings[0]["cap"], 64);
+    }
+}
+#[tokio::test]
+async fn stop_during_native_initialization_reaps_actual_watcher_without_starting_collection() {
+    use std::future::{poll_fn, Future};
+    use std::task::Poll;
+    let f = Fixture::new();
+    f.rt().force_poll_interval_ms(5);
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    *f.input
+        .inner
+        .body
+        .initialization_wait
+        .lock()
+        .expect("init wait") = Some(super::super::CodexInitializationWait {
+        entered: entered.clone(),
+        release: release.clone(),
+    });
+    let cycles = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let changed = Arc::new(tokio::sync::Notify::new());
+    let out = cycles.clone();
+    let signal = changed.clone();
+    f.input.inner.on_runtime_delta(move |_| {
+        out.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        signal.notify_one();
+    });
+    let starting = f.input.start();
+    tokio::pin!(starting);
+    tokio::select! {
+     _=entered.notified()=>{},
+     completed=starting.as_mut()=>panic!("native initialization escaped the controlled boundary: {completed:?}"),
+    }
+    let watcher = f
+        .input
+        .inner
+        .body
+        .watcher_stop
+        .lock()
+        .expect("watcher")
+        .as_ref()
+        .map(|w| w.task.abort_handle());
+    if cfg!(target_os = "linux") {
+        assert!(watcher.is_some(), "real native watcher was never created");
+    }
+    let stopping = f.input.stop();
+    tokio::pin!(stopping);
+    let completed_stop = poll_fn(|cx| {
+        Poll::Ready(match stopping.as_mut().poll(cx) {
+            Poll::Ready(done) => Some(done),
+            Poll::Pending => None,
+        })
+    })
+    .await;
+    release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let (started, stopped) = tokio::join!(starting.as_mut(), async {
+            if let Some(done) = completed_stop {
+                done
+            } else {
+                stopping.as_mut().await
+            }
+        });
+        started.expect("start cleanup");
+        stopped.expect("stop cleanup");
+    })
+    .await
+    .expect("bounded actual lifecycle completion");
+    assert!(!f.input.collector_running());
+    assert!(f
+        .input
+        .inner
+        .body
+        .watcher_stop
+        .lock()
+        .expect("watcher")
+        .is_none());
+    assert_eq!(cycles.load(std::sync::atomic::Ordering::SeqCst), 0);
+    if let Some(watcher) = watcher {
+        assert!(watcher.is_finished(), "real watcher task was not reaped");
+    }
+    f.marker(
+        "wakeups",
+        "post-stop.json",
+        json!({"session_id":"post-stop","received_at":chrono::Utc::now().to_rfc3339()}),
+    )
+    .await;
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(30), changed.notified())
+            .await
+            .is_err(),
+        "stopped watcher or scheduler produced a late collection"
+    );
+    assert_eq!(cycles.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+fn large_output_turn(output: &str) -> Vec<String> {
+    let mut lines = header();
+    lines[3] = record(
+        "2026-06-24T06:00:03Z",
+        "response_item",
+        json!({"type":"message","role":"user","content":[{"type":"input_text","text":"inspect it"}]}),
+    );
+    lines.extend([
+ record("2026-06-24T06:00:04Z","response_item",json!({"type":"function_call","id":"fc-1","call_id":"call-1","name":"exec_command","arguments":"{\"cmd\":\"cat large.txt\"}"})),
+ record("2026-06-24T06:00:05Z","response_item",json!({"type":"function_call_output","call_id":"call-1","output":json!(output).to_string()})),
+ record("2026-06-24T06:00:06Z","event_msg",usage(100,10)),
+ record("2026-06-24T06:00:07Z","response_item",json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]})),
+ record("2026-06-24T06:00:08Z","event_msg",json!({"type":"task_complete","turn_id":"turn-1","last_agent_message":"done"}))]);
+    lines
+}
+fn expected_large_delta(output: &str) -> Value {
+    json!([{"role":"assistant","parts":[{"type":"tool_call","id":"call-1","name":"exec_command","arguments":{"command":"cat large.txt"}}]},{"role":"tool","parts":[{"type":"tool_call_response","id":"call-1","response":output}]}])
+}
+#[tokio::test]
+async fn oversized_request_context_falls_back_to_exact_input_delta_without_losing_tool_output() {
+    let f = Fixture::new();
+    let output = "x".repeat(1024 * 1024 + 1);
+    f.input.start().await.expect("start");
+    f.write(
+        "2026/06/24/rollout-large-context.jsonl",
+        &(large_output_turn(&output).join("\n") + "\n"),
+    )
+    .await;
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("stop");
+    let q = events(&f.records(), "llm.request");
+    assert_eq!(q.len(), 2);
+    let delta = expected_large_delta(&output);
+    assert!(
+        q[1]["gen_ai.input.messages_delta"] == delta,
+        "exact large tool-call/result input delta"
+    );
+    assert!(
+        q[1]["gen_ai.input.messages"] == delta,
+        "full context must fall back to the exact original delta"
+    );
+    assert!(q[1]["gen_ai.input.messages_hash"].is_string());
+}
+#[tokio::test]
+async fn oversized_pending_delta_is_rebuilt_from_offsets_after_durable_restart() {
+    let first = Fixture::new();
+    let output = "x".repeat(1024 * 1024 + 1);
+    let lines = large_output_turn(&output);
+    let token = lines
+        .iter()
+        .position(|s| {
+            serde_json::from_str::<Value>(s).expect("record")["payload"]["type"] == "token_count"
+        })
+        .expect("token");
+    first.input.start().await.expect("start");
+    let p = first
+        .write(
+            "2026/06/24/rollout-large-restart.jsonl",
+            &(lines[..=token].join("\n") + "\n"),
+        )
+        .await;
+    first.input.run_cycle().await;
+    assert!(!events(&first.records(), "llm.response").is_empty());
+    first.input.stop().await.expect("stop");
+    let second = first.restart().await;
+    assert!(
+        tokio::fs::metadata(first.root.path().join("state.json"))
+            .await
+            .expect("state bytes")
+            .len()
+            < 128 * 1024
+    );
+    second
+        .append(&p, &(lines[token + 1..].join("\n") + "\n"))
+        .await;
+    start_until_first_native_cycle(&second).await;
+    let q = events(&second.records(), "llm.request");
+    assert!(!q.is_empty());
+    let delta = q[0]["gen_ai.input.messages_delta"]
+        .as_array()
+        .expect("delta");
+    assert_eq!(
+        delta
+            .iter()
+            .map(|m| m["role"].as_str().expect("role"))
+            .collect::<Vec<_>>(),
+        vec!["assistant", "tool"]
+    );
+    assert!(serde_json::to_string(delta)
+        .expect("delta")
+        .contains(&output));
+    assert!(q[0]["gen_ai.input.messages"] == q[0]["gen_ai.input.messages_delta"]);
+}
+#[tokio::test]
+async fn durable_restart_restores_wave_time_anchors_and_never_reuses_stale_cumulative_usage() {
+    let first = Fixture::new();
+    let mut lines = header();
+    lines.extend([
+ record("2026-06-24T06:00:04Z","response_item",json!({"type":"function_call","call_id":"call-spawn","name":"spawn_agent","arguments":"{}"})),
+ record("2026-06-24T06:00:05Z","response_item",json!({"type":"function_call_output","call_id":"call-spawn","output":"{}"})),
+ record("2026-06-24T06:00:05.100Z","event_msg",cumulative(10,2,1000))]);
+    let p = first
+        .write("rollout-wave-anchors.jsonl", &(lines.join("\n") + "\n"))
+        .await;
+    first.process(&p).await;
+    let active = first.checkpoint(&p).active_turn.expect("active");
+    assert_eq!(active.next_step_started_at_ms, Some(1_782_280_805_100.0));
+    assert_eq!(active.last_cumulative_token_total, Some(1000.0));
+    let second = first.restart().await;
+    second.append(&p,&([
+ record("2026-06-24T06:00:08Z","response_item",json!({"type":"function_call","call_id":"call-wait","name":"wait_agent","arguments":"{}"})),
+ record("2026-06-24T06:00:09Z","response_item",json!({"type":"function_call_output","call_id":"call-wait","output":"{}"})),
+ record("2026-06-24T06:00:09.100Z","event_msg",cumulative(20,2,1100))].join("\n")+"\n")).await;
+    second.process(&p).await;
+    let third = second.restart().await;
+    third.append(&p,&([
+ record("2026-06-24T06:00:12Z","event_msg",json!({"type":"agent_message","message":"continuing after wait","phase":"commentary"})),
+ record("2026-06-24T06:00:12.100Z","event_msg",cumulative(20,2,1100)),
+ record("2026-06-24T06:00:13Z","event_msg",json!({"type":"task_complete","turn_id":"turn-1","last_agent_message":"continuing after wait"}))].join("\n")+"\n")).await;
+    third.process(&p).await;
+    let mut all = first.records();
+    all.extend(second.records());
+    all.extend(third.records());
+    let r = events(&all, "llm.response");
+    assert_eq!(
+        r.iter()
+            .map(|e| e["gen_ai.usage.total_tokens"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!(12), json!(22), json!(0)]
+    );
+    assert_eq!(
+        r.iter()
+            .filter(|e| e["gen_ai.usage.total_tokens"] == 22)
+            .count(),
+        1
+    );
+    let q = events(&all, "llm.request");
+    for step in [2, 3] {
+        let id = format!("session-1:turn-1:s{step}");
+        let request = q
+            .iter()
+            .find(|e| e["gen_ai.step.id"] == id)
+            .expect("request");
+        let response = r
+            .iter()
+            .find(|e| e["gen_ai.step.id"] == id)
+            .expect("response");
+        assert!(timestamp(response) > timestamp(request));
+    }
+}
+fn completed_with_full_context() -> Vec<String> {
+    let mut lines: Vec<_> = completed().lines().map(str::to_owned).collect();
+    let mut meta: Value = serde_json::from_str(&lines[0]).expect("meta");
+    meta["payload"]["dynamic_tools"] =
+        json!([{"name":"exec_command","description":"Run a command"}]);
+    lines[0] = meta.to_string();
+    let mut context: Value = serde_json::from_str(&lines[1]).expect("context");
+    context["payload"]["developer_instructions"] = json!("Follow the project conventions.");
+    lines[1] = context.to_string();
+    lines
+}
+#[tokio::test]
+async fn closed_wave_incomplete_suffix_restores_messages_model_instructions_and_tools_after_restart(
+) {
+    let first = Fixture::new();
+    let lines = completed_with_full_context();
+    let call2 = lines
+        .iter()
+        .position(|s| s.contains("\"call_id\":\"call-2\""))
+        .expect("second call");
+    first.input.start().await.expect("start");
+    let p = first
+        .write(
+            "2026/06/24/rollout-incomplete-suffix.jsonl",
+            &(lines[..=call2].join("\n") + "\n"),
+        )
+        .await;
+    first.input.run_cycle().await;
+    assert_eq!(events(&first.records(), "llm.response").len(), 1);
+    first.input.stop().await.expect("stop");
+    let second = first.restart().await;
+    second
+        .append(&p, &(lines[call2 + 1..].join("\n") + "\n"))
+        .await;
+    start_until_first_native_cycle(&second).await;
+    let mut all = first.records();
+    all.extend(second.records());
+    let r = events(&all, "llm.response");
+    assert_eq!(
+        r.iter()
+            .map(|e| e["gen_ai.step.id"].clone())
+            .collect::<Vec<_>>(),
+        vec![
+            json!("session-1:turn-1:s1"),
+            json!("session-1:turn-1:s2"),
+            json!("session-1:turn-1:s3")
+        ]
+    );
+    assert_eq!(
+        r.iter()
+            .map(|e| e["gen_ai.usage.total_tokens"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!(110), json!(132), json!(143)]
+    );
+    assert_eq!(
+        events(&all, "tool.call")
+            .iter()
+            .map(|e| e["gen_ai.tool.call.id"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!("call-1"), json!("call-2")]
+    );
+    let next = second.records();
+    let q = events(&next, "llm.request");
+    let request = q
+        .iter()
+        .find(|e| e["gen_ai.step.id"] == "session-1:turn-1:s2")
+        .expect("second request");
+    let delta = json!([{"role":"assistant","parts":[{"type":"tool_call","id":"call-1","name":"exec_command","arguments":{"command":"pwd"}}]},{"role":"tool","parts":[{"type":"tool_call_response","id":"call-1","response":"/tmp/project"}]}]);
+    assert_eq!(request["gen_ai.input.messages_delta"], delta);
+    let mut full = json!([{"role":"user","parts":[{"type":"text","content":"fix it"}]}]);
+    full.as_array_mut()
+        .expect("messages")
+        .extend(delta.as_array().expect("delta").clone());
+    assert_eq!(request["gen_ai.input.messages"], full);
+    assert_eq!(request["gen_ai.request.model"], "gpt-5.5");
+    assert_eq!(request["agent.codex.cwd"], "/tmp/project");
+    assert_eq!(
+        request["gen_ai.system_instructions"],
+        json!([{"type":"text","content":"Follow the project conventions."}])
+    );
+    assert_eq!(
+        request["gen_ai.tool.definitions"],
+        json!([{"name":"exec_command","description":"Run a command"}])
+    );
+    let response = r
+        .iter()
+        .find(|e| e["gen_ai.step.id"] == "session-1:turn-1:s2")
+        .expect("second response");
+    assert_eq!(response["gen_ai.response.model"], "gpt-5.5");
+    assert_eq!(response["agent.codex.cwd"], "/tmp/project");
+    assert!(
+        response.get("gen_ai.system_instructions").is_none()
+            && response.get("gen_ai.tool.definitions").is_none()
+    );
+    let end = next
+        .iter()
+        .find(|e| e["gen_ai.turn.end"] == true)
+        .expect("end");
+    assert_eq!(end["agent.codex.cwd"], "/tmp/project");
+    assert_eq!(end["agent.codex.turn_status"], "completed");
+}
+const NATIVE_PARENT_NAME: &str =
+    "rollout-2026-08-07T10-00-00-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl";
+const NATIVE_PARENT:&str=include_str!("../../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-00-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl");
+const NATIVE_CHILDREN:[(&str,&str,&str,&str);4]=[
+ ("rollout-2026-08-07T10-00-04-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl","bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","child-turn-1",include_str!("../../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-04-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl")),
+ ("rollout-2026-08-07T10-00-05-cccccccc-cccc-4ccc-8ccc-cccccccccccc.jsonl","cccccccc-cccc-4ccc-8ccc-cccccccccccc","child-turn-2",include_str!("../../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-05-cccccccc-cccc-4ccc-8ccc-cccccccccccc.jsonl")),
+ ("rollout-2026-08-07T10-00-06-dddddddd-dddd-4ddd-8ddd-dddddddddddd.jsonl","dddddddd-dddd-4ddd-8ddd-dddddddddddd","child-turn-3",include_str!("../../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-06-dddddddd-dddd-4ddd-8ddd-dddddddddddd.jsonl")),
+ ("rollout-2026-08-07T10-00-07-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.jsonl","eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee","child-turn-4",include_str!("../../../../tests/fixtures/codex-subagent/rollout-2026-08-07T10-00-07-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.jsonl")),
+];
+async fn write_native_fixture(f: &Fixture, name: &str, text: &str) -> String {
+    let p = f.write(&format!("2026/08/07/{name}"), text).await;
+    let records: Vec<Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("synthetic native fixture"))
+        .collect();
+    let owner = records.first().expect("metadata")["payload"]["id"]
+        .as_str()
+        .expect("owner");
+    let turn = records
+        .iter()
+        .rev()
+        .find(|r| r["payload"]["type"] == "task_started")
+        .expect("started")["payload"]["turn_id"]
+        .as_str()
+        .expect("turn");
+    initial_hook(
+        f,
+        owner,
+        turn,
+        &p,
+        if records[0]["payload"]["thread_source"] == "subagent" {
+            "subagent-stop"
+        } else {
+            "stop"
+        },
+    )
+    .await;
+    p
+}
+#[tokio::test]
+async fn orphan_original_child_fixture_emits_own_session_without_pending_subagent_hold() {
+    let f = Fixture::new();
+    let child = NATIVE_CHILDREN[0];
+    let p = write_native_fixture(&f, child.0, child.3).await;
+    f.process(&p).await;
+    let r = responses_for(&f.records(), child.2);
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0]["gen_ai.session.id"], child.1);
+    let cp = f.checkpoint(&p);
+    assert!(cp.pending_subagent.is_none() && cp.active_turn.is_none());
+}
+#[tokio::test]
+async fn original_children_arriving_first_bind_current_spawn_not_an_older_parent_turn() {
+    let f = Fixture::new();
+    let mut current = NATIVE_PARENT.lines();
+    let meta = current.next().expect("meta");
+    let history = [
+        record(
+            "2026-08-07T01:00:00Z",
+            "turn_context",
+            json!({"turn_id":"historical-parent-turn","model":"gpt-test","cwd":"/tmp/codex-subagent-fixture"}),
+        ),
+        record(
+            "2026-08-07T01:00:01Z",
+            "event_msg",
+            json!({"type":"task_started","turn_id":"historical-parent-turn"}),
+        ),
+        record(
+            "2026-08-07T01:00:02Z",
+            "response_item",
+            json!({"type":"function_call","call_id":"call-historical-subagent","name":"spawn_agent","arguments":json!({"task_name":"stale_child","message":"redacted"}).to_string()}),
+        ),
+        record(
+            "2026-08-07T01:00:03Z",
+            "response_item",
+            json!({"type":"function_call_output","call_id":"call-historical-subagent","output":json!({"task_name":"/root/stale_child"}).to_string()}),
+        ),
+        record(
+            "2026-08-07T01:00:04Z",
+            "event_msg",
+            json!({"type":"task_complete","turn_id":"historical-parent-turn","last_agent_message":"delegated"}),
+        ),
+    ];
+    let text = meta.to_owned()
+        + "\n"
+        + &history.join("\n")
+        + "\n"
+        + &current.collect::<Vec<_>>().join("\n")
+        + "\n";
+    let parent = write_native_fixture(&f, NATIVE_PARENT_NAME, &text).await;
+    for child in NATIVE_CHILDREN {
+        let p = write_native_fixture(&f, child.0, child.3).await;
+        f.process(&p).await;
+    }
+    f.process(&parent).await;
+    let cp = f.checkpoint(&parent);
+    assert!(cp.pending_fusion.is_none() && cp.active_turn.is_none());
+    let links = f.input.subagent_link_snapshot().links;
+    for (n, child) in NATIVE_CHILDREN.iter().enumerate() {
+        let link = links
+            .iter()
+            .find(|l| l.child_thread_id == child.1)
+            .expect("current child link");
+        assert_eq!(link.parent_turn_id.as_deref(), Some("parent-turn-1"));
+        assert_eq!(
+            link.parent_tool_call_id.as_deref(),
+            Some(format!("call-subagent-{}", n + 1).as_str())
+        );
+    }
+}
+#[tokio::test]
+async fn original_followup_task_fixture_does_not_create_a_new_child_hold_lifecycle() {
+    let f = Fixture::new();
+    let text = NATIVE_PARENT.replace("\"name\":\"spawn_agent\"", "\"name\":\"followup_task\"");
+    let parent = write_native_fixture(&f, NATIVE_PARENT_NAME, &text).await;
+    let child = write_native_fixture(&f, NATIVE_CHILDREN[0].0, NATIVE_CHILDREN[0].3).await;
+    f.process(&parent).await;
+    f.process(&child).await;
+    let all = f.records();
+    assert_eq!(responses_for(&all, "parent-turn-1").len(), 1);
+    assert_eq!(responses_for(&all, "child-turn-1").len(), 1);
+    assert!(f.checkpoint(&parent).pending_fusion.is_none());
+    assert!(f.checkpoint(&child).pending_subagent.is_none());
+}
+#[tokio::test]
+async fn repeated_path_without_explicit_identity_degrades_to_independent_orphan() {
+    let f = Fixture::new();
+    let parent_text = NATIVE_PARENT
+        .lines()
+        .filter(|l| !l.contains("call-subagent-3") && !l.contains("call-subagent-4"))
+        .map(|l| l.replace("fixture_child_2", "fixture_child"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let parent = write_native_fixture(&f, NATIVE_PARENT_NAME, &parent_text).await;
+    let child = write_native_fixture(&f, NATIVE_CHILDREN[0].0, NATIVE_CHILDREN[0].3).await;
+    f.process(&parent).await;
+    f.process(&child).await;
+    assert_eq!(responses_for(&f.records(), "child-turn-1").len(), 1);
+    let cp = f.checkpoint(&child);
+    assert!(cp.pending_subagent.is_none() && cp.active_turn.is_none());
+    let links = f.input.subagent_link_snapshot().links;
+    let link = links
+        .iter()
+        .find(|l| l.child_thread_id == NATIVE_CHILDREN[0].1)
+        .expect("ambiguous child");
+    assert_eq!(link.confidence.as_str(), "orphan");
+    assert_eq!(
+        link.orphan_reason.map(|r| r.as_str()),
+        Some("ambiguous_agent_path")
+    );
+}
+#[tokio::test]
+async fn original_time_order_only_link_stays_diagnostic_and_never_holds_child() {
+    let f = Fixture::new();
+    let mut lines: Vec<_> = NATIVE_PARENT.lines().collect();
+    lines.pop();
+    let parent = write_native_fixture(&f, NATIVE_PARENT_NAME, &(lines.join("\n") + "\n")).await;
+    f.process(&parent).await;
+    let mut child_lines: Vec<_> = NATIVE_CHILDREN[0].3.lines().map(str::to_owned).collect();
+    let mut meta: Value = serde_json::from_str(&child_lines[0]).expect("meta");
+    meta["payload"]["source"]["subagent"]["thread_spawn"]
+        .as_object_mut()
+        .expect("spawn")
+        .remove("agent_path");
+    child_lines[0] = meta.to_string();
+    let child =
+        write_native_fixture(&f, NATIVE_CHILDREN[0].0, &(child_lines.join("\n") + "\n")).await;
+    f.process(&child).await;
+    let links = f.input.subagent_link_snapshot().links;
+    let link = links
+        .iter()
+        .find(|l| l.child_thread_id == NATIVE_CHILDREN[0].1)
+        .expect("time order");
+    assert_eq!(link.confidence.as_str(), "time_order");
+    assert_eq!(responses_for(&f.records(), "child-turn-1").len(), 1);
+    assert!(f.checkpoint(&child).pending_subagent.is_none());
+}
+#[tokio::test]
+async fn four_original_children_finish_independently_before_parent_with_full_current_lineage() {
+    let f = Fixture::new();
+    f.input.start().await.expect("start");
+    let mut lines: Vec<_> = NATIVE_PARENT.lines().collect();
+    let terminal = lines.pop().expect("terminal");
+    let parent = write_native_fixture(&f, NATIVE_PARENT_NAME, &(lines.join("\n") + "\n")).await;
+    f.input.run_cycle().await;
+    assert_eq!(f.input.subagent_link_snapshot().detected_spawns, 4);
+    let mut children = Vec::new();
+    for child in NATIVE_CHILDREN {
+        let p = write_native_fixture(&f, child.0, child.3).await;
+        children.push(p);
+        f.input.run_cycle().await;
+    }
+    let before = f.records();
+    for child in NATIVE_CHILDREN {
+        assert_eq!(responses_for(&before, child.2).len(), 1);
+    }
+    assert!(f.checkpoint(&parent).active_turn.is_some());
+    f.append(&parent, &(terminal.to_owned() + "\n")).await;
+    f.input.run_cycle().await;
+    f.input.stop().await.expect("stop");
+    let all = f.records();
+    assert_eq!(responses_for(&all, "parent-turn-1").len(), 2);
+    let span_regex = Regex::new("^[a-f0-9]{16}$").expect("span regex");
+    for (n, child) in NATIVE_CHILDREN.iter().enumerate() {
+        let entries: Vec<_> = all
+            .iter()
+            .filter(|e| e["agent.codex.transcript_turn_id"] == child.2)
+            .collect();
+        assert!(!entries.is_empty());
+        let turn = format!("{}:{}", child.1, child.2);
+        let call = format!("call-subagent-{}", n + 1);
+        for e in &entries {
+            assert_eq!(e["gen_ai.session.id"], child.1);
+            assert_eq!(e["gen_ai.agent.id"], child.1);
+            assert_eq!(e["gen_ai.turn.id"], turn);
+            assert_eq!(e["gen_ai.agent.scope"], "subagent");
+            assert_eq!(e["gen_ai.agent.depth"].as_f64(), Some(1.0));
+            assert_eq!(e["gen_ai.subagent.parent_tool_call.id"], call);
+            assert_eq!(e["agent.codex.delegated"], true);
+        }
+        assert!(entries.iter().any(|e| e["event.name"] == "other"));
+        let steps: std::collections::BTreeSet<_> = entries
+            .iter()
+            .filter_map(|e| e["gen_ai.step.id"].as_str())
+            .collect();
+        assert_eq!(
+            steps,
+            [format!("{turn}:s1")].iter().map(String::as_str).collect()
+        );
+        assert_eq!(
+            f.checkpoint(&children[n]).owner_session_meta_offset,
+            Some(0)
+        );
+        let tool = all
+            .iter()
+            .find(|e| e["event.name"] == "tool.call" && e["gen_ai.tool.call.id"] == call)
+            .expect("parent tool");
+        let span = tool["span_id"].as_str().expect("tool span");
+        assert!(span_regex.is_match(span));
+        let invoke = all
+            .iter()
+            .find(|e| e["event.name"] == "gen_ai.agent.invoke" && e["gen_ai.tool.call.id"] == call)
+            .expect("invoke");
+        for e in &entries {
+            assert_eq!(e["agent.codex.parent_span_id"], tool["span_id"]);
+            assert_eq!(
+                e["gen_ai.agent.parent.invocation.id"],
+                invoke["gen_ai.agent.invocation.id"]
+            );
+        }
+        let request = entries
+            .iter()
+            .find(|e| e["event.name"] == "llm.request")
+            .expect("child request");
+        assert!(request["gen_ai.input.messages"].is_array());
+    }
+    let cp = f.checkpoint(&parent);
+    assert!(cp.pending_fusion.is_none() && cp.active_turn.is_none());
+    let snapshot = f.input.subagent_link_snapshot();
+    assert_eq!(
+        (
+            snapshot.detected_children,
+            snapshot.detected_spawns,
+            snapshot.linked_children,
+            snapshot.orphan_children
+        ),
+        (4, 4, 4, 0)
+    );
+    for (n, child) in NATIVE_CHILDREN.iter().enumerate() {
+        let link = snapshot
+            .links
+            .iter()
+            .find(|l| l.child_thread_id == child.1)
+            .expect("link");
+        assert_eq!(
+            link.parent_thread_id,
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        );
+        assert_eq!(link.parent_turn_id.as_deref(), Some("parent-turn-1"));
+        assert_eq!(
+            link.parent_tool_call_id.as_deref(),
+            Some(format!("call-subagent-{}", n + 1).as_str())
+        );
+        assert_eq!(link.confidence.as_str(), "agent_path");
+    }
 }

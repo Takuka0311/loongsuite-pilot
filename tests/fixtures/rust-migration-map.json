@@ -42954,7 +42954,7 @@
       "coverage": "partial",
       "rust": [],
       "source_hash": "6ae448fd44164a31545a3cd7b51a228903393ec938ac7c35b7f9d71bcb6d172e",
-      "note": "固定ef8953不可变109声明；本增量仅已审42源声明子集，41complete/1partial，另67不在本canonical子集中，绝不计complete。后续父任务合并其余审计后组成完整109映射。Linux40targeted+strict实过；Windows/macOS未执行。L441仍缺真实AgentDiscoveryService gate，明确partial。 第一批40加动态10，本批登记51条固定源声明；L441真实AgentDiscoveryService门锁已补。逐assert复读后其中5条保留partial，另58条尚未纳入本批映射，不把当前文件提升complete。",
+      "note": "固定ef8953的109条声明，当前逐条审定91条（90条Rust承接、1条被固定main f84明确替代的旧父子融合机制），其余18条仍待审。保留源文件hash和精确AST id/title/suites/parameters；platforms表示合同适用范围，Linux glibc2.34/Rust1.99.1定向89项与严格Clippy验证单独记录，未将Windows/macOS视为已执行。",
       "cases": [
         {
           "source": {
@@ -43006,6 +43006,112 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "all_invalid_marker_variants_keep_real_discovery_idle_without_starting_codex"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L482:C3",
+            "title": "closes the actual wakeup watcher when stopped during Codex initialization",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "closes the actual wakeup watcher when stopped during Codex initialization；实际CodexBody私有cfg(test) Notify仅暂停on_start返回前、真实watcher创建后，无公开API/成功返回hook/模拟采集器；poll一次真实stop再释放，并发等待两生命周期完成；Linux真实watcher必须存在且abort_handle结束，最终watcherNone/runningfalse、所有delta=0，真实5ms scheduler与post-stop marker30ms无晚到collection。Rust不复制Node timer对象，用真实调度与资源终止证明相同用户合同。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+79targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "stop_during_native_initialization_reaps_actual_watcher_without_starting_collection"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L512:C3",
+            "title": "prioritizes isolated rollouts globally across %i dual-layout homes",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": [
+              "it.each([33, 64, 65])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "prioritizes isolated rollouts globally across %i dual-layout homes；33/64/65全部参数；真实目录/marker、64全局roots及isolated根完整逆序priority、files=min(count,64)、实际env_clear child pino WARN精确dropped=count×2−64/cap=64，三次discover只warn1次。修复生产原TODO吞warning，改用已有host Weak到真实runtime.warn并保留5分钟节流。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+79targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "isolated_roots_keep_global_priority_and_emit_one_throttled_warning_per_overflow"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L550:C3",
+            "title": "reuses cached owner metadata on an unchanged idle collection cycle",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reuses cached owner metadata on an unchanged idle collection cycle；真实Input生命周期runtime delta回调；所有原source计数/唯一commit/read bytes/parse失败/无标识信息/耗时边界断言均承接。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "preexisting_idle_owner_metadata_reuse_has_no_physical_read_in_first_native_cycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L566:C3",
+            "title": "does not stat cold historical rollouts on the next default cycle",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not stat cold historical rollouts on the next default cycle；按原声明实际可见证据：冷文件append后offset不动/rawReadCalls=0，近期append推进offset，新日目录新文件被checkpoint，冷文件始终不动；不额外冒称系统调用stat计数。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "cold_historical_files_are_not_restatted_by_each_default_collection_cycle"
               }
             ]
           }
@@ -43116,6 +43222,32 @@
         },
         {
           "source": {
+            "id": "L828:C3",
+            "title": "moves the metadata cache when incremental scanning finds the owning session_meta",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "moves the metadata cache when incremental scanning finds the owning session_meta；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。 owner session_meta增量到达后checkpoint.ownerSessionMetaOffset精确为原copiedMeta字节长，后续实际idle runtime delta物理readCalls/readBytes均0。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "appended_owning_session_meta_moves_checkpoint_and_cache_without_idle_reread"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L865:C3",
             "title": "re-registers an evicted child relationship when owner metadata is served from cache",
             "suites": [
@@ -43136,6 +43268,32 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "cached_owner_metadata_reregisters_child_after_linker_eviction_without_reading_transcript"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L903:C3",
+            "title": "reports physical reads separately from uniquely consumed transcript records",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reports physical reads separately from uniquely consumed transcript records；真实Input生命周期runtime delta回调；所有原source计数/唯一commit/read bytes/parse失败/无标识信息/耗时边界断言均承接。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "runtime_callbacks_distinguish_physical_reads_from_unique_jsonl_commits_and_parse_failures"
               }
             ]
           }
@@ -43188,6 +43346,215 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "reported_child_fingerprints_evict_oldest_at_the_real_bounded_cap"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L997:C3",
+            "title": "holds the parent terminal and fuses completed child rollouts into the parent turn",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "上游显式替代旧融合承载合同，旧holds/collapsed IDs断言不再重演；replacement保留未被取代字段并精确承接f84当前完整case。Linux strict+89targeted通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "已逐断言检查ef8953 L997旧合同：父terminal前4 child全部held为pendingSubagent，随后把所有child session/turn重写为父、且child没有other。这些承载断言已被固定main f84e3881958b39c5c7cbe8a035f50ccd80a25783同文件L996:C3“emits completed children with their own identity before the parent terminal”显式替代（main source SHA256 ba65087322e72638cf355b4c5f0783fe26c01d32da4d6b89eeca9e263fcec5c9），不得恢复旧融合缺陷。保留4child/4spawn/4link、原parent2响应、depth1/scope/tool-parent映射、ownerOffset0、request messages等仍有效assert，并由替代原生测试逐项实跑主合同：父仍active时4child各响应1，own session/agent/turn/step IDs，other存在、delegated=true、真实parent tool span16hex/parent invocation id完全一致。",
+            "replacement": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "four_original_children_finish_independently_before_parent_with_full_current_lineage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1073:C3",
+            "title": "does not attach new children to a historical spawn in a long parent rollout",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not attach new children to a historical spawn in a long parent rollout；原始4 child先处理，随后处理带1小时前历史spawn+完整当前parent fixture；parent active/pendingFusion None，4条link精确childID/current parent-turn-1/call-subagent-N，未按标题或仅函数存在判完成。 五原fixture已逐字SHA比对ef8953，实际生产Codex engine+真实temp StateStore/rollout；Linux Rust1.99.1/glibc2.34 strict workspace/alltargets/allfeatures -Dwarnings与89targeted通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "original_children_arriving_first_bind_current_spawn_not_an_older_parent_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1309:C3",
+            "title": "emits an orphan child as an independent trace instead of holding its rollout",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "emits an orphan child as an independent trace instead of holding its rollout；原始child fixture无父文件：child1响应/session自身ID，active与pendingSubagent均None。 五原fixture已逐字SHA比对ef8953，实际生产Codex engine+真实temp StateStore/rollout；Linux Rust1.99.1/glibc2.34 strict workspace/alltargets/allfeatures -Dwarnings与89targeted通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "orphan_original_child_fixture_emits_own_session_without_pending_subagent_hold"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1328:C3",
+            "title": "does not treat followup_task as a new child lifecycle that requires fusion",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not treat followup_task as a new child lifecycle that requires fusion；原parent JSONL只把spawn_agent替换followup_task，parent响应1/child响应1、parent pendingFusion None/child pendingSubagent None，完整原断言。 五原fixture已逐字SHA比对ef8953，实际生产Codex engine+真实temp StateStore/rollout；Linux Rust1.99.1/glibc2.34 strict workspace/alltargets/allfeatures -Dwarnings与89targeted通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "original_followup_task_fixture_does_not_create_a_new_child_hold_lifecycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1349:C3",
+            "title": "degrades an ambiguous repeated agent path to an independent child trace",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "degrades an ambiguous repeated agent path to an independent child trace；原fixture精确删call3/4并重复path，child1响应/active/pendingSubagent None，link confidence=orphan且reason=ambiguous_agent_path。 五原fixture已逐字SHA比对ef8953，实际生产Codex engine+真实temp StateStore/rollout；Linux Rust1.99.1/glibc2.34 strict workspace/alltargets/allfeatures -Dwarnings与89targeted通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "repeated_path_without_explicit_identity_degrades_to_independent_orphan"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1505:C3",
+            "title": "keeps time_order links diagnostic-only and emits the child independently",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps time_order links diagnostic-only and emits the child independently；原child meta只删除agent_path，精确confidence=time_order，child响应1、无pendingSubagent；真实原fixture处理，无mock linker。 五原fixture已逐字SHA比对ef8953，实际生产Codex engine+真实temp StateStore/rollout；Linux Rust1.99.1/glibc2.34 strict workspace/alltargets/allfeatures -Dwarnings与89targeted通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "original_time_order_only_link_stays_diagnostic_and_never_holds_child"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1581:C3",
+            "title": "rebuilds owning metadata instead of trusting a legacy latest-meta checkpoint",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rebuilds owning metadata instead of trusting a legacy latest-meta checkpoint；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。 合成owner复用不可变fixture完整session_meta shape（含root session/source/path/nickname、不额外加forked_from_id），仅整体时间迁到本fixture基准；legacy latestSessionMetaOffset故意指向parent，durable reload经真实Input.start后ownerOffset必须0。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "legacy_latest_parent_meta_checkpoint_rebuilds_true_owner_before_child_recovery"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1655:C3",
+            "title": "skips the copied prefix when child metadata has no creation timestamp",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "skips the copied prefix when child metadata has no creation timestamp；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "missing_child_creation_timestamp_still_excludes_copied_parent_turns"
               }
             ]
           }
@@ -43318,6 +43685,32 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "completed_three_waves_preserve_exact_tokens_reasoning_messages_ids_and_step_links"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1958:C3",
+            "title": "falls back to input message delta when the reconstructed request context exceeds 1MB",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "falls back to input message delta when the reconstructed request context exceeds 1MB；真实Input start/run/stop，1MiB+1字节原工具输出；第二request delta精确完整tool_call/tool_response、full messages精确等于delta、hash为String，无截断原工具输出。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+83targeted实际通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "oversized_request_context_falls_back_to_exact_input_delta_without_losing_tool_output"
               }
             ]
           }
@@ -43558,6 +43951,32 @@
         },
         {
           "source": {
+            "id": "L2227:C3",
+            "title": "debug logs when an existing wakeup marker lacks resourceAttributes",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "debug logs when an existing wakeup marker lacks resourceAttributes；真实Codex记录没有resourceAttributes；真实子进程捕获debug精确msg/level，完整marker等于子进程合成fixture实际绝对marker路径，非只比后缀。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "native_diagnostic_records_preserve_control_retry_resource_and_anchor_reasons"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L2246:C3",
             "title": "discovers and ingests a task-scoped CODEX_HOME before a Stop hook",
             "suites": [
@@ -43792,6 +44211,92 @@
         },
         {
           "source": {
+            "id": "L2463:C3",
+            "title": "consumes a control-only aborted turn and emits later normal work in the same cycle",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "consumes a control-only aborted turn and emits later normal work in the same cycle；独立env_clear native子进程实际LOG_LEVEL=debug捕获精确control terminalStatus=interrupted/turnId与无unexplained warning；修复前生产缺日志，已补。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "control_only_abort_consumes_its_range_and_collects_following_normal_turn_in_the_same_cycle"
+              },
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "native_diagnostic_records_preserve_control_retry_resource_and_anchor_reasons"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2563:C3",
+            "title": "limits terminal recovery per file cycle and resumes from the saved offset",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "limits terminal recovery per file cycle and resumes from the saved offset；真实Codex engine/native rollout/StateStore durable reload；fork/subagent使用生产Stop初始锚点，真实start基线不会污染未采集parent，正常会话/UUIDv7同毫秒/无task_started边界保留；Linux Rust1.99.1/glibc2.34/network-none，60history tests全过，strict workspace alltargets allfeatures通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "hundred_terminal_budget_resumes_at_durable_offset_without_losing_the_hundred_and_first_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2721:C3",
+            "title": "retains a truly unparseable pending range and does not scan later work",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retains a truly unparseable pending range and does not scan later work；真实StateStore save/load后真实Input.start，使用首次实际runtime delta完成信号再stop，不手动多重cycle；保留offset/retryCount/sourceRecordCount全部精确断言。独立真实子进程验证warning精确msg/level/完整transcriptPath与count。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "truly_unparseable_legacy_pending_range_survives_durable_restart_and_blocks_later_work"
+              },
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "native_diagnostic_records_preserve_control_retry_resource_and_anchor_reasons"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L2799:C3",
             "title": "does not suppress matching turn IDs across independent transcript files",
             "suites": [
@@ -43799,8 +44304,8 @@
             ],
             "parameters": []
           },
-          "coverage": "partial",
-          "behavior": "does not suppress matching turn IDs across independent transcript files；真实生产engine/temp synthetic rollout、checkpoint文件和原生extractor/builder；Linux Rust1.99.1/glibc2.34严格Clippy与40 targeted通过，Windows/macOS未执行。 2026-11-01逐assert复读纠正：还需第二文件turn-2与132 token精确断言。 暂降partial，待下一严格补齐增量；已有测试通过不代表原case全部断言已承接。",
+          "coverage": "complete",
+          "behavior": "does not suppress matching turn IDs across independent transcript files；纠正先前只有相同文件ID重复数量：真实Input start/run/stop，两文件turn-1各一次，第二文件turn-2恰一次，tokens110/132精确，并验证两个完整offset。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
           "platforms": [
             "linux",
             "macos",
@@ -43825,8 +44330,8 @@
             ],
             "parameters": []
           },
-          "coverage": "partial",
-          "behavior": "does not restore cross-transcript turn-ID suppression after restart；真实生产engine/temp synthetic rollout、checkpoint文件和原生extractor/builder；Linux Rust1.99.1/glibc2.34严格Clippy与40 targeted通过，Windows/macOS未执行。 2026-11-01逐assert复读纠正：还需第二文件turn-2/132 token，以及无global-registry真实debug捕获。 暂降partial，待下一严格补齐增量；已有测试通过不代表原case全部断言已承接。",
+          "coverage": "complete",
+          "behavior": "does not restore cross-transcript turn-ID suppression after restart；纠正先前只有相同ID跨reload：真实Input start/run/stop→durable StateStore reload→真实Input start/run/stop，重复turn-1与新turn-2均恰一次，132tokens；env_clear native子进程额外断言从未发出global-registry skip debug。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
           "platforms": [
             "linux",
             "macos",
@@ -43838,6 +44343,10 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "durable_reload_does_not_restore_cross_transcript_turn_id_suppression"
+              },
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "native_diagnostic_records_preserve_control_retry_resource_and_anchor_reasons"
               }
             ]
           }
@@ -43890,6 +44399,32 @@
               {
                 "file": "src/inputs/codex-transcript/input/engine_history.rs",
                 "test": "equal_token_counts_in_distinct_waves_remain_independent_steps_across_native_cycles"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3116:C3",
+            "title": "restores the next-wave time anchor and suppresses repeated cumulative token snapshots",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "restores the next-wave time anchor and suppresses repeated cumulative token snapshots；三次独立StateStore save/load，第一active.nextStepStartedAt=1782280805100/lastCumulative=1000精确；spawn/wait/commentary repeated1100 snapshot得到totalTokens严格[12,22,0]且22仅一次，s2/s3 response时间均>request。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+83targeted实际通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "durable_restart_restores_wave_time_anchors_and_never_reuses_stale_cumulative_usage"
               }
             ]
           }
@@ -43974,6 +44509,58 @@
         },
         {
           "source": {
+            "id": "L3314:C3",
+            "title": "retains an incomplete suffix after a closed wave and recovers it after restart",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retains an incomplete suffix after a closed wave and recovers it after restart；真实首波+未完成call2后stop/reload/append/start；s1/s2/s3精确IDs+110/132/143tokens+工具IDs仅call1/call2；二波delta/full完整JSON、request model/cwd/system instructions/tool defs原golden全部，response model/cwd且无instructions/tool defs，turnEnd cwd/completed精确。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+83targeted实际通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "closed_wave_incomplete_suffix_restores_messages_model_instructions_and_tools_after_restart"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3380:C3",
+            "title": "rebuilds an oversized persisted delta from transcript offsets",
+            "suites": [
+              "CodexTranscriptInput"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rebuilds an oversized persisted delta from transcript offsets；真实Input关闭首波后durable StateStore reload，真实state.json<128KiB；append剩余后公开start首cycle完成stop，重建delta roles=assistant/tool、完整1MiB+1输出保留、full精确等于delta。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+83targeted实际通过，Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "oversized_pending_delta_is_rebuilt_from_offsets_after_durable_restart"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L3406:C3",
             "title": "falls back malformed transcript timestamps without emitting Unix epoch spans",
             "suites": [
@@ -44052,6 +44639,491 @@
         },
         {
           "source": {
+            "id": "L3634:C5",
+            "title": "does not let a startup-baselined user fork suppress an uncollected parent turn",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not let a startup-baselined user fork suppress an uncollected parent turn；真实Codex engine/native rollout/StateStore durable reload；fork/subagent使用生产Stop初始锚点，真实start基线不会污染未采集parent，正常会话/UUIDv7同毫秒/无task_started边界保留；Linux Rust1.99.1/glibc2.34/network-none，60history tests全过，strict workspace alltargets allfeatures通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "startup_baselined_user_fork_never_suppresses_the_uncollected_parent_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3641:C5",
+            "title": "does not let a startup-baselined subagent suppress an uncollected parent turn",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not let a startup-baselined subagent suppress an uncollected parent turn；真实Codex engine/native rollout/StateStore durable reload；fork/subagent使用生产Stop初始锚点，真实start基线不会污染未采集parent，正常会话/UUIDv7同毫秒/无task_started边界保留；Linux Rust1.99.1/glibc2.34/network-none，60history tests全过，strict workspace alltargets allfeatures通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "startup_baselined_subagent_never_suppresses_the_uncollected_parent_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3656:C5",
+            "title": "keeps probing after a startup baseline while copied history is still materializing",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps probing after a startup baseline while copied history is still materializing；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "startup_baseline_keeps_probing_while_copied_fork_history_is_materializing"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3707:C5",
+            "title": "rebuilds an owned turn that was already active at the startup fork baseline",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rebuilds an owned turn that was already active at the startup fork baseline；真实Input start/run/stop后的baseline完整active turnId/startOffset=baselineSize/model/cwd、无bootstrap；append terminal后copied=0/owned=1/全部active/pending/bootstrap清空。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+79targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "startup_rebuilds_an_owned_turn_already_active_at_the_fork_baseline"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3772:C5",
+            "title": "resumes a bounded owned-tail rebuild after restart",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resumes a bounded owned-tail rebuild after restart；17MiB/270×64KiB真实native rollout；修正初稿直接on_start的API阶段错误，使用真实Input.start首次runtime delta完成再stop。首轮exact BaselineTail/owned candidate/searchOffset<baselineEnd/无输出；StateStore durable save/load后真实start恢复active=model/cwd/startOffset=baselineEnd，清bootstrap；append后owned1/copied0。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+79targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "bounded_owned_tail_rebuild_resumes_after_durable_restart_without_exporting_history"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3857:C5",
+            "title": "uses a Hook that arrives before a startup baseline to anchor a later non-UUID turn",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses a Hook that arrives before a startup baseline to anchor a later non-UUID turn；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "hook_before_startup_baseline_anchors_later_non_uuid_owned_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3909:C5",
+            "title": "keeps a fork rollout pending until an initial-turn Hook arrives",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps a fork rollout pending until an initial-turn Hook arrives；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "non_uuid_fork_remains_pending_until_an_initial_turn_hook_exists"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3938:C5",
+            "title": "uses UUIDv7 causality to collect a same-millisecond first owned turn without any Hook",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses UUIDv7 causality to collect a same-millisecond first owned turn without any Hook；纠正先前仅first owned：加入复制parent session_meta、第二owned turn、首响应model=gpt-5.5/cwd=/tmp/p，旧parent=0/两个owned各1；UUIDv7首owned与owner同毫秒且无Hook。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "same_millisecond_uuidv7_causality_collects_first_owned_turn_without_any_hook"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3973:C5",
+            "title": "uses a later Stop turn only as recovery evidence and keeps earlier owned turns",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses a later Stop turn only as recovery evidence and keeps earlier owned turns；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "later_stop_turn_is_recovery_evidence_without_skipping_earlier_owned_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4186:C5",
+            "title": "accepts a session-matched initial anchor when transcript paths differ",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "accepts a session-matched initial anchor when transcript paths differ；真实soft-path anchor照常接受相同session，child turn=1/copied=0；native子进程真实WARN字段sessionId精确匹配，补main保留的canonical/lexical mismatch诊断。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "native_diagnostic_records_preserve_control_retry_resource_and_anchor_reasons"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4223:C5",
+            "title": "anchors at turn_context when task_started is absent",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "anchors at turn_context when task_started is absent；真实Codex engine/native rollout/StateStore durable reload；fork/subagent使用生产Stop初始锚点，真实start基线不会污染未采集parent，正常会话/UUIDv7同毫秒/无task_started边界保留；Linux Rust1.99.1/glibc2.34/network-none，60history tests全过，strict workspace alltargets allfeatures通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "hook_anchor_uses_turn_context_when_task_started_is_absent"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4316:C5",
+            "title": "resumes an exact-turn search when the Hook fires before task_started is appended",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resumes an exact-turn search when the Hook fires before task_started is appended；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "initial_hook_before_task_started_keeps_exact_turn_search_resumable"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4373:C5",
+            "title": "uses the Hook turn rather than historical settings markers in a recursive fork",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses the Hook turn rather than historical settings markers in a recursive fork；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "recursive_fork_uses_explicit_hook_turn_instead_of_historical_settings_markers"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4418:C5",
+            "title": "drops the copied ancestor prefix of a resume/fork rollout, keeps the child turn",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "drops the copied ancestor prefix of a resume/fork rollout, keeps the child turn；真实Codex engine/native rollout/StateStore durable reload；fork/subagent使用生产Stop初始锚点，真实start基线不会污染未采集parent，正常会话/UUIDv7同毫秒/无task_started边界保留；Linux Rust1.99.1/glibc2.34/network-none，60history tests全过，strict workspace alltargets allfeatures通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "fork_rollout_drops_copied_ancestor_prefix_and_emits_only_owned_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4443:C5",
+            "title": "drops the copied parent prefix of a subagent rollout, keeps the child turn",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "drops the copied parent prefix of a subagent rollout, keeps the child turn；真实Codex engine/native rollout/StateStore durable reload；fork/subagent使用生产Stop初始锚点，真实start基线不会污染未采集parent，正常会话/UUIDv7同毫秒/无task_started边界保留；Linux Rust1.99.1/glibc2.34/network-none，60history tests全过，strict workspace alltargets allfeatures通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "subagent_rollout_drops_copied_parent_prefix_and_emits_only_owned_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4468:C5",
+            "title": "locates a Hook-anchored turn across bounded 16 MiB scan windows",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "locates a Hook-anchored turn across bounded 16 MiB scan windows；33MiB/540×64KiB复制padding；第一搜索0<offset<=16MiB，durable reload第二轮first<offset<=32MiB且仍零输出，第三轮仅owned1/copied0且scanOffset>16MiB/无bootstrap；无减小生产window。 Linux Rust1.99.1/glibc2.34/network-none strict workspace/alltargets/allfeatures -Dwarnings+79targeted实际通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "hook_anchor_search_advances_in_bounded_sixteen_mib_windows_across_restart"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4529:C5",
+            "title": "does not skip a normal user session that has no copied prefix",
+            "suites": [
+              "CodexTranscriptInput",
+              "copied history prefix"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not skip a normal user session that has no copied prefix；真实Codex engine/native rollout/StateStore durable reload；fork/subagent使用生产Stop初始锚点，真实start基线不会污染未采集parent，正常会话/UUIDv7同毫秒/无task_started边界保留；Linux Rust1.99.1/glibc2.34/network-none，60history tests全过，strict workspace alltargets allfeatures通过；Windows/macOS未执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "normal_user_rollout_without_copied_prefix_is_never_skipped"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L4642:C3",
+            "title": "defaults allowed roots to ~/.codex",
+            "suites": [
+              "Codex transcript multimodal extraction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "defaults allowed roots to ~/.codex；真实Codex engine/Hook标记/rollout/StateStore，涉及启动者使用真实Input start/run/stop，未知initial turn保留精确search/offset，复制祖先全排除且owned精确计数，active/pending/bootstrap所有原source字段断言承接。Linux Rust1.99.1/glibc2.34/network-none：strict workspace/alltargets/allfeatures -Dwarnings与74 targeted全过；Windows/macOS未执行。 比较当前受控HOME或Windows USERPROFILE/.codex，仅读环境与路径函数，无真实HOME文件读取。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/inputs/codex-transcript/input/engine_history.rs",
+                "test": "default_codex_allowed_root_is_exactly_the_current_home_dot_codex"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
             "id": "L4646:C3",
             "title": "write-time converts input_image to uri parts and keeps text-only prompt",
             "suites": [
@@ -44085,8 +45157,8 @@
             ],
             "parameters": []
           },
-          "coverage": "partial",
-          "behavior": "collapses multiple Codex image wrappers and keeps non-wrapper text；真实生产engine/temp synthetic rollout、checkpoint文件和原生extractor/builder；Linux Rust1.99.1/glibc2.34严格Clippy与40 targeted通过，Windows/macOS未执行。 2026-11-01逐assert复读纠正：还需两URI逐对象原expected。 暂降partial，待下一严格补齐增量；已有测试通过不代表原case全部断言已承接。",
+          "coverage": "complete",
+          "behavior": "collapses multiple Codex image wrappers and keeps non-wrapper text；纠正先前不完整golden：两URI必须等于fakeBlob实际callback对原始精确base64/mime的返回值；四parts逐对象、顺序、text/mime/modality/uri完整比较。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
           "platforms": [
             "linux",
             "macos",
@@ -44137,8 +45209,8 @@
             ],
             "parameters": []
           },
-          "coverage": "partial",
-          "behavior": "write-time converts function_call_output input_image arrays to uri parts；真实生产engine/temp synthetic rollout、checkpoint文件和原生extractor/builder；Linux Rust1.99.1/glibc2.34严格Clippy与40 targeted通过，Windows/macOS未执行。 2026-11-01逐assert复读纠正：还需tool URI逐对象原expected。 暂降partial，待下一严格补齐增量；已有测试通过不代表原case全部断言已承接。",
+          "coverage": "complete",
+          "behavior": "write-time converts function_call_output input_image arrays to uri parts；纠正先前只比mime/type/URI前缀：tool image output完整数组逐对象等于callback URI、image/jpeg与modality=image，无额外字段。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
           "platforms": [
             "linux",
             "macos",
@@ -44163,8 +45235,8 @@
             ],
             "parameters": []
           },
-          "coverage": "partial",
-          "behavior": "gates user vs tool-result image conversion by uploadMode；真实生产engine/temp synthetic rollout、checkpoint文件和原生extractor/builder；Linux Rust1.99.1/glibc2.34严格Clippy与40 targeted通过，Windows/macOS未执行。 2026-11-01逐assert复读纠正：还需none/output完整parts与input/all精确URI位置。 暂降partial，待下一严格补齐增量；已有测试通过不代表原case全部断言已承接。",
+          "coverage": "complete",
+          "behavior": "gates user vs tool-result image conversion by uploadMode；none/output完整user parts必须只有look文本；input/all第1位置精确URI对象；工具输入结果input/all整数组精确URI，output为数组且无URI，所有mode禁止原base64。 Linux Rust1.99.1/glibc2.34/network-none：修补后strict workspace/alltargets/allfeatures -Dwarnings与64 targeted全部通过；Windows/macOS未执行。",
           "platforms": [
             "linux",
             "macos",
@@ -46309,6 +47381,2647 @@
               {
                 "file": "src/updater/updater_contract_tests.rs",
                 "test": "current_version_resolution_uses_real_pointer_and_explicitly_refuses_node_legacy_fallback"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy": "tests/unit/inputs/qoder-trace-input.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "source_hash": "f9611c24046b13a249fe82d2883deadc64bb7bced347c0e0a4308edd224f668a",
+      "note": "四批97/97声明精确映射，无retire；固定source/hash/AST id/title/suites/parameters。仅Linux执行，Windows/macOS为适用范围。 主工作区六个真实integration目标共97项已通过，包含URI/lookup精确断言追补。",
+      "cases": [
+        {
+          "source": {
+            "id": "L112:C5",
+            "title": "injects tokens without moving only one side of an incomplete Hook interval",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "injects tokens without moving only one side of an incomplete Hook interval；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 5000；[0, 'gen_ai.usage.output_tokens'] toBe 200；[0, 'gen_ai.usage.cache_read.input_tokens'] toBe 3000；[0, 'time_unix_nano'] toBe \"1780000002030000000\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l112"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L142:C5",
+            "title": "preserves an already-valid Hook LLM interval",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves an already-valid Hook LLM interval；静态抽取固定原始输入与逐项断言：[1, 'gen_ai.usage.input_tokens'] toBe 5000；[0, 'time_unix_nano'] toBe \"1780000001000000000\"；[1, 'time_unix_nano'] toBe \"1780000002030000000\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l142"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L176:C5",
+            "title": "only writes tokens to first response of same response.id (thinking+text)",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "only writes tokens to first response of same response.id (thinking+text)；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 10000；[0, 'gen_ai.usage.output_tokens'] toBe 500；[1, 'gen_ai.usage.input_tokens'] toBe 0；[1, 'gen_ai.usage.output_tokens'] toBe 0",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l176"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L202:C5",
+            "title": "injects real model name from segment into llm.request and llm.response",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "injects real model name from segment into llm.request and llm.response；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.request.model'] toBe \"ultimate\"；[1, 'gen_ai.request.model'] toBe \"ultimate\"；[1, 'gen_ai.response.model'] toBe \"ultimate\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l202"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L228:C5",
+            "title": "does not override model when segment model is empty or unknown",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not override model when segment model is empty or unknown；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.request.model'] toBe \"auto\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l228"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L250:C5",
+            "title": "handles no matching segments gracefully",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "handles no matching segments gracefully；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBeUndefined",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l250"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L260:C5",
+            "title": "uses intercept by response id when the segment request id is different",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses intercept by response id when the segment request id is different；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 1200；[0, 'gen_ai.usage.output_tokens'] toBe 80；[0, 'gen_ai.usage.cache_read.input_tokens'] toBe 900；[0, 'gen_ai.usage.total_tokens'] toBe 1280",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l260"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L285:C5",
+            "title": "gives intercept usage priority over non-zero segment and existing usage",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "gives intercept usage priority over non-zero segment and existing usage；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 1200；[0, 'gen_ai.usage.output_tokens'] toBe 80；[0, 'gen_ai.usage.cache_read.input_tokens'] toBe 900；[0, 'gen_ai.usage.total_tokens'] toBe 1280",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l285"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L316:C5",
+            "title": "uses segment only as fallback and does not replace existing positive usage",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses segment only as fallback and does not replace existing positive usage；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 700；[0, 'gen_ai.usage.output_tokens'] toBe 30；[0, 'gen_ai.usage.total_tokens'] toBe 730",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l316"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L346:C5",
+            "title": "uses the newest valid intercept record and derives total when absent",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses the newest valid intercept record and derives total when absent；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 150；[0, 'gen_ai.usage.output_tokens'] toBe 20；[0, 'gen_ai.usage.total_tokens'] toBe 170",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l346"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L362:C5",
+            "title": "preserves per-tool hook timing when CLI segment timing has no tool ID",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves per-tool hook timing when CLI segment timing has no tool ID；静态抽取固定原始输入与逐项断言：[1, 'time_unix_nano'] toBe \"1780000000201000000\"；[2, 'time_unix_nano'] toBe \"1780000004201000000\"；[2, 'gen_ai.tool.call.duration'] toBe 4000 JS Number断言按数值比较，Rust可选字段直接断言None；缺失原始时间以空String表示而非伪装JS undefined。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l362"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L410:C5",
+            "title": "maps vendor stop_reason spellings onto the OTel finish_reason enum",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "maps vendor stop_reason spellings onto the OTel finish_reason enum；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "token_l410_vendor_finish_spellings"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L430:C5",
+            "title": "leaves finish_reasons absent for stop_reasons outside the enum",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "leaves finish_reasons absent for stop_reasons outside the enum；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "token_l430_unknown_and_mid_turn_reasons_remain_absent"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L440:C5",
+            "title": "never emits a finish_reason the trace validator rejects",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by response completion time)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "never emits a finish_reason the trace validator rejects；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "token_l440_enriched_finish_reason_belongs_to_frozen_validator_enum"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L456:C5",
+            "title": "pairs on the client request id even when the clocks are far apart",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by agent.client_request_id)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "pairs on the client request id even when the clocks are far apart；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 5000；[0, 'time_unix_nano'] toBe \"1780000032000000000\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l456"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L483:C5",
+            "title": "keeps near-simultaneous responses on their own segments",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by agent.client_request_id)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps near-simultaneous responses on their own segments；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 100；[1, 'gen_ai.usage.input_tokens'] toBe 200；[0, 'time_unix_nano'] toBe \"1780000000010000000\"；[1, 'time_unix_nano'] toBe \"1780000000012000000\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l483"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L515:C5",
+            "title": "falls back to the timestamp pass for entries without the id",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by agent.client_request_id)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "falls back to the timestamp pass for entries without the id；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 100；[1, 'gen_ai.usage.input_tokens'] toBe 200",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l515"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L544:C5",
+            "title": "does not let the timestamp pass re-consume an exactly matched segment",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by agent.client_request_id)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not let the timestamp pass re-consume an exactly matched segment；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 100；[1, 'gen_ai.usage.input_tokens'] toBeUndefined；[1, 'time_unix_nano'] toBe \"1780000000020000000\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l544"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L578:C5",
+            "title": "does not fall back to proximity when the exact key found no segment",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by agent.client_request_id)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not fall back to proximity when the exact key found no segment；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBeUndefined；[0, 'time_unix_nano'] toBe \"1780000002000000000\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l578"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L603:C5",
+            "title": "takes usage from a segment with unparseable timestamps without moving any clock",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by agent.client_request_id)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "takes usage from a segment with unparseable timestamps without moving any clock；静态抽取固定原始输入与逐项断言：[1, 'gen_ai.usage.input_tokens'] toBe 5000；[0, 'time_unix_nano'] toBe \"1780000099000000000\"；[1, 'time_unix_nano'] toBe \"1780000099000000000\"；[2, 'time_unix_nano'] toBe \"1780000099000000000\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l603"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L642:C5",
+            "title": "joins a zero-usage segment for its timestamps",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by agent.client_request_id)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "joins a zero-usage segment for its timestamps；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 700；[0, 'time_unix_nano'] toBe \"1780000002000000000\"；[1, 'time_unix_nano'] toBe \"1780000000000000000\"",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l642"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L672:C5",
+            "title": "consumes two segments when two response groups share one client request id",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn (segment paired by agent.client_request_id)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "consumes two segments when two response groups share one client request id；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.usage.input_tokens'] toBe 100；[1, 'gen_ai.usage.input_tokens'] toBe 200",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l672"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L698:C5",
+            "title": "does not request segment for optional model, finish, or tool timing gaps",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "conditional CLI segment fallback"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not request segment for optional model, finish, or tool timing gaps；静态抽取固定原始输入与逐项断言：['@needs_fallback'] toBe false",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l698"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L726:C5",
+            "title": "requests segment when usage remains missing",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "conditional CLI segment fallback"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requests segment when usage remains missing；静态抽取固定原始输入与逐项断言：['@needs_fallback'] toBe true",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l726"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L738:C5",
+            "title": "requests segment when the Hook LLM interval is zero-width despite valid usage",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "conditional CLI segment fallback"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "requests segment when the Hook LLM interval is zero-width despite valid usage；静态抽取固定原始输入与逐项断言：['@needs_fallback'] toBe true",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l738"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L756:C5",
+            "title": "keeps tool timing untouched when segment is read only for missing usage",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "conditional CLI segment fallback"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps tool timing untouched when segment is read only for missing usage；静态抽取固定原始输入与逐项断言：[0, 'time_unix_nano'] toBe \"1780000000000000000\"；[1, 'time_unix_nano'] toBe \"1780000001000000000\"；[2, 'time_unix_nano'] toBeUndefined；[3, 'time_unix_nano'] toBeUndefined；[3, 'gen_ai.tool.call.duration'] toBeUndefined JS Number断言按数值比较，Rust可选字段直接断言None；缺失原始时间以空String表示而非伪装JS undefined。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l756"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L796:C5",
+            "title": "switches tool timing together with an invalid Hook LLM interval",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "conditional CLI segment fallback"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "switches tool timing together with an invalid Hook LLM interval；静态抽取固定原始输入与逐项断言：[0, 'time_unix_nano'] toBe \"1780000000000000000\"；[1, 'time_unix_nano'] toBe \"1780000002000000000\"；[2, 'time_unix_nano'] toBe \"1780000002000000000\"；[3, 'time_unix_nano'] toBe \"1780000003500000000\"；[3, 'gen_ai.tool.call.duration'] toBe 1500 JS Number断言按数值比较，Rust可选字段直接断言None；缺失原始时间以空String表示而非伪装JS undefined。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l796"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L835:C5",
+            "title": "does not replace a concrete Hook model while filling other gaps",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "conditional CLI segment fallback"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not replace a concrete Hook model while filling other gaps；静态抽取固定原始输入与逐项断言：[0, 'gen_ai.request.model'] toBe \"hook-model\"；[1, 'gen_ai.request.model'] toBe \"hook-model\"；[1, 'gen_ai.response.model'] toBe \"hook-model\"；[1, 'gen_ai.usage.total_tokens'] toBe 120",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_cli_history.rs",
+                "test": "cli_l835"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L866:C5",
+            "title": "matches IDE turns by session request order and assistant order without timestamp proximity",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (SQLite structure match)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "matches IDE turns by session request order and assistant order without timestamp proximity；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l866"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L948:C5",
+            "title": "aggregates extra SQLite calls into the last response when assistant counts differ",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (SQLite structure match)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "aggregates extra SQLite calls into the last response when assistant counts differ；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l948"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1005:C5",
+            "title": "preserves hook tool status and per-ID timing during SQLite enrichment",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (SQLite structure match)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "preserves hook tool status and per-ID timing during SQLite enrichment；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1005"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1094:C5",
+            "title": "starts a later request after the latest preceding tool result",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (SQLite structure match)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "starts a later request after the latest preceding tool result；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1094"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1157:C5",
+            "title": "keeps the next request after its predecessors when the SQLite clock is earlier",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (SQLite structure match)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "keeps the next request after its predecessors when the SQLite clock is earlier；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1157"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1208:C5",
+            "title": "orders adjacent steps when SQLite responses share the same millisecond",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (SQLite structure match)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "orders adjacent steps when SQLite responses share the same millisecond；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1208"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1263:C5",
+            "title": "matches SQLite rows by timestamp within 1000ms",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (timestamp-based fallback)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "matches SQLite rows by timestamp within 1000ms；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1263"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1286:C5",
+            "title": "injects SQLite model key into matching IDE request and response entries",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (timestamp-based fallback)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "injects SQLite model key into matching IDE request and response entries；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1286"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1320:C5",
+            "title": "does not match if timestamp difference exceeds the fallback window (5000ms)",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (timestamp-based fallback)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not match if timestamp difference exceeds the fallback window (5000ms)；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1320"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1342:C5",
+            "title": "matches within the widened window (2000ms, previously rejected)",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (timestamp-based fallback)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "matches within the widened window (2000ms, previously rejected)；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1342"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1363:C5",
+            "title": "handles empty SQLite data gracefully",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichIdeTurn (timestamp-based fallback)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "handles empty SQLite data gracefully；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "ide_l1363"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1376:C5",
+            "title": "injects system prompt into first llm.request with step_id",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn with systemPrompt"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "injects system prompt into first llm.request with step_id；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "token_l1376_system_prompt_targets_first_stepped_request_only"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1402:C5",
+            "title": "does not inject system prompt when undefined",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "enrichCliTurn with systemPrompt"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not inject system prompt when undefined；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "token_l1402_absent_system_prompt_does_not_inject"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1427:C5",
+            "title": "generates same trace_id for all events in a turn",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "injectTraceId"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "generates same trace_id for all events in a turn；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "token_l1427_one_turn_has_one_valid_trace_id"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1442:C5",
+            "title": "different turn groups get different trace_ids",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "injectTraceId"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "different turn groups get different trace_ids；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "token_l1442_distinct_turns_have_distinct_trace_ids"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1454:C5",
+            "title": "does nothing for empty array",
+            "suites": [
+              "QoderTraceInput token-enricher",
+              "injectTraceId"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does nothing for empty array；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "token_l1454_empty_trace_injection_is_a_noop"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1461:C3",
+            "title": "reads segment only after primary enrichment leaves a critical gap",
+            "suites": [
+              "QoderTraceInput conditional segment reads"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "reads segment only after primary enrichment leaves a critical gap；逐项原断言原生执行，无retire。实际Hook JSONL采集，reader调用0→1、expected IDs原序、两组usage与时间精确比较，64次fresh分组，原HashMap反序红灯已保留。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_collect_history.rs",
+                "test": "collect_l1461_segments_only_after_primary_gap_in_source_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1629:C3",
+            "title": "includes tmp, vibe_images, and IDE cache/images in default roots",
+            "suites": [
+              "QoderTraceInput multimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "includes tmp, vibe_images, and IDE cache/images in default roots；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "roots_l1629_default_paths_include_tmp_vibe_and_ide_images"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1641:C3",
+            "title": "merges user-configured roots with defaults",
+            "suites": [
+              "QoderTraceInput multimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "merges user-configured roots with defaults；实际执行原生enricher/公共helper，保留原始断言。SQLite11项逐输入与45个原断言静态提取，纳秒顺序按i128对照旧BigInt，不使用f64时钟近似。 原20pass/1fail实证~/Documents未被规范化，复用现有merge_allowed_root_paths修复后通过。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_ide_history.rs",
+                "test": "roots_l1641_custom_roots_are_canonicalized_together_with_defaults"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1649:C5",
+            "title": "parses Read and ImageGen tool result paths",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "extractToolImagePaths / extractMarkdownImagePaths"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "parses Read and ImageGen tool result paths；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "extract_l1649_tool_result_paths"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1658:C5",
+            "title": "parses markdown image paths",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "extractToolImagePaths / extractMarkdownImagePaths"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "parses markdown image paths；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "extract_l1658_markdown_paths"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1665:C5",
+            "title": "parses markdown destinations and joins relative paths with cwd",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "extractToolImagePaths / extractMarkdownImagePaths"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "parses markdown destinations and joins relative paths with cwd；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。任意绝对/proj cwd替换为原生临时绝对路径，七个相对/绝对/标题/空格断言关系不变，支持平台路径表示。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "extract_l1665_destinations_and_cwd"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1684:C5",
+            "title": "scans long non-matching markdown prefixes in linear time and still finds a later path",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "extractToolImagePaths / extractMarkdownImagePaths"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "scans long non-matching markdown prefixes in linear time and still finds a later path；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "extract_l1684_long_prefix_linear_bound"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1692:C5",
+            "title": "caps extracted markdown and tool paths at MAX_MULTIMODAL_PARTS",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "extractToolImagePaths / extractMarkdownImagePaths"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "caps extracted markdown and tool paths at MAX_MULTIMODAL_PARTS；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "extract_l1692_caps_paths"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1711:C7",
+            "title": "attaches paths onto llm.request messages_delta by request_id",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "attaches paths onto llm.request messages_delta by request_id；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1711_request_and_metadata"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1740:C7",
+            "title": "attaches shared request_id images only onto the first llm.request",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "attaches shared request_id images only onto the first llm.request；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1740_shared_id_only_first"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1773:C7",
+            "title": "uploadMode gates input attach: output skips; all enriches",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uploadMode gates input attach: output skips; all enriches；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1773_input_gate"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1799:C7",
+            "title": "attaches paths to both llm.request and the same-turn other",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "attaches paths to both llm.request and the same-turn other；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1799_request_and_other_share_conversion"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1825:C7",
+            "title": "does not consume request_id when only other can take the uri",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not consume request_id when only other can take the uri；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1825_other_only_does_not_consume"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1861:C7",
+            "title": "batches multiple request_ids and only enriches matching rows",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "batches multiple request_ids and only enriches matching rows；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1861_batch_ids_match_rows"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1906:C7",
+            "title": "skips when request_id missing or map is empty",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "skips when request_id missing or map is empty；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1906_missing_id_empty_map_skip"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1922:C7",
+            "title": "caps persistent lookup failures at three attempts and still processes tool surface",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "caps persistent lookup failures at three attempts and still processes tool surface；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1922_persistent_failure_three_attempts_tool_survives"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1952:C7",
+            "title": "retries a lookup exception and attaches when the next query recovers",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retries a lookup exception and attaches when the next query recovers；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1952_exception_then_recovery"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L1976:C7",
+            "title": "falls back to same-turn carrier when only llm.response has request_id",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "falls back to same-turn carrier when only llm.response has request_id；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l1976_response_only_id_falls_back"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2006:C7",
+            "title": "after attach, same request_id is neither re-queried nor re-attached",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "after attach, same request_id is neither re-queried nor re-attached；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2006_done_not_queried_or_attached"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2036:C7",
+            "title": "only queries uncached request_ids when a batch mixes done and new ids",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "only queries uncached request_ids when a batch mixes done and new ids；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2036_queries_only_new_ids"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2075:C7",
+            "title": "synthesizes a uri-only llm.request when sqlite has images but no user carrier",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "synthesizes a uri-only llm.request when sqlite has images but no user carrier；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2075_synthetic_request_and_done"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2121:C7",
+            "title": "uses the user chat_message clock on the synthetic request when it is earlier than Stop",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uses the user chat_message clock on the synthetic request when it is earlier than Stop；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2121_earlier_user_clock"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2141:C7",
+            "title": "inherits shared context and strips response-only fields on the synthetic request",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "inherits shared context and strips response-only fields on the synthetic request；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2141_context_and_response_field_projection"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2200:C7",
+            "title": "derives the same synthetic event.id when the same response is replayed",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "derives the same synthetic event.id when the same response is replayed；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2200_replay_deterministic_id"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2220:C7",
+            "title": "drops the synthetic request when pathToUri fails",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "drops the synthetic request when pathToUri fails；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2220_failure_drops_synthetic_restores_start"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2233:C7",
+            "title": "caches a confirmed empty lookup and does not re-query",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "caches a confirmed empty lookup and does not re-query；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2233_confirmed_empty_cached"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2250:C7",
+            "title": "retries an absent row within the same event and attaches when it appears",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal",
+              "attached image paths (mocked sqlite map)"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "retries an absent row within the same event and attaches when it appears；逐项原断言原生执行，无retire。受控异步SQLite map/错误/恢复序列，真实临时文件URI适配器；缓存隔离、重试、首carrier/sibling、合成和字段投影均实际执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_attachments.rs",
+                "test": "attached_l2250_absent_row_retried_same_event"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2274:C5",
+            "title": "rewrites Image file tool.result to text+uri parts",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rewrites Image file tool.result to text+uri parts；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2274_tool_result_text_uri"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2291:C5",
+            "title": "caps pathToUri attempts for missing tool images",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "caps pathToUri attempts for missing tool images；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2291_caps_failed_attempts"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2303:C5",
+            "title": "parses ImageGen success path",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "parses ImageGen success path；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2303_imagegen"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2319:C5",
+            "title": "uploadMode gates tool.result: output skips; input enriches",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uploadMode gates tool.result: output skips; input enriches；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2319_tool_result_gate"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2339:C5",
+            "title": "rewrites Read tool.call file_path to text+uri parts",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "rewrites Read tool.call file_path to text+uri parts；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2339_read_arguments"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2359:C5",
+            "title": "uploadMode gates tool.call: input skips; output enriches",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uploadMode gates tool.call: input skips; output enriches；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2359_tool_call_gate"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2380:C5",
+            "title": "does not extract tool.call file_path unless the tool is Read",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not extract tool.call file_path unless the tool is Read；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2380_only_read"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2400:C5",
+            "title": "output mode resolves relative markdown images against agent.qoder.cwd",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "output mode resolves relative markdown images against agent.qoder.cwd；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2400_relative_output_cwd"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2421:C5",
+            "title": "output mode appends uri parts for markdown images on llm.response",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "output mode appends uri parts for markdown images on llm.response；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2421_output_uri_metadata"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2445:C5",
+            "title": "uploadMode gates output markdown: input skips; all enriches",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uploadMode gates output markdown: input skips; all enriches；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2445_output_gate"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2467:C5",
+            "title": "both mode converts tool+output surfaces",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "both mode converts tool+output surfaces；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2467_all_surfaces"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2488:C5",
+            "title": "uploadMode none / missing paths / toUri null leave entries unchanged",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "uploadMode none / missing paths / toUri null leave entries unchanged；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2488_none_missing_null_noop"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2515:C5",
+            "title": "caps converted images at MAX_MULTIMODAL_PARTS",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "caps converted images at MAX_MULTIMODAL_PARTS；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2515_caps_conversion"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2539:C5",
+            "title": "does not throw when pathToUri throws; entries remain processable",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "does not throw when pathToUri throws; entries remain processable；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2539_fallible_adapter"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2556:C5",
+            "title": "skips a throwing path and still converts later images with metadata",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "enrichIdeMultimodal"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "skips a throwing path and still converts later images with metadata；原生执行保留原始业务断言。提取/IDE富化通过原生模块；file回调按临时文件内容返回URI，错误路径返回Result::Err，对应JS异步throw。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_surfaces.rs",
+                "test": "surface_l2556_continue_after_failure"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2586:C5",
+            "title": "never uploads attachments for an excluded IDE workspace",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "IDE gate via collect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "never uploads attachments for an excluded IDE workspace；原生执行保留原始业务断言。真实隔离Hook JSONL→HostedInput→InputManager→JsonlFlusher，processor读取临时真实PNG；上传器仅内存，不连接外部服务。禁用侧验证输入实际emit；pending/deadline测试使用受控适配器。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_pipeline.rs",
+                "test": "collect_l2586_excluded_ide_never_converts_or_emits"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2613:C5",
+            "title": "converts IDE and CLI tool Image file paths and preserves invocation attributes",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "IDE gate via collect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "converts IDE and CLI tool Image file paths and preserves invocation attributes；原生执行保留原始业务断言。真实隔离Hook JSONL→HostedInput→InputManager→JsonlFlusher，processor读取临时真实PNG；上传器仅内存，不连接外部服务。禁用侧验证输入实际emit；pending/deadline测试使用受控适配器。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_pipeline.rs",
+                "test": "collect_l2613_ide_cli_image_and_invocation_reach_jsonl"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2680:C5",
+            "title": "collect inserts the synthetic request before its response on the user chat_message clock",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "IDE gate via collect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "collect inserts the synthetic request before its response on the user chat_message clock；逐项原断言原生执行，无retire。真实SQLite只读投影→Qoder HostedInput→InputManager→最终JSONL，校验合成request先于response、纳秒时钟、trace/boundary和生产GenAiEventLogConverter LLM span恰5秒；上传器仅内存。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_pipeline.rs",
+                "test": "collect_l2680_real_sqlite_synthetic_clock_order_jsonl_and_llm_duration"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2757:C5",
+            "title": "skips JetBrains qoder-idea sessions and still converts desktop IDE",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "IDE gate via collect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "skips JetBrains qoder-idea sessions and still converts desktop IDE；原生执行保留原始业务断言。真实隔离Hook JSONL→HostedInput→InputManager→JsonlFlusher，processor读取临时真实PNG；上传器仅内存，不连接外部服务。禁用侧验证输入实际emit；pending/deadline测试使用受控适配器。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_pipeline.rs",
+                "test": "collect_l2757_jetbrains_skipped_desktop_enriched"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2816:C5",
+            "title": "collect still returns text when pathToUri never resolves",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "IDE gate via collect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "collect still returns text when pathToUri never resolves；原生执行保留原始业务断言。真实隔离Hook JSONL→HostedInput→InputManager→JsonlFlusher，processor读取临时真实PNG；上传器仅内存，不连接外部服务。禁用侧验证输入实际emit；pending/deadline测试使用受控适配器。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_pipeline.rs",
+                "test": "collect_l2816_timed_out_adapter_preserves_text"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2864:C5",
+            "title": "resumes image enrichment after stop then start",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "IDE gate via collect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "resumes image enrichment after stop then start；原生执行保留原始业务断言。真实隔离Hook JSONL→HostedInput→InputManager→JsonlFlusher，processor读取临时真实PNG；上传器仅内存，不连接外部服务。禁用侧验证输入实际emit；pending/deadline测试使用受控适配器。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_pipeline.rs",
+                "test": "collect_l2864_stop_then_start_resumes_images"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2918:C5",
+            "title": "stop finishes while a collect cycle is blocked on never-resolving pathToUri",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "IDE gate via collect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "stop finishes while a collect cycle is blocked on never-resolving pathToUri；原生执行保留原始业务断言。真实隔离Hook JSONL→HostedInput→InputManager→JsonlFlusher，processor读取临时真实PNG；上传器仅内存，不连接外部服务。禁用侧验证输入实际emit；pending/deadline测试使用受控适配器。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_pipeline.rs",
+                "test": "collect_l2918_stop_releases_pending_path_adapter"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L2970:C5",
+            "title": "drops agent.qoder.attachments before emit",
+            "suites": [
+              "QoderTraceInput multimodal",
+              "IDE gate via collect"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "drops agent.qoder.attachments before emit；原生执行保留原始业务断言。真实隔离Hook JSONL→HostedInput→InputManager→JsonlFlusher，processor读取临时真实PNG；上传器仅内存，不连接外部服务。禁用侧验证输入实际emit；pending/deadline测试使用受控适配器。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_multimodal_pipeline.rs",
+                "test": "collect_l2970_attachment_carrier_stripped_off_and_on"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3032:C3",
+            "title": "consumes every session batch created after startup with an empty history",
+            "suites": [
+              "QoderTraceInput bootstrap history filtering"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "consumes every session batch created after startup with an empty history；逐项原断言原生执行，无retire。隔离HostedInput/StateStore，保留原批次/offset/完整行/半行及所有计数断言；真实外部源不发现不读取。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_collect_history.rs",
+                "test": "history_l3032_empty_start_preserves_later_batches"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3079:C3",
+            "title": "protects every later old-session batch after the global file state is initialized",
+            "suites": [
+              "QoderTraceInput bootstrap history filtering"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "protects every later old-session batch after the global file state is initialized；逐项原断言原生执行，无retire。隔离HostedInput/StateStore，保留原批次/offset/完整行/半行及所有计数断言；真实外部源不发现不读取。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_collect_history.rs",
+                "test": "history_l3079_initialized_file_protects_later_old_sessions"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L3125:C3",
+            "title": "separates physical reads from complete unique records and preserves a half line",
+            "suites": [
+              "QoderTraceInput runtime metrics"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "separates physical reads from complete unique records and preserves a half line；逐项原断言原生执行，无retire。隔离HostedInput/StateStore，保留原批次/offset/完整行/半行及所有计数断言；真实外部源不发现不读取。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/qoder_trace_collect_history.rs",
+                "test": "runtime_l3125_physical_complete_records_and_half_line"
               }
             ]
           }

@@ -247,6 +247,11 @@ impl InputManager {
         *slot = Some(processor);
     }
 
+    /// Share the initialized processor with inputs that resolve local image paths.
+    pub fn multimodal_processor(&self) -> Option<Arc<MultimodalProcessor>> {
+        self.multimodal.lock().expect("multimodal").clone()
+    }
+
     /// Actual usable multimodal origin; delegated discovery may still be waiting.
     pub fn multimodal_storage_base_path(&self) -> Option<String> {
         let processor = self.multimodal.lock().expect("multimodal").clone();

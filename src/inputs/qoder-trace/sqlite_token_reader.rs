@@ -148,6 +148,14 @@ pub async fn read_sqlite_tokens(session_id: &str, db_paths: &[String]) -> Sqlite
 pub async fn read_attached_image_paths_for_request_ids(
     request_ids: &[String],
 ) -> HashMap<String, AttachedImageLookup> {
+    read_attached_image_paths(request_ids, &resolve_all_qoder_db_paths()).await
+}
+
+/// Read the same attachment projection from explicitly selected read-only databases.
+pub async fn read_attached_image_paths(
+    request_ids: &[String],
+    db_paths: &[String],
+) -> HashMap<String, AttachedImageLookup> {
     let logger = create_logger("SqliteTokenReader");
     let mut result = HashMap::new();
     let unique: Vec<String> = {
@@ -161,7 +169,6 @@ pub async fn read_attached_image_paths_for_request_ids(
     if unique.is_empty() {
         return result;
     }
-    let db_paths = resolve_all_qoder_db_paths();
     if db_paths.is_empty() {
         return result;
     }
@@ -171,7 +178,7 @@ pub async fn read_attached_image_paths_for_request_ids(
     );
     let params: Vec<Value> = unique.iter().cloned().map(Value::String).collect();
     for db_path in db_paths {
-        let rows = match query_readonly(&db_path, &sql, &params).await {
+        let rows = match query_readonly(db_path, &sql, &params).await {
             Ok(rows) => rows,
             Err(err) => {
                 logger.debug(

@@ -3,6 +3,7 @@
 use super::{InterceptTokenData, SegmentTokenData, SqliteTokenData};
 use crate::normalization::normalize_finish_reason;
 use crate::types::AgentActivityEntry;
+use indexmap::IndexMap;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -360,8 +361,10 @@ struct ResponseGroup {
     client_request_id: Option<String>,
 }
 
-fn response_groups(entries: &[AgentActivityEntry]) -> HashMap<String, ResponseGroup> {
-    let mut groups = HashMap::new();
+fn response_groups(entries: &[AgentActivityEntry]) -> IndexMap<String, ResponseGroup> {
+    // Native response order decides which occurrence consumes a shared client
+    // request's next segment, matching the original JavaScript Map contract.
+    let mut groups = IndexMap::new();
     for (index, entry) in entries.iter().enumerate() {
         if !is_name(entry, "llm.response") {
             continue;

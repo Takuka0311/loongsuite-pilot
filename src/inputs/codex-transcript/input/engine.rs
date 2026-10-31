@@ -1195,6 +1195,43 @@ impl<'a> CodexTranscriptEngine<'a> {
         } else {
             ready.clone()
         };
+        if terminal && entries.is_empty() {
+            let diagnostics = json!({
+                "sourceRecordCount": records.items.len(),
+                "stepCount": extraction.turn.steps.len(),
+                "toolCount": extraction.turn.steps.iter().map(|step| step.tools.len()).sum::<usize>(),
+                "tokenUsageCount": extraction.turn.steps.iter().filter(|step| step.token_usage.is_some()).count(),
+                "unmatchedTokenUsageCount": extraction.turn.unmatched_token_usages.len(),
+                "builtEntryCount": built.entries.len(),
+                "readyEntryCount": ready.len(),
+                "deduplicatedEntryCount": ready.len().saturating_sub(entries.len()),
+                "emittedEntryCount": entries.len(),
+                "previouslyEmittedStepCount": active.emitted_step_count,
+            });
+            let meta = json!({
+                "transcriptPath": file_path,
+                "turnId": active.turn_id,
+                "terminalStatus": extraction.turn.status.as_str(),
+                "diagnostics": diagnostics,
+            });
+            if built.entries.is_empty() {
+                rt.debug(
+                    "processed terminal Codex turn without observable entries",
+                    meta.as_object(),
+                );
+            } else if !ready.is_empty() && ready.len() == ready.len().saturating_sub(entries.len())
+            {
+                rt.debug(
+                    "terminal Codex turn entries were already emitted incrementally",
+                    meta.as_object(),
+                );
+            } else {
+                rt.warn(
+                    "processed terminal Codex turn produced no explainable new entries",
+                    meta.as_object(),
+                );
+            }
+        }
         if let Some(active) = checkpoint.active_turn.as_mut() {
             active.emitted_step_count += closed as u64;
             if closed > 0 {
@@ -1806,7 +1843,7 @@ impl<'a> CodexTranscriptEngine<'a> {
             });
         }
         let marker = self
-            .read_wakeup_marker(&owner_meta.thread_id, file_path)
+            .read_wakeup_marker(rt, &owner_meta.thread_id, file_path)
             .await;
         let mut bootstrap = current;
         if marker
@@ -2048,6 +2085,22 @@ fn apply_tail_line(candidate: &mut Option<CodexActiveTranscriptTurn>, line: &Jso
     }
 }
 
+fn lexical_absolute_path(path: &str) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    let absolute = std::path::absolute(path).ok()?;
+    let mut normalized = std::path::PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    Some(normalized)
+}
+
 struct WakeupMarker {
     initial_turn_id: Option<String>,
     recovery_turn_id: Option<String>,
@@ -2057,6 +2110,7 @@ struct WakeupMarker {
 impl<'a> CodexTranscriptEngine<'a> {
     async fn read_wakeup_marker(
         &self,
+        rt: &InputRuntime,
         session_id: &str,
         transcript_path: &str,
     ) -> Option<WakeupMarker> {
@@ -2068,7 +2122,29 @@ impl<'a> CodexTranscriptEngine<'a> {
         if string_value(record.get("session_id")) != Some(session_id) {
             return None;
         }
-        let _ = transcript_path;
+        if let Some(recorded) = string_value(record.get("transcript_path")) {
+            let canonical = tokio::try_join!(
+                tokio::fs::canonicalize(recorded),
+                tokio::fs::canonicalize(transcript_path)
+            );
+            let reason = match canonical {
+                Ok((recorded_real, transcript_real)) if recorded_real != transcript_real => Some(
+                    "Codex wakeup transcript path differs from discovered session file; accepting session anchor",
+                ),
+                Err(_) if lexical_absolute_path(recorded) != lexical_absolute_path(transcript_path) => Some(
+                    "Codex wakeup transcript path could not be canonicalized; accepting session anchor",
+                ),
+                _ => None,
+            };
+            if let Some(reason) = reason {
+                let meta = json!({
+                    "sessionId": session_id,
+                    "recordedTranscriptPath": recorded,
+                    "transcriptPath": transcript_path,
+                });
+                rt.warn(reason, meta.as_object());
+            }
+        }
         Some(WakeupMarker {
             initial_turn_id: string_value(record.get("initial_turn_id")).map(str::to_owned),
             recovery_turn_id: string_value(record.get("recovery_turn_id")).map(str::to_owned),
@@ -2269,8 +2345,20 @@ impl<'a> CodexTranscriptEngine<'a> {
                 }
             });
             if warn {
-                // The runtime logger is not available here; discovery still caps the set.
-                let _ = dropped;
+                let host = self
+                    .body
+                    .host
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner())
+                    .as_ref()
+                    .and_then(std::sync::Weak::upgrade);
+                if let Some(host) = host {
+                    let meta = json!({"dropped":dropped,"cap":MAX_DYNAMIC_SESSION_DIRS});
+                    host.runtime.warn(
+                        "Codex dynamic session root limit reached within scanned markers",
+                        meta.as_object(),
+                    );
+                }
             }
         }
         session_dirs

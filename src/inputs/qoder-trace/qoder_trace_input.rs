@@ -6,6 +6,7 @@
 //! unmatched. Multimodal upload is invoked only when a `path_to_uri` callback
 //! is supplied; the processor itself lives outside this inputs port.
 
+use super::multimodal::{PathToUri, QoderMultimodal};
 use super::{
     collect_cli_expected_request_ids, enrich_cli_from_segments, enrich_cli_primary,
     enrich_ide_turn, inject_trace_id, is_idea_db_path, needs_cli_segment_fallback,
@@ -16,17 +17,47 @@ use crate::inputs::base::{
     build_canonical_hook_entry, create_hook_history_startup_checkpoint,
     filter_bootstrap_history_turns, CanonicalHookRecordOptions, InputBody, InputRuntime,
 };
+use crate::multimodal::{MultimodalProcessor, PathToUriOptions};
 use crate::normalization::enrich_canonical_entry_with_git;
 use crate::types::{AgentActivityEntry, ClientType, CollectionMethod, MultimodalUploadMode};
 use crate::utils::{
     directory_exists, ensure_dir, get_today_date_string, resolve_home, DEFAULT_POLL_INTERVAL_MS,
 };
 use async_trait::async_trait;
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+/// Injectable native readers keep embedded inputs and isolated fixture sources
+/// on the same collection path. Normal construction uses all production readers.
+#[async_trait]
+pub trait QoderTraceReaders: Send + Sync {
+    async fn read_cli_intercept(&self) -> super::InterceptData {
+        read_intercept_data(None, None).await
+    }
+    async fn read_cli_segments(
+        &self,
+        session: &str,
+        expected: &[String],
+    ) -> Vec<super::SegmentTokenData> {
+        read_segment_tokens_for_session(session, expected, QODER_SEGMENTS_ROOT).await
+    }
+    async fn read_ide_tokens(&self, session: &str) -> super::SqliteTokenResult {
+        read_sqlite_tokens_for_session(session).await
+    }
+    async fn read_ide_images(
+        &self,
+        ids: &[String],
+    ) -> Result<HashMap<String, super::AttachedImageLookup>, String> {
+        Ok(super::read_attached_image_paths_for_request_ids(ids).await)
+    }
+}
+struct NativeQoderTraceReaders;
+#[async_trait]
+impl QoderTraceReaders for NativeQoderTraceReaders {}
 
 pub struct QoderTraceOptions {
     pub state_store: Arc<crate::checkpoints::StateStore>,
@@ -43,8 +74,14 @@ pub struct QoderTraceInput {
 
 pub struct QoderTraceBody {
     log_dir: String,
-    stopped: AtomicBool,
+    stopped: Arc<AtomicBool>,
+    stop_notify: Arc<tokio::sync::Notify>,
     allowed_roots: Vec<String>,
+    multimodal_enabled: bool,
+    upload_mode: MultimodalUploadMode,
+    path_to_uri: Mutex<Option<PathToUri>>,
+    multimodal: QoderMultimodal,
+    readers: Arc<dyn QoderTraceReaders>,
 }
 
 impl QoderTraceInput {
@@ -67,14 +104,29 @@ impl QoderTraceInput {
     }
 
     pub fn new(opts: QoderTraceOptions) -> Self {
+        Self::with_readers(opts, Arc::new(NativeQoderTraceReaders))
+    }
+
+    pub fn with_readers(opts: QoderTraceOptions, readers: Arc<dyn QoderTraceReaders>) -> Self {
         let enabled = opts.multimodal_enabled;
+        let image_readers = Arc::clone(&readers);
+        let multimodal = QoderMultimodal::with_lookup(Arc::new(move |ids| {
+            let readers = Arc::clone(&image_readers);
+            Box::pin(async move { readers.read_ide_images(&ids).await })
+        }));
         Self {
             inner: crate::inputs::base::HostedInput::new(
                 QoderTraceBody {
                     log_dir: opts
                         .log_dir
                         .unwrap_or_else(|| resolve_home("~/.loongsuite-pilot/logs/qoder/history")),
-                    stopped: AtomicBool::new(false),
+                    stopped: Arc::new(AtomicBool::new(false)),
+                    stop_notify: Arc::new(tokio::sync::Notify::new()),
+                    multimodal_enabled: enabled,
+                    upload_mode: opts.upload_mode.unwrap_or(MultimodalUploadMode::None),
+                    path_to_uri: Mutex::new(None),
+                    multimodal,
+                    readers,
                     allowed_roots: if enabled {
                         resolve_qoder_allowed_root_paths(&opts.allowed_root_paths)
                     } else {
@@ -86,6 +138,63 @@ impl QoderTraceInput {
                 opts.poll_interval_ms.or(Some(DEFAULT_POLL_INTERVAL_MS)),
             ),
         }
+    }
+
+    /// Attach the configured shared processor; path policy stays on every call.
+    pub fn set_multimodal_processor(&self, processor: Arc<MultimodalProcessor>) {
+        let roots = self.inner.body.allowed_roots.clone();
+        let callback: PathToUri = Arc::new(move |path, time| {
+            let processor = Arc::clone(&processor);
+            let roots = roots.clone();
+            Box::pin(async move {
+                Ok(processor
+                    .path_to_uri(
+                        &path,
+                        Some(time as f64),
+                        PathToUriOptions {
+                            allowed_root_paths: Some(roots),
+                            deadline_ms: None,
+                        },
+                    )
+                    .await)
+            })
+        });
+        self.set_multimodal_handler(callback);
+    }
+
+    /// Embedders can provide the same fallible async URI adapter as the shared processor.
+    pub fn set_multimodal_handler(&self, callback: PathToUri) {
+        let stopped = Arc::clone(&self.inner.body.stopped);
+        let notify = Arc::clone(&self.inner.body.stop_notify);
+        let guarded: PathToUri = Arc::new(move |path, time| {
+            let callback = Arc::clone(&callback);
+            let stopped = Arc::clone(&stopped);
+            let notify = Arc::clone(&notify);
+            Box::pin(async move {
+                let stopping = notify.notified();
+                tokio::pin!(stopping);
+                stopping.as_mut().enable();
+                if stopped.load(Ordering::SeqCst) {
+                    return Ok(None);
+                }
+                let result = tokio::select! {
+                    biased;
+                    _=stopping=>Ok(None),
+                    result=callback(path,time)=>result,
+                };
+                if stopped.load(Ordering::SeqCst) {
+                    Ok(None)
+                } else {
+                    result
+                }
+            })
+        });
+        *self
+            .inner
+            .body
+            .path_to_uri
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(guarded);
     }
 
     pub async fn start(&self) -> Result<(), String> {
@@ -138,18 +247,10 @@ pub fn qoder_default_allowed_root_paths() -> Vec<String> {
 }
 
 pub fn resolve_qoder_allowed_root_paths(user_paths: &[String]) -> Vec<String> {
-    let mut merged = Vec::new();
-    for raw in qoder_default_allowed_root_paths()
-        .into_iter()
-        .chain(user_paths.iter().cloned())
-    {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() || merged.iter().any(|existing| existing == trimmed) {
-            continue;
-        }
-        merged.push(trimmed.to_owned());
-    }
-    merged
+    crate::multimodal::resolve::merge_allowed_root_paths(
+        &qoder_default_allowed_root_paths(),
+        Some(user_paths),
+    )
 }
 
 #[async_trait]
@@ -169,6 +270,12 @@ impl InputBody for QoderTraceBody {
     }
     fn before_stop(&self) {
         self.stopped.store(true, Ordering::SeqCst);
+        self.stop_notify.notify_waiters();
+    }
+
+    async fn on_stop(&self, _rt: &InputRuntime) -> anyhow::Result<()> {
+        self.multimodal.clear_cache();
+        Ok(())
     }
 
     async fn on_start(&self, rt: &InputRuntime) -> anyhow::Result<()> {
@@ -214,7 +321,7 @@ impl InputBody for QoderTraceBody {
             if variant == "qoder-cli" {
                 if let Some(session) = session {
                     if intercept.is_none() {
-                        intercept = Some(read_intercept_data(None, None).await);
+                        intercept = Some(self.readers.read_cli_intercept().await);
                     }
                     let data = intercept.as_ref().unwrap();
                     let mut slice: Vec<AgentActivityEntry> =
@@ -254,8 +361,7 @@ impl InputBody for QoderTraceBody {
                     collect_cli_expected_request_ids(&slice)
                 })
                 .collect::<Vec<_>>();
-            let segments =
-                read_segment_tokens_for_session(session, &expected, QODER_SEGMENTS_ROOT).await;
+            let segments = self.readers.read_cli_segments(session, &expected).await;
             for indexes in turns {
                 let mut slice: Vec<AgentActivityEntry> =
                     indexes.iter().map(|index| raw[*index].clone()).collect();
@@ -267,14 +373,14 @@ impl InputBody for QoderTraceBody {
         }
         for indexes in ide_sessions.values() {
             let session = raw[indexes[0]].session_id.clone();
-            let mut result = read_sqlite_tokens_for_session(&session).await;
+            let mut result = self.readers.read_ide_tokens(&session).await;
             let mut probe: Vec<AgentActivityEntry> =
                 indexes.iter().map(|index| raw[*index].clone()).collect();
             enrich_ide_turn(&mut probe, &result.rows);
             if needs_ide_retry(&probe) && !self.stopped.load(Ordering::SeqCst) {
                 tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
                 if !self.stopped.load(Ordering::SeqCst) {
-                    let retry = read_sqlite_tokens_for_session(&session).await;
+                    let retry = self.readers.read_ide_tokens(&session).await;
                     if retry.rows.len() >= result.rows.len() {
                         result = retry;
                         probe = indexes.iter().map(|index| raw[*index].clone()).collect();
@@ -294,6 +400,82 @@ impl InputBody for QoderTraceBody {
             }
         }
         rt.with_workspace_policy(|policy| policy.preflight_entries(&raw, ClientType::QoderCli));
+        let callback = self
+            .path_to_uri
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if self.multimodal_enabled && self.upload_mode != MultimodalUploadMode::None {
+            if let Some(callback) = callback {
+                let mut synthetic = Vec::new();
+                for indexes in ide_sessions.values() {
+                    if self.stopped.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let permitted = rt.with_workspace_policy(|policy| {
+                        indexes
+                            .iter()
+                            .all(|index| policy.allows_entry(&raw[*index], ClientType::QoderCli))
+                    });
+                    if !permitted
+                        || indexes
+                            .iter()
+                            .any(|index| raw[*index].agent_type == "qoder-idea")
+                    {
+                        continue;
+                    }
+                    let mut entries = indexes
+                        .iter()
+                        .map(|index| raw[*index].clone())
+                        .collect::<Vec<_>>();
+                    self.multimodal
+                        .enrich_ide(&mut entries, self.upload_mode, &callback)
+                        .await;
+                    for (position, index) in indexes.iter().enumerate() {
+                        raw[*index] = entries[position].clone();
+                    }
+                    synthetic.extend(entries.into_iter().skip(indexes.len()));
+                }
+                // Keep original indexes valid until both enrichment passes finish.
+                for indexes in groups.values() {
+                    if self.stopped.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if infer_variant(&raw, indexes) != "qoder-cli" {
+                        continue;
+                    }
+                    let permitted = rt.with_workspace_policy(|policy| {
+                        indexes
+                            .iter()
+                            .all(|index| policy.allows_entry(&raw[*index], ClientType::QoderCli))
+                    });
+                    if !permitted {
+                        continue;
+                    }
+                    let mut entries = indexes
+                        .iter()
+                        .map(|index| raw[*index].clone())
+                        .collect::<Vec<_>>();
+                    self.multimodal
+                        .enrich_cli(&mut entries, self.upload_mode, &callback)
+                        .await;
+                    for (position, index) in indexes.iter().enumerate() {
+                        raw[*index] = entries[position].clone();
+                    }
+                }
+                for entry in synthetic {
+                    let at = raw
+                        .iter()
+                        .position(|candidate| {
+                            candidate.event_name == Some(crate::types::AgentEventName::LlmResponse)
+                                && candidate.turn_id == entry.turn_id
+                                && candidate.request_id == entry.request_id
+                        })
+                        .unwrap_or(raw.len());
+                    raw.insert(at, entry);
+                }
+            }
+        }
         for entry in &mut raw {
             entry.extra.remove("agent.qoder.attachments");
         }
@@ -305,7 +487,6 @@ impl InputBody for QoderTraceBody {
                 raw[*index] = slice[pos].clone();
             }
         }
-        let _ = &self.allowed_roots;
         Ok(raw)
     }
 }
@@ -353,34 +534,58 @@ async fn read_hook_jsonl(
         return Ok(Vec::new());
     }
     rt.with_accumulator(|acc| acc.observe_backlog(meta.len().saturating_sub(offset as u64)));
+    let read_started = std::time::Instant::now();
     let Some(slice) =
         crate::inputs::base::read_file_slice(path.to_string_lossy().as_ref(), offset as u64)
             .await?
     else {
         return Ok(Vec::new());
     };
+    rt.with_accumulator(|acc| {
+        acc.observe_read(
+            slice.bytes.len() as u64,
+            slice.size.saturating_sub(offset as u64),
+            read_started.elapsed().as_secs_f64() * 1000.0,
+        )
+    });
     let Some(newline) = slice.bytes.iter().rposition(|byte| *byte == b'\n') else {
         return Ok(Vec::new());
     };
     let complete_len = newline + 1;
     rt.set_state_fields(Some(name), Some(offset + complete_len as f64), None);
-    let text = String::from_utf8_lossy(&slice.bytes[..complete_len]);
     let mut entries = Vec::new();
-    for line in text.split('\n') {
+    let mut batch = crate::inputs::base::CommittedInputBatch {
+        bytes: complete_len as u64,
+        records: 0,
+        parse_success_records: 0,
+        parse_failed_records: 0,
+        max_record_bytes: 0,
+    };
+    // Count source bytes before lossy decoding; UTF-8 and half lines must not
+    // turn a physical read into committed records or inflate a record's size.
+    for bytes in slice.bytes[..complete_len].split_inclusive(|byte| *byte == b'\n') {
+        let line = String::from_utf8_lossy(bytes);
         if line.trim().is_empty() {
             continue;
         }
-        let Ok(record) = serde_json::from_str::<Value>(line) else {
-            rt.warn("invalid JSONL line", None);
-            continue;
+        batch.records += 1;
+        batch.max_record_bytes = batch.max_record_bytes.max(bytes.len() as u64);
+        let record = match serde_json::from_str::<Value>(&line) {
+            Ok(Value::Object(record)) => {
+                batch.parse_success_records += 1;
+                record
+            }
+            _ => {
+                batch.parse_failed_records += 1;
+                rt.warn("invalid JSONL line", None);
+                continue;
+            }
         };
-        let Some(record) = record.as_object() else {
-            continue;
-        };
-        if let Some(entry) = transform_record(record).await {
+        if let Some(entry) = transform_record(&record).await {
             entries.push(entry);
         }
     }
+    rt.with_accumulator(|acc| acc.observe_committed_batch(batch));
     Ok(filter_bootstrap_history_turns(entries))
 }
 
@@ -397,8 +602,9 @@ async fn transform_record(record: &Map<String, Value>) -> Option<AgentActivityEn
     Some(entry)
 }
 
-fn group_by_turn(entries: &[AgentActivityEntry]) -> HashMap<String, Vec<usize>> {
-    let mut groups = HashMap::new();
+fn group_by_turn(entries: &[AgentActivityEntry]) -> IndexMap<String, Vec<usize>> {
+    // Source JS Map order determines per-session expected IDs and IDE turn joins.
+    let mut groups = IndexMap::new();
     for (index, entry) in entries.iter().enumerate() {
         let turn = entry
             .turn_id
