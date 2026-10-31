@@ -1628,6 +1628,18 @@ impl Orchestrator {
                                     "Codex replay privacy context is unavailable".to_string()
                                 })
                         });
+                        let manager = Arc::downgrade(&self.inputs);
+                        let journal = Arc::new(crate::flushers::DoubaoTurnJournal::new(
+                            self.data_dir_join("logs/doubao-pending-turns"),
+                        ));
+                        let flusher = flusher.with_doubao_journal(journal, move |entries| {
+                            manager
+                                .upgrade()
+                                .map(|manager| manager.prepare_restored_entries(entries))
+                                .ok_or_else(|| {
+                                    "Doubao replay privacy context is unavailable".to_string()
+                                })
+                        });
                         if let Err(error) = flusher.start().await {
                             let _ = flusher.shutdown().await;
                             for prior in &flushers {

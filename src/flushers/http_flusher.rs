@@ -112,6 +112,7 @@ impl BaseFlusher for HttpFlusher {
         _logical_bytes: Option<Vec<f64>>,
     ) -> Result<(), FlushError> {
         let mut codex = Vec::new();
+        let mut has_doubao = false;
         let mut ordinary = Vec::new();
         for entry in entries {
             let serialized = serialise_log_entry(&entry, &SerialiseLogEntryOptions::default());
@@ -119,6 +120,8 @@ impl BaseFlusher for HttpFlusher {
                 crate::utils::normalize_agent_type(&entry.agent_type).as_str(),
                 "codex" | "doubao-work"
             ) {
+                has_doubao |=
+                    crate::utils::normalize_agent_type(&entry.agent_type) == "doubao-work";
                 codex.push(serialized);
             } else {
                 ordinary.push(serialized);
@@ -137,7 +140,9 @@ impl BaseFlusher for HttpFlusher {
             self.inner.flush_buffer().await;
         }
         if !codex.is_empty() {
-            self.inner.accept_codex(codex).await?;
+            self.inner
+                .accept_tracked(codex, if has_doubao { "Doubao Work" } else { "Codex" })
+                .await?;
         }
         Ok(())
     }
@@ -185,33 +190,37 @@ impl BaseFlusher for HttpFlusher {
 }
 
 impl HttpInner {
-    async fn accept_codex(&self, entries: Vec<SerializedLogEntry>) -> Result<(), FlushError> {
+    async fn accept_tracked(
+        &self,
+        entries: Vec<SerializedLogEntry>,
+        owner: &str,
+    ) -> Result<(), FlushError> {
         let _gate = self.codex_gate.lock().await;
         let body = json!({"entries":entries.iter().map(string_map_value).collect::<Vec<_>>()});
         loop {
             let stopped = self.shutdown.notified();
             if self.stopped.load(Ordering::SeqCst) {
-                return Err(FlushError::codex_output("HTTP"));
+                return Err(FlushError::output_durability(owner, "HTTP"));
             }
             let result = tokio::select! {
                 biased;
-                _=stopped=>return Err(FlushError::codex_output("HTTP")),
+                _=stopped=>return Err(FlushError::output_durability(owner, "HTTP")),
                 result=self.post_value(&body)=>result,
             };
             if result.is_ok() {
                 return Ok(());
             }
             create_logger("HttpFlusher").warn(
-                "Codex batch retained for retry",
+                "Tracked batch retained for retry",
                 Some(&meta(&[("count", Value::from(entries.len()))])),
             );
             let stopped = self.shutdown.notified();
             if self.stopped.load(Ordering::SeqCst) {
-                return Err(FlushError::codex_output("HTTP"));
+                return Err(FlushError::output_durability(owner, "HTTP"));
             }
             tokio::select! {
                 biased;
-                _=stopped=>return Err(FlushError::codex_output("HTTP")),
+                _=stopped=>return Err(FlushError::output_durability(owner, "HTTP")),
                 _=tokio::time::sleep(Duration::from_millis(self.config.flush_interval_ms.max(1)))=>{},
             }
         }

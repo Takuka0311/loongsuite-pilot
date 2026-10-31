@@ -499,6 +499,26 @@ mod tests {
 
     #[test]
     fn returns_503_until_the_summary_exists_and_ignores_an_occupied_port() {
+        const TEST_NAME: &str = "dashboard::dashboard_server::tests::returns_503_until_the_summary_exists_and_ignores_an_occupied_port";
+        const CHILD: &str = "PILOT_ISOLATED_DASHBOARD_REBIND";
+        if std::env::var(CHILD).ok().as_deref() != Some(TEST_NAME) {
+            // Other parallel tests fork for privilege/process-tree contracts.
+            // Their children can briefly retain our occupied socket. Exercise
+            // exact release/rebind assertions in a process without those forks.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD, TEST_NAME)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(output.status.success(), "{output:?}");
+            assert!(stdout.contains(TEST_NAME), "{output:?}");
+            assert!(
+                stdout.contains("test result: ok. 1 passed; 0 failed"),
+                "{output:?}"
+            );
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let asset = dir.path().join("index.html");
         std::fs::write(&asset, "page").unwrap();

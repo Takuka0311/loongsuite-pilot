@@ -5,6 +5,7 @@ mod base_flusher;
 mod codex_turn_converter;
 mod codex_turn_journal;
 mod delegated_turn_converter;
+mod doubao_turn_journal;
 mod doubao_work_converter;
 mod doubao_work_round_converter;
 mod event_log_converter;
@@ -30,6 +31,10 @@ pub use base_flusher::{
 pub use codex_turn_converter::convert_codex_turn;
 pub use codex_turn_journal::{codex_turn_journal_group_key, CodexJournalReplay, CodexTurnJournal};
 pub use delegated_turn_converter::convert_delegated_turn;
+pub use doubao_turn_journal::{
+    doubao_turn_journal_group_key, DoubaoJournalReplay, DoubaoTurnJournal,
+    DOUBAO_PENDING_GROUP_MAX_BYTES,
+};
 pub use doubao_work_converter::convert_doubao_work_turn;
 pub use event_log_converter::GenAiEventLogConverter;
 pub use http_flusher::HttpFlusher;

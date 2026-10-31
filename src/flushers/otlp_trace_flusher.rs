@@ -211,6 +211,12 @@ struct CodexJournalContext {
     prepare: CodexReplayPrepare,
 }
 
+#[derive(Clone)]
+struct DoubaoJournalContext {
+    journal: Arc<super::DoubaoTurnJournal>,
+    prepare: CodexReplayPrepare,
+}
+
 struct OtlpBatch(Arc<OtlpInner>);
 
 impl OtlpBatch {
@@ -238,6 +244,8 @@ type TestConversionClock = Arc<dyn Fn() -> Instant + Send + Sync>;
 
 struct OtlpInner {
     codex_journal: Mutex<Option<CodexJournalContext>>,
+    doubao_journal: Mutex<Option<DoubaoJournalContext>>,
+    doubao_restore: tokio::sync::OnceCell<()>,
     journal_restore: tokio::sync::OnceCell<()>,
     acceptance: tokio::sync::Mutex<()>,
     cfg: OtlpTraceFlusherConfig,
@@ -352,6 +360,8 @@ impl OtlpTraceFlusher {
         let data_dir = cfg.data_dir.clone().unwrap_or_else(default_data_dir);
         let inner = Arc::new(OtlpInner {
             codex_journal: Mutex::new(None),
+            doubao_journal: Mutex::new(None),
+            doubao_restore: tokio::sync::OnceCell::new(),
             journal_restore: tokio::sync::OnceCell::new(),
             acceptance: tokio::sync::Mutex::new(()),
             enrichers: {
@@ -454,6 +464,25 @@ impl OtlpTraceFlusher {
         self
     }
 
+    pub fn with_doubao_journal(
+        self,
+        journal: Arc<super::DoubaoTurnJournal>,
+        prepare: impl Fn(Vec<AgentActivityEntry>) -> Result<Vec<AgentActivityEntry>, String>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        *self
+            .inner
+            .doubao_journal
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(DoubaoJournalContext {
+            journal,
+            prepare: Arc::new(prepare),
+        });
+        self
+    }
+
     pub fn endpoint_counters(&self) -> HashMap<String, OtlpEndpointCounter> {
         self.inner
             .state
@@ -531,15 +560,18 @@ impl BaseFlusher for OtlpTraceFlusher {
         let batch = OtlpBatch::new(&self.inner);
         let sizes = logical_bytes.filter(|sizes| sizes.len() == entries.len());
         {
-            let _acceptance = if entries
-                .iter()
-                .any(|entry| normalize_agent_type(&entry.agent_type) == "codex")
-            {
+            let _acceptance = if entries.iter().any(|entry| {
+                matches!(
+                    normalize_agent_type(&entry.agent_type).as_str(),
+                    "codex" | "doubao-work"
+                )
+            }) {
                 Some(self.inner.acceptance.lock().await)
             } else {
                 None
             };
             self.inner.persist_codex_entries(&entries).await?;
+            self.inner.persist_doubao_entries(&entries).await?;
             for (index, entry) in entries.into_iter().enumerate() {
                 self.inner
                     .send_entry(entry, sizes.as_ref().map(|sizes| sizes[index]))
@@ -559,7 +591,11 @@ impl BaseFlusher for OtlpTraceFlusher {
                 .lock()
                 .unwrap_or_else(|err| err.into_inner());
             for buffer in state.buffers.values_mut() {
-                if journaled && buffer.agent_type == "codex" && !buffer.completed {
+                if !buffer.completed
+                    && ((journaled && buffer.agent_type == "codex")
+                        || (self.inner.doubao_context().is_some()
+                            && buffer.agent_type == "doubao-work"))
+                {
                     continue;
                 }
                 buffer.completed = true;
@@ -618,6 +654,11 @@ impl BaseFlusher for OtlpTraceFlusher {
 }
 
 impl OtlpInner {
+    async fn ensure_started(self: &Arc<Self>) -> Result<(), FlushError> {
+        self.ensure_codex_started().await?;
+        self.ensure_doubao_started().await
+    }
+
     fn codex_context(&self) -> Option<CodexJournalContext> {
         self.codex_journal
             .lock()
@@ -625,7 +666,7 @@ impl OtlpInner {
             .clone()
     }
 
-    async fn ensure_started(self: &Arc<Self>) -> Result<(), FlushError> {
+    async fn ensure_codex_started(self: &Arc<Self>) -> Result<(), FlushError> {
         let Some(context) = self.codex_context() else {
             return Ok(());
         };
@@ -734,6 +775,131 @@ impl OtlpInner {
             .map_err(FlushError::codex_journal)
     }
 
+    fn doubao_context(&self) -> Option<DoubaoJournalContext> {
+        self.doubao_journal
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    async fn ensure_doubao_started(self: &Arc<Self>) -> Result<(), FlushError> {
+        let Some(context) = self.doubao_context() else {
+            return Ok(());
+        };
+        self.doubao_restore
+            .get_or_try_init(|| async {
+                let replay = context
+                    .journal
+                    .load(None)
+                    .await
+                    .map_err(FlushError::doubao_journal)?;
+                self.replay_doubao_journal(replay).await
+            })
+            .await
+            .map(|_| ())
+    }
+
+    async fn replay_doubao_journal(
+        self: &Arc<Self>,
+        mut replay: super::DoubaoJournalReplay,
+    ) -> Result<(), FlushError> {
+        let context = self.doubao_context().expect("journal replay context");
+        while let Some(group) = replay
+            .next_group()
+            .await
+            .map_err(FlushError::doubao_journal)?
+        {
+            let prepared = (context.prepare)(group.clone()).map_err(FlushError::doubao_journal)?;
+            if prepared.is_empty() {
+                context
+                    .journal
+                    .remove_entries(&group)
+                    .await
+                    .map_err(FlushError::doubao_journal)?;
+                continue;
+            }
+            let batch = OtlpBatch::new(self);
+            for entry in prepared {
+                self.send_entry(entry, None).await?;
+            }
+            drop(batch);
+            self.finish_batch().await?;
+        }
+        Ok(())
+    }
+
+    async fn persist_doubao_entries(
+        self: &Arc<Self>,
+        entries: &[AgentActivityEntry],
+    ) -> Result<(), FlushError> {
+        let Some(context) = self.doubao_context() else {
+            return Ok(());
+        };
+        let doubao: Vec<_> = entries
+            .iter()
+            .filter(|entry| {
+                normalize_agent_type(&entry.agent_type) == "doubao-work"
+                    && !super::trace_event_compat::is_agent_audit_event(entry)
+                    && entry_str(entry, "loongsuite.doubao_work.trace_role").as_deref()
+                        != Some("log_only")
+            })
+            .collect();
+        if doubao.iter().any(|entry| {
+            entry.event_id.is_empty() || super::doubao_turn_journal::trace_identity(entry).is_none()
+        }) {
+            return Err(FlushError::doubao_journal(
+                "trace fact has no stable native request/execution identity",
+            ));
+        }
+        let mut checked = HashSet::new();
+        for entry in &doubao {
+            let key = resolve_group_key(entry).2;
+            if !checked.insert(key.clone()) {
+                continue;
+            }
+            let resident = {
+                let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                state.buffers.contains_key(&key) || state.flushed.contains(&key)
+            };
+            if resident {
+                continue;
+            }
+            if context
+                .journal
+                .is_acknowledged(entry)
+                .await
+                .map_err(FlushError::doubao_journal)?
+            {
+                self.state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .flushed
+                    .insert(key);
+                continue;
+            }
+            let group = super::doubao_turn_journal_group_key(entry);
+            let replay = context
+                .journal
+                .load(Some(&group))
+                .await
+                .map_err(FlushError::doubao_journal)?;
+            self.replay_doubao_journal(replay).await?;
+        }
+        let pending: Vec<_> = {
+            let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            doubao
+                .into_iter()
+                .filter(|entry| !state.flushed.contains(&resolve_group_key(entry).2))
+                .cloned()
+                .collect()
+        };
+        context
+            .journal
+            .append(&pending)
+            .await
+            .map_err(FlushError::doubao_journal)
+    }
+
     async fn finish_batch(self: &Arc<Self>) -> Result<(), FlushError> {
         self.flush_completed().await?;
         self.trim_turn_buffers().await
@@ -761,7 +927,9 @@ impl OtlpInner {
                 .collect::<Vec<_>>()
         };
         for mut buffer in evicted {
-            if journaled && buffer.agent_type == "codex" {
+            if (journaled && buffer.agent_type == "codex")
+                || (buffer.agent_type == "doubao-work" && self.doubao_context().is_some())
+            {
                 self.record_removal(&buffer);
             } else {
                 buffer.completed = true;
@@ -869,21 +1037,33 @@ impl OtlpInner {
                 if buffer.session_id.is_none() {
                     buffer.session_id = incoming_session;
                 }
-                if agent_type == "copilot" && !entry.event_id.is_empty() {
+                let duplicate_doubao = agent_type == "doubao-work"
+                    && !entry.event_id.is_empty()
+                    && buffer.record_index.contains_key(&entry.event_id);
+                if matches!(agent_type.as_str(), "copilot" | "doubao-work")
+                    && !entry.event_id.is_empty()
+                {
                     if let Some(index) = buffer.record_index.get(&entry.event_id).copied() {
-                        let mut existing = entry_to_object(&buffer.records[index]);
-                        for (key, value) in entry_to_object(&entry) {
-                            if value.is_null() || value.as_str() == Some("") {
-                                continue;
+                        if agent_type == "doubao-work" {
+                            buffer.records[index] = super::doubao_turn_journal::merge_facts(
+                                &buffer.records[index],
+                                &entry,
+                            );
+                        } else {
+                            let mut existing = entry_to_object(&buffer.records[index]);
+                            for (key, value) in entry_to_object(&entry) {
+                                if value.is_null() || value.as_str() == Some("") {
+                                    continue;
+                                }
+                                if existing
+                                    .get(&key)
+                                    .is_none_or(|old| old.is_null() || old.as_str() == Some(""))
+                                {
+                                    existing.insert(key, value);
+                                }
                             }
-                            if existing
-                                .get(&key)
-                                .is_none_or(|old| old.is_null() || old.as_str() == Some(""))
-                            {
-                                existing.insert(key, value);
-                            }
+                            buffer.records[index] = entry_from_map(existing);
                         }
-                        buffer.records[index] = entry_from_map(existing);
                     } else {
                         buffer
                             .record_index
@@ -894,12 +1074,14 @@ impl OtlpInner {
                     buffer.records.push(entry.clone());
                 }
                 buffer.last_activity_ms = now;
-                if let Some(bytes) =
-                    logical_bytes.filter(|bytes| bytes.is_finite() && *bytes >= 0.0)
-                {
-                    buffer.logical_bytes += bytes;
-                } else {
-                    buffer.unmeasured_records += 1;
+                if !duplicate_doubao {
+                    if let Some(bytes) =
+                        logical_bytes.filter(|bytes| bytes.is_finite() && *bytes >= 0.0)
+                    {
+                        buffer.logical_bytes += bytes;
+                    } else {
+                        buffer.unmeasured_records += 1;
+                    }
                 }
                 if is_terminal_event(&entry) {
                     buffer.completed = true;
@@ -928,14 +1110,17 @@ impl OtlpInner {
         mut buffer: TurnBuffer,
         mark_flushed: bool,
     ) -> Result<(), FlushError> {
-        if mark_flushed {
+        let doubao = buffer.agent_type == "doubao-work";
+        if mark_flushed && !doubao {
             self.state
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .flushed
                 .insert(buffer.key.clone());
         }
-        self.record_removal(&buffer);
+        if !doubao {
+            self.record_removal(&buffer);
+        }
         if buffer.key_source != KeySource::TurnId {
             for record in &mut buffer.records {
                 if entry_str(record, "gen_ai.turn.id").is_none() {
@@ -946,6 +1131,35 @@ impl OtlpInner {
         let exported = self
             .convert_and_export(&buffer.agent_type, &buffer.records)
             .await;
+        if doubao {
+            if exported {
+                if let Some(context) = self.doubao_context() {
+                    context
+                        .journal
+                        .acknowledge(&buffer.records)
+                        .await
+                        .map_err(FlushError::doubao_journal)?;
+                }
+                self.state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .flushed
+                    .insert(buffer.key.clone());
+                self.record_removal(&buffer);
+            } else {
+                let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                state.flushed.remove(&buffer.key);
+                if self.doubao_context().is_some() {
+                    drop(state);
+                    // The accepted facts remain replayable in the fsync'ed journal.
+                    self.record_removal(&buffer);
+                } else {
+                    state.buffers.insert(buffer.key.clone(), buffer);
+                    return Err(FlushError::output_durability("Doubao Work", "OTLP"));
+                }
+            }
+            return Ok(());
+        }
         if exported && buffer.completed && buffer.agent_type == "codex" {
             if let Some(context) = self.codex_context() {
                 context
@@ -985,7 +1199,9 @@ impl OtlpInner {
             let mut completed = Vec::new();
             for key in keys {
                 if let Some(buffer) = state.buffers.shift_remove(&key) {
-                    state.flushed.insert(key);
+                    if buffer.agent_type != "doubao-work" {
+                        state.flushed.insert(key);
+                    }
                     completed.push(buffer);
                 }
             }
@@ -1036,7 +1252,9 @@ impl OtlpInner {
                 state.buffers.shift_remove(&key)
             };
             if let Some(mut buffer) = buffer {
-                if buffer.agent_type == "codex" && self.codex_context().is_some() {
+                if (buffer.agent_type == "codex" && self.codex_context().is_some())
+                    || (buffer.agent_type == "doubao-work" && self.doubao_context().is_some())
+                {
                     self.record_removal(&buffer);
                     continue;
                 }

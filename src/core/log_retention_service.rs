@@ -758,7 +758,10 @@ mod tests {
         let pending = dir
             .path()
             .join("logs/codex-pending-turns/group.pending.jsonl");
-        for path in [&output, &failed, &debug, &native, &pending] {
+        let doubao_pending = dir
+            .path()
+            .join("logs/doubao-pending-turns/group.pending.jsonl");
+        for path in [&output, &failed, &debug, &native, &pending, &doubao_pending] {
             sparse(path.clone());
         }
         let checkpoint = dir.path().join("logs/input-state.json");
@@ -770,6 +773,7 @@ mod tests {
         assert!(!output.exists() && !failed.exists() && !debug.exists());
         assert_eq!(std::fs::metadata(native).unwrap().len(), giant);
         assert_eq!(std::fs::metadata(pending).unwrap().len(), giant);
+        assert_eq!(std::fs::metadata(doubao_pending).unwrap().len(), giant);
         assert_eq!(
             std::fs::read_to_string(checkpoint).unwrap(),
             "{\"cursor\":42}"

@@ -10,6 +10,8 @@ pub enum FlushErrorKind {
     Other,
     CodexTurnJournal,
     CodexOutputDurability,
+    PendingTraceJournal,
+    OutputDurability,
 }
 
 #[derive(Debug)]
@@ -38,6 +40,27 @@ impl FlushError {
             message: format!("Codex pending trace journal failed: {error}"),
             kind: FlushErrorKind::CodexTurnJournal,
         }
+    }
+
+    pub fn output_durability(agent: &str, backend: &str) -> Self {
+        if agent == "Codex" {
+            return Self::codex_output(backend);
+        }
+        Self {
+            message: format!("{agent} output was not durably accepted by {backend}"),
+            kind: FlushErrorKind::OutputDurability,
+        }
+    }
+
+    pub fn pending_trace_journal(agent: &str, error: impl std::fmt::Display) -> Self {
+        Self {
+            message: format!("{agent} pending trace journal failed: {error}"),
+            kind: FlushErrorKind::PendingTraceJournal,
+        }
+    }
+
+    pub fn doubao_journal(error: impl std::fmt::Display) -> Self {
+        Self::pending_trace_journal("Doubao Work", error)
     }
 
     pub fn preserves_checkpoint(&self) -> bool {

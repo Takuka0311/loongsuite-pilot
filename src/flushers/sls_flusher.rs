@@ -345,8 +345,12 @@ impl BaseFlusher for SlsFlusher {
         entry: AgentActivityEntry,
         _logical_bytes: Option<f64>,
     ) -> Result<(), FlushError> {
-        if normalize_agent_type(&entry.agent_type) == "codex" {
-            return self.inner.accept_codex(std::slice::from_ref(&entry)).await;
+        let agent = normalize_agent_type(&entry.agent_type);
+        if matches!(agent.as_str(), "codex" | "doubao-work") {
+            return self
+                .inner
+                .accept_tracked(std::slice::from_ref(&entry))
+                .await;
         }
         self.inner.enqueue_entry(&entry).await;
         Ok(())
@@ -357,16 +361,17 @@ impl BaseFlusher for SlsFlusher {
         entries: Vec<AgentActivityEntry>,
         _logical_bytes: Option<Vec<f64>>,
     ) -> Result<(), FlushError> {
-        let mut codex = Vec::new();
+        let mut tracked: IndexMap<String, Vec<AgentActivityEntry>> = IndexMap::new();
         for entry in entries {
-            if normalize_agent_type(&entry.agent_type) == "codex" {
-                codex.push(entry);
+            let agent = normalize_agent_type(&entry.agent_type);
+            if matches!(agent.as_str(), "codex" | "doubao-work") {
+                tracked.entry(agent).or_default().push(entry);
             } else {
                 Arc::clone(&self.inner).enqueue_entry(&entry).await;
             }
         }
-        if !codex.is_empty() {
-            self.inner.accept_codex(&codex).await?;
+        for group in tracked.values() {
+            self.inner.accept_tracked(group).await?;
         }
         Ok(())
     }
@@ -397,10 +402,16 @@ impl BaseFlusher for SlsFlusher {
 }
 
 impl SlsInner {
-    async fn accept_codex(
+    async fn accept_tracked(
         self: &Arc<Self>,
         entries: &[AgentActivityEntry],
     ) -> Result<(), FlushError> {
+        let agent = normalize_agent_type(&entries[0].agent_type);
+        let owner = if agent == "codex" {
+            "Codex"
+        } else {
+            "Doubao Work"
+        };
         let serialized: Vec<_> = entries
             .iter()
             .map(|entry| {
@@ -429,7 +440,7 @@ impl SlsInner {
                         byte_size: json_utf8_len(&content),
                         content,
                         endpoint: endpoint.clone(),
-                        agent_type: "codex".into(),
+                        agent_type: agent.clone(),
                     }
                 })
                 .collect();
@@ -449,7 +460,7 @@ impl SlsInner {
                 let _permit = capacity
                     .acquire_owned()
                     .await
-                    .expect("Codex output capacity remains open");
+                    .expect("tracked output capacity remains open");
                 inner.flush_bucket(&logs).await
             });
         }
@@ -460,7 +471,7 @@ impl SlsInner {
         if accepted {
             Ok(())
         } else {
-            Err(FlushError::codex_output("SLS"))
+            Err(FlushError::output_durability(owner, "SLS"))
         }
     }
 
