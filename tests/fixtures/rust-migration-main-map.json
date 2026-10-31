@@ -2740,6 +2740,614 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/status-bar/metrics-summary-writer.test.ts",
+      "coverage": "complete",
+      "rust": [],
+      "note": "当前冻结main完整23声明（含1个two-row参数表，共24场景），覆盖rotation/retention/retired inode/race/oversize/两类事件名/保留replacement-truncation等新增合同。oversize实际3GiB测试限Unix，Windows该性能/磁盘元数据执行仍须单独验收。 2026-10-31 Linux glibc2.34/Rust1.99.1：全workspace1894项通过，再补实际conversion/整数JSON+protobuf/独立MD5/OpenClaw专项；依赖版本不降级。Windows/macOS尚待各自实际平台验证，platforms表示合同适用范围。Node专属机制逐项明示退役，仅只读与诊断保护保留原生合同。",
+      "source_hash": "7143906e530460f9d09efdce8a3383ff2157eaa737cdefb12b743217fbfe3125",
+      "cases": [
+        {
+          "source": {
+            "id": "L108:C3",
+            "title": "generates metrics-summary.json from JSONL files",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：generates metrics-summary.json from JSONL files",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "summary_schema_custom_output_and_daily_trend_are_real_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L137:C3",
+            "title": "transfers scanned offsets on rotation without double counting during the rename gap",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：transfers scanned offsets on rotation without double counting during the rename gap",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "rename_gap_retention_and_retired_inode_resumption_do_not_double_count"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L154:C3",
+            "title": "preserves counted tokens when retention removes a segment before the next refresh",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：preserves counted tokens when retention removes a segment before the next refresh",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "rename_gap_retention_and_retired_inode_resumption_do_not_double_count"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L173:C3",
+            "title": "resumes a retired inode that later appears under its segment name without double counting",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：resumes a retired inode that later appears under its segment name without double counting",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "rename_gap_retention_and_retired_inode_resumption_do_not_double_count"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L193:C3",
+            "title": "retries a rotation between stat and open without attributing new-file bytes to the old inode",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：retries a rotation between stat and open without attributing new-file bytes to the old inode",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "stat_open_rotation_warns_without_attributing_new_bytes_to_the_old_inode"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L223:C3",
+            "title": "skips sparse oversized current and historical files before opening and preserves observed totals",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：skips sparse oversized current and historical files before opening and preserves observed totals；真实3GiB稀疏边界在Unix执行，不将此标成Windows实跑。",
+          "platforms": [
+            "linux",
+            "macos"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "oversized_current_and_historical_sources_keep_cached_totals_without_scanning"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L248:C3",
+            "title": "counts %s model/tool names equally without adding Agent delegation usage",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": [
+              "it.each([\n    ['historical', 'llm.request', 'llm.response', 'tool.call', 'tool.result'],\n    ['standard', 'gen_ai.model.request', 'gen_ai.model.response', 'gen_ai.tool.call', 'gen_ai.tool.result'],\n  ])"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：counts %s model/tool names equally without adding Agent delegation usage",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "standard_and_historical_names_count_execution_once_and_never_charge_delegation_usage"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L283:C3",
+            "title": "reads events from the configured JSONL output directory",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：reads events from the configured JSONL output directory",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "summary_schema_custom_output_and_daily_trend_are_real_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L298:C3",
+            "title": "waits for an in-flight refresh before stopping",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：waits for an in-flight refresh before stopping",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "stop_waits_for_real_inflight_refresh_and_no_later_refresh_runs"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L318:C3",
+            "title": "deduplicates sessions correctly",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：deduplicates sessions correctly",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "session_and_agent_grouping_keep_cross_file_sessions_deduplicated"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L336:C3",
+            "title": "groups by model correctly",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：groups by model correctly",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "model_provider_and_repo_shares_keep_exact_original_grouping_and_sort_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L371:C3",
+            "title": "groups by agent type correctly",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：groups by agent type correctly",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "session_and_agent_grouping_keep_cross_file_sessions_deduplicated"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L397:C3",
+            "title": "incremental scan: only reads new lines on second refresh",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：incremental scan: only reads new lines on second refresh",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "incremental_resume_corruption_rebuild_and_empty_directory_preserve_exact_totals"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L436:C3",
+            "title": "restores current-day aggregate state across writer restarts without rescanning",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：restores current-day aggregate state across writer restarts without rescanning",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "incremental_resume_corruption_rebuild_and_empty_directory_preserve_exact_totals"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L455:C3",
+            "title": "does not commit a trailing partial JSONL record",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：does not commit a trailing partial JSONL record",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_writer.rs",
+                "test": "incremental_scan_does_not_double_count_or_commit_partial_lines"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L483:C3",
+            "title": "counts a replacement inode without retracting already observed current-day events",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：counts a replacement inode without retracting already observed current-day events",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_writer.rs",
+                "test": "preserves_observed_statistics_across_replacement_and_truncation"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L520:C3",
+            "title": "counts new content after in-place truncation while retaining already observed events",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：counts new content after in-place truncation while retaining already observed events",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_writer.rs",
+                "test": "preserves_observed_statistics_across_replacement_and_truncation"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L549:C3",
+            "title": "falls back to one full rebuild when current-day state is corrupt",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：falls back to one full rebuild when current-day state is corrupt",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "incremental_resume_corruption_rebuild_and_empty_directory_preserve_exact_totals"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L569:C3",
+            "title": "finalizes the previous day including data appended after its last refresh",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：finalizes the previous day including data appended after its last refresh",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "persisted_previous_day_is_finalized_with_the_tail_written_after_last_refresh"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L601:C3",
+            "title": "handles empty output directory gracefully",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：handles empty output directory gracefully",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "incremental_resume_corruption_rebuild_and_empty_directory_preserve_exact_totals"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L611:C3",
+            "title": "builds dailyTokens trend data",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：builds dailyTokens trend data",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "summary_schema_custom_output_and_daily_trend_are_real_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L628:C3",
+            "title": "aggregates provider shares correctly",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：aggregates provider shares correctly",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "model_provider_and_repo_shares_keep_exact_original_grouping_and_sort_order"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L647:C3",
+            "title": "aggregates repo shares correctly",
+            "suites": [
+              "MetricsSummaryWriter"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "逐项保留可观察断言，真实JSONL/缓存/refresh/stop链路：aggregates repo shares correctly",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/status-bar/metrics_summary_migration_tests.rs",
+                "test": "model_provider_and_repo_shares_keep_exact_original_grouping_and_sort_order"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

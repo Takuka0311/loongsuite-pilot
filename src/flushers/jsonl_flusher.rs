@@ -265,3 +265,48 @@ mod tests {
         flusher.shutdown().await.unwrap();
     }
 }
+
+#[cfg(test)]
+mod migration_lifecycle_contracts {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn lifecycle_only_start_creates_missing_output_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("not-created/then-output");
+        let flusher = JsonlFlusher::with_today(
+            JsonlFlusherConfig {
+                enabled: true,
+                output_dir: missing.to_string_lossy().into_owned(),
+                rotate_daily: true,
+                max_file_size_mb: 100,
+            },
+            Arc::new(|| "2026-04-27".to_owned()),
+        );
+        flusher.flush().await.unwrap();
+        flusher.shutdown().await.unwrap();
+        assert!(
+            !missing.exists(),
+            "no-op lifecycle methods must not create storage"
+        );
+        flusher.start().await.unwrap();
+        assert!(missing.is_dir());
+        assert_eq!(std::fs::read_dir(&missing).unwrap().count(), 0);
+        flusher
+            .send(
+                crate::normalization::build_test_entry(
+                    &json!({"uuid":"after-start","agentType":"qoder"}),
+                ),
+                None,
+            )
+            .await
+            .unwrap();
+        let path = missing.join("qoder-2026-04-27.jsonl");
+        let original = std::fs::read(&path).unwrap();
+        flusher.flush().await.unwrap();
+        flusher.shutdown().await.unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(missing).unwrap().count(), 1);
+    }
+}

@@ -1958,11 +1958,186 @@ fn enrich_tool_skills(records: &[AgentActivityEntry], spans: &mut [ReadableSpan]
     }
 }
 
+#[derive(Default)]
+struct OpenClawLlmExtension {
+    reasoning: Option<Value>,
+    error_type: Option<String>,
+}
+
+fn enrich_openclaw_llm_attributes(records: &[AgentActivityEntry], spans: &mut [ReadableSpan]) {
+    let mut by_response = HashMap::new();
+    for record in records {
+        if record.event_name != Some(crate::types::AgentEventName::LlmResponse) {
+            continue;
+        }
+        let Some(response_id) = record
+            .response_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let reasoning = record
+            .get("gen_ai.usage.reasoning_tokens")
+            .filter(|value| value.as_f64().is_some_and(f64::is_finite))
+            .cloned();
+        by_response.insert(
+            response_id,
+            OpenClawLlmExtension {
+                reasoning,
+                error_type: record.error_type.clone().filter(|value| !value.is_empty()),
+            },
+        );
+    }
+    let mut total = 0_f64;
+    let mut saw_reasoning = false;
+    for span in spans.iter_mut() {
+        if span
+            .attributes
+            .get("gen_ai.span.kind")
+            .and_then(Value::as_str)
+            != Some("LLM")
+        {
+            continue;
+        }
+        let Some(extension) = span
+            .attributes
+            .get("gen_ai.response.id")
+            .and_then(Value::as_str)
+            .and_then(|id| by_response.get(id))
+        else {
+            continue;
+        };
+        if let Some(reasoning) = &extension.reasoning {
+            span.attributes
+                .insert("gen_ai.usage.reasoning_tokens".into(), reasoning.clone());
+            total += reasoning.as_f64().expect("finite reasoning was validated");
+            saw_reasoning = true;
+        }
+        if let Some(error_type) = &extension.error_type {
+            span.attributes
+                .insert("error.type".into(), Value::String(error_type.clone()));
+            span.status.insert("code".into(), Value::from(2));
+            span.status.insert(
+                "message".into(),
+                Value::String("OpenClaw model call failed".into()),
+            );
+        }
+    }
+    if !saw_reasoning {
+        return;
+    }
+    // The JS SDK encodes every Number.isInteger count as OTLP intValue.
+    // Preserve that wire kind for integral values representable by OTLP int64.
+    let total = if total.fract() == 0.0 && ((i64::MIN as f64)..-(i64::MIN as f64)).contains(&total)
+    {
+        Value::from(total as i64)
+    } else if let Some(total) = serde_json::Number::from_f64(total) {
+        Value::Number(total)
+    } else {
+        return;
+    };
+    for span in spans {
+        if span
+            .attributes
+            .get("gen_ai.span.kind")
+            .and_then(Value::as_str)
+            == Some("AGENT")
+        {
+            span.attributes
+                .insert("gen_ai.usage.reasoning_tokens".into(), total.clone());
+        }
+    }
+}
+
+#[derive(Default)]
+struct OpenClawToolExtension {
+    result_status: Option<String>,
+    error_type: Option<String>,
+    error_message: Option<String>,
+}
+
+fn enrich_openclaw_tool_attributes(records: &[AgentActivityEntry], spans: &mut [ReadableSpan]) {
+    let mut by_call = HashMap::new();
+    for record in records {
+        if record.event_name != Some(crate::types::AgentEventName::ToolResult) {
+            continue;
+        }
+        let Some(call_id) = record
+            .tool_call_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        by_call.insert(
+            call_id,
+            OpenClawToolExtension {
+                result_status: record
+                    .tool_result_status
+                    .clone()
+                    .filter(|value| !value.is_empty()),
+                error_type: record.error_type.clone().filter(|value| !value.is_empty()),
+                error_message: record
+                    .error_message
+                    .clone()
+                    .filter(|value| !value.is_empty()),
+            },
+        );
+    }
+    for span in spans {
+        if span
+            .attributes
+            .get("gen_ai.span.kind")
+            .and_then(Value::as_str)
+            != Some("TOOL")
+        {
+            continue;
+        }
+        let Some(extension) = span
+            .attributes
+            .get("gen_ai.tool.call.id")
+            .and_then(Value::as_str)
+            .and_then(|id| by_call.get(id))
+        else {
+            continue;
+        };
+        for (key, value) in [
+            ("tool.result.status", &extension.result_status),
+            ("error.type", &extension.error_type),
+            ("error.message", &extension.error_message),
+        ] {
+            if let Some(value) = value {
+                span.attributes
+                    .insert(key.into(), Value::String(value.clone()));
+            }
+        }
+        let failed = extension.error_type.is_some()
+            || extension.result_status.as_deref().is_some_and(|status| {
+                status.eq_ignore_ascii_case("failure") || status.eq_ignore_ascii_case("error")
+            });
+        if failed {
+            span.status.insert("code".into(), Value::from(2));
+            span.status.insert(
+                "message".into(),
+                Value::String(
+                    extension
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| "OpenClaw tool call failed".into()),
+                ),
+            );
+        }
+    }
+}
+
 fn enrich_openclaw(
     records: &[AgentActivityEntry],
     identity: &Map<String, Value>,
     spans: &mut [ReadableSpan],
 ) {
+    enrich_openclaw_llm_attributes(records, spans);
+    enrich_openclaw_tool_attributes(records, spans);
     for span in spans.iter_mut() {
         for (key, value) in identity {
             span.attributes.insert(key.clone(), value.clone());
@@ -3157,5 +3332,1557 @@ mod tests {
             calls[0][1].event_name,
             Some(crate::types::AgentEventName::LlmResponse)
         );
+    }
+
+    // Exact frozen TS config/grouping/counter declarations, no external endpoints.
+    mod migration_configuration_contracts {
+        use super::*;
+
+        #[test]
+        fn empty_or_absent_headers_complete_configuration_and_resource_attributes_construct() {
+            let dir = tempfile::tempdir().unwrap();
+            for headers in [None, Some(HashMap::new())] {
+                let mut endpoint = ep("primary", "http://localhost:4318");
+                endpoint.headers = headers;
+                let mut config = cfg(vec![endpoint]);
+                config.data_dir = Some(dir.path().to_string_lossy().into_owned());
+                let flusher = OtlpTraceFlusher::new(config).unwrap();
+                assert_eq!(flusher.name(), "otlp-trace");
+                assert!(flusher.inner.endpoints[0].headers.is_empty());
+            }
+
+            let mut arms = ep("arms", "http://localhost:4318/apm/trace/opentelemetry");
+            arms.headers = Some(HashMap::from([("x-arms-license-key".into(), "abc".into())]));
+            let mut config = cfg(vec![arms]);
+            config.data_dir = Some(dir.path().to_string_lossy().into_owned());
+            config.service_name = "loongsuite-pilot".into();
+            config.debug = Some(true);
+            config.turn_idle_timeout_ms = Some(0);
+            config.capture_message_content = Some(false);
+            config.resource_attributes = Some(
+                serde_json::from_value(json!({
+                    "acs.arms.service.feature": "genai_app", "custom.key": "val"
+                }))
+                .unwrap(),
+            );
+            let flusher = OtlpTraceFlusher::new(config).unwrap();
+            assert_eq!(flusher.name(), "otlp-trace");
+            assert_eq!(
+                flusher.inner.endpoints[0].headers["x-arms-license-key"],
+                "abc"
+            );
+            assert_eq!(
+                std::env::var("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT").unwrap(),
+                "SPAN_ONLY"
+            );
+            let resource =
+                flusher.resource_attributes("claude-code", "loongsuite-pilot-claude-code");
+            assert_eq!(resource["acs.arms.service.feature"], "genai_app");
+            assert_eq!(resource["custom.key"], "val");
+
+            let a = ep("a", "http://a:4318");
+            let mut b = ep("b", "http://b:4318");
+            b.headers = Some(HashMap::from([("x-arms-license-key".into(), "k".into())]));
+            let mut config = cfg(vec![a, b]);
+            config.data_dir = Some(dir.path().to_string_lossy().into_owned());
+            config.service_name = "loongsuite-pilot".into();
+            let flusher = OtlpTraceFlusher::new(config).unwrap();
+            assert_eq!(flusher.name(), "otlp-trace");
+            assert_eq!(flusher.inner.endpoints.len(), 2);
+            assert_eq!(flusher.inner.endpoints[0].name, "a");
+            assert_eq!(flusher.inner.endpoints[1].name, "b");
+            assert_eq!(
+                flusher.inner.endpoints[1].headers["x-arms-license-key"],
+                "k"
+            );
+        }
+
+        fn scoped() -> (tempfile::TempDir, OtlpTraceFlusher, Arc<RecConv>) {
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = cfg(vec![ep("primary", "http://unused:4318")]);
+            config.data_dir = Some(dir.path().to_string_lossy().into_owned());
+            let converter = Arc::new(RecConv {
+                calls: Mutex::new(Vec::new()),
+            });
+            let flusher =
+                OtlpTraceFlusher::with_parts(config, None, None, Some(converter.clone())).unwrap();
+            (dir, flusher, converter)
+        }
+
+        #[tokio::test]
+        async fn grouping_priority_uses_real_buffers_and_ephemeral_records_convert_immediately() {
+            let (_dir, flusher, converter) = scoped();
+            for (index, trace) in [
+                "4bf92f3577b34da6a3ce929d0e0e4736",
+                "aaaa2f3577b34da6a3ce929d0e0e4736",
+            ]
+            .iter()
+            .enumerate()
+            {
+                flusher
+                    .send(
+                        entry(json!({
+                            "event.id": format!("req{index}"), "event.name": "llm.request",
+                            "gen_ai.agent.type": "claude-code", "gen_ai.turn.id": "turn-abc",
+                            "trace_id": trace, "gen_ai.session.id": "session-1"
+                        })),
+                        None,
+                    )
+                    .await
+                    .unwrap();
+            }
+            {
+                let state = flusher.inner.state.lock().unwrap();
+                assert_eq!(state.buffers.len(), 1);
+                assert_eq!(state.buffers["turn:turn-abc"].records.len(), 2);
+                assert_eq!(
+                    state.buffers["turn:turn-abc"]
+                        .records
+                        .iter()
+                        .map(|entry| entry.event_id.as_str())
+                        .collect::<Vec<_>>(),
+                    ["req0", "req1"]
+                );
+            }
+            assert!(converter.calls.lock().unwrap().is_empty());
+            flusher.shutdown().await.unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+            // Grouping retains both source records. The real conversion boundary
+            // correctly removes unmatched model requests rather than inventing responses.
+            assert!(converter.calls.lock().unwrap()[0].is_empty());
+
+            let (_dir, flusher, converter) = scoped();
+            for (index, trace) in [
+                "4bf92f3577b34da6a3ce929d0e0e4736",
+                "bbbb2f3577b34da6a3ce929d0e0e4736",
+            ]
+            .iter()
+            .enumerate()
+            {
+                flusher.send(entry(json!({
+                    "event.id": format!("trace{index}"), "event.name": "llm.request", "gen_ai.agent.type": "claude-code",
+                    "trace_id": trace, "gen_ai.session.id": "session-1"
+                })), None).await.unwrap();
+            }
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+            assert!(flusher
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .buffers
+                .contains_key("trace:bbbb2f3577b34da6a3ce929d0e0e4736"));
+            flusher.shutdown().await.unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 2);
+
+            let (_dir, flusher, converter) = scoped();
+            flusher
+                .send(
+                    entry(json!({
+                        "event.name": "llm.request", "gen_ai.agent.type": "claude-code",
+                        "trace_id": "invalid-not-32-hex", "gen_ai.session.id": "session-1"
+                    })),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert!(flusher
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .buffers
+                .contains_key("session:session-1"));
+            flusher.shutdown().await.unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+
+            let (_dir, flusher, converter) = scoped();
+            flusher.send(entry(json!({
+                "event.name": "llm.request", "event.id": "evt-1", "gen_ai.agent.type": "claude-code"
+            })), None).await.unwrap();
+            assert!(flusher.inner.state.lock().unwrap().buffers.is_empty());
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+            assert!(converter.calls.lock().unwrap()[0].is_empty());
+            // A completed fact also converts immediately, with its source identity intact.
+            flusher
+                .send(
+                    entry(json!({
+                        "event.name": "tool.result", "event.id": "evt-completed",
+                        "gen_ai.agent.type": "claude-code", "gen_ai.tool.call.id": "tool-1",
+                        "gen_ai.tool.name": "Bash", "gen_ai.tool.call.result": "synthetic result",
+                        "gen_ai.tool.status": "success"
+                    })),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert!(flusher.inner.state.lock().unwrap().buffers.is_empty());
+            assert_eq!(converter.calls.lock().unwrap().len(), 2);
+            assert_eq!(converter.calls.lock().unwrap()[1].len(), 1);
+            assert_eq!(
+                converter.calls.lock().unwrap()[1][0].event_id,
+                "evt-completed"
+            );
+            flusher.shutdown().await.unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 2);
+        }
+
+        #[test]
+        fn destination_counters_keep_the_arms_workspace_and_plain_otlp_identities() {
+            let dir = tempfile::tempdir().unwrap();
+            let project = "proj-xtrace-1d3dc285e44fcb12fa8cbcb1dd13551-cn-hongkong";
+            let url =
+                format!("https://{project}.cn-hongkong.log.aliyuncs.com/apm/trace/opentelemetry");
+            for (name, endpoint_url, headers, is_cms, expected_project, store) in [
+                (
+                    "user-cms",
+                    url.as_str(),
+                    HashMap::from([
+                        ("x-arms-license-key".into(), "lk".into()),
+                        ("x-arms-project".into(), project.into()),
+                    ]),
+                    true,
+                    project,
+                    "logstore-tracing",
+                ),
+                (
+                    "inner-cms-0",
+                    url.as_str(),
+                    HashMap::from([("X-CMS-Workspace".into(), "ws-1".into())]),
+                    true,
+                    project,
+                    "logstore-tracing",
+                ),
+                (
+                    "user-otlp",
+                    "https://collector.example.com/v1/traces",
+                    HashMap::from([("authorization".into(), "Bearer t".into())]),
+                    false,
+                    "",
+                    "",
+                ),
+            ] {
+                let mut endpoint = ep(name, endpoint_url);
+                endpoint.headers = Some(headers);
+                let mut config = cfg(vec![endpoint]);
+                config.data_dir = Some(dir.path().to_string_lossy().into_owned());
+                let flusher = OtlpTraceFlusher::new(config).unwrap();
+                let counter = flusher.endpoint_counters().remove(name).unwrap();
+                assert_eq!(counter.is_cms, is_cms);
+                assert_eq!(counter.project, expected_project);
+                assert_eq!(counter.logstore, store);
+            }
+        }
+    }
+
+    mod migration_export_lifecycle_contracts {
+        use super::*;
+        use crate::flushers::create_readable_span_to_otlp_span_json_array;
+        use std::time::Duration;
+
+        type ExportCalls = Arc<Mutex<Vec<(String, Vec<ReadableSpan>)>>>;
+        struct RecordingExporter {
+            name: String,
+            calls: ExportCalls,
+            shutdowns: Arc<AtomicUsize>,
+            failure: Option<String>,
+        }
+        #[async_trait]
+        impl TraceExporter for RecordingExporter {
+            async fn export(&self, spans: Vec<ReadableSpan>) -> Result<(), String> {
+                self.calls.lock().unwrap().push((self.name.clone(), spans));
+                match &self.failure {
+                    Some(message) => Err(message.clone()),
+                    None => Ok(()),
+                }
+            }
+            async fn shutdown(&self) {
+                self.shutdowns.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        fn factory(
+            calls: &ExportCalls,
+            shutdowns: &Arc<AtomicUsize>,
+            failed_name: Option<&str>,
+            message: &str,
+        ) -> ExporterFactory {
+            let calls = calls.clone();
+            let shutdowns = shutdowns.clone();
+            let failed_name = failed_name.map(str::to_string);
+            let message = message.to_string();
+            Arc::new(move |options| {
+                Arc::new(RecordingExporter {
+                    failure: if failed_name.as_deref() == Some(options.name.as_str()) {
+                        Some(message.clone())
+                    } else {
+                        None
+                    },
+                    name: options.name,
+                    calls: calls.clone(),
+                    shutdowns: shutdowns.clone(),
+                }) as Arc<dyn TraceExporter>
+            })
+        }
+
+        fn single(dir: &std::path::Path) -> OtlpTraceFlusherConfig {
+            let mut config = cfg(vec![ep("primary", "http://unused:4318")]);
+            config.data_dir = Some(dir.to_string_lossy().into_owned());
+            config.service_name = "test-pilot".into();
+            config
+        }
+
+        fn mock_span() -> ReadableSpan {
+            let mut span = ReadableSpan::minimal("test-span", &"a".repeat(32), &"b".repeat(16));
+            span.start_time = [1000, 0];
+            span.end_time = [1001, 0];
+            span.attributes
+                .insert("gen_ai.agent.type".into(), json!("claude-code"));
+            span.resource_attributes = Some(
+                serde_json::from_value(json!({"service.name": "test-pilot-claude-code"})).unwrap(),
+            );
+            span
+        }
+
+        #[tokio::test]
+        async fn shutdown_drains_a_pending_turn_and_direct_export_bypasses_the_converter() {
+            let dir = tempfile::tempdir().unwrap();
+            let converter = Arc::new(RecConv {
+                calls: Mutex::new(Vec::new()),
+            });
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let shutdowns = Arc::new(AtomicUsize::new(0));
+            let flusher = OtlpTraceFlusher::with_parts(
+                single(dir.path()),
+                None,
+                Some(factory(&calls, &shutdowns, None, "")),
+                Some(converter.clone()),
+            )
+            .unwrap();
+            flusher.send(entry(json!({"event.name": "llm.request", "gen_ai.agent.type": "claude-code", "gen_ai.turn.id": "pending-turn"})), None).await.unwrap();
+            assert!(converter.calls.lock().unwrap().is_empty());
+            flusher.shutdown().await.unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+
+            let converter = Arc::new(RecConv {
+                calls: Mutex::new(Vec::new()),
+            });
+            let flusher = OtlpTraceFlusher::with_parts(
+                single(dir.path()),
+                None,
+                Some(factory(&calls, &shutdowns, None, "")),
+                Some(converter.clone()),
+            )
+            .unwrap();
+            flusher
+                .export_spans_for_agent("claude-code", vec![mock_span()])
+                .await;
+            assert!(converter.calls.lock().unwrap().is_empty());
+            assert!(flusher.inner.state.lock().unwrap().buffers.is_empty());
+            assert_eq!(calls.lock().unwrap().len(), 1);
+            assert_eq!(calls.lock().unwrap()[0].1[0].name, "test-span");
+            flusher.export_spans_for_agent("codex", Vec::new()).await;
+            flusher.shutdown().await.unwrap();
+            assert_eq!(shutdowns.load(Ordering::SeqCst), 2);
+        }
+
+        #[tokio::test]
+        async fn configured_idle_timer_really_flushes_the_stale_turn_once_and_stops_on_shutdown() {
+            let dir = tempfile::tempdir().unwrap();
+            let converter = Arc::new(RecConv {
+                calls: Mutex::new(Vec::new()),
+            });
+            let mut config = single(dir.path());
+            config.turn_idle_timeout_ms = Some(100);
+            let flusher =
+                OtlpTraceFlusher::with_parts(config, None, None, Some(converter.clone())).unwrap();
+            let timer = flusher
+                .inner
+                .idle
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .abort_handle();
+            flusher.send(entry(json!({"event.name": "llm.request", "gen_ai.agent.type": "claude-code", "gen_ai.turn.id": "idle-turn"})), None).await.unwrap();
+            assert!(converter.calls.lock().unwrap().is_empty());
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    if !converter.calls.lock().unwrap().is_empty() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+            assert!(flusher.inner.state.lock().unwrap().buffers.is_empty());
+            flusher.shutdown().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !timer.is_finished() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(converter.calls.lock().unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn small_large_and_default_batches_preserve_exact_original_batch_lengths() {
+            for (limit, count, large, expected) in [
+                (Some(10 * 1024), 10, false, vec![10]),
+                (Some(10 * 1024), 5, true, vec![2, 2, 1]),
+                (None, 100, false, vec![100]),
+            ] {
+                let dir = tempfile::tempdir().unwrap();
+                let mut config = single(dir.path());
+                config.max_export_batch_bytes = limit;
+                let calls = Arc::new(Mutex::new(Vec::new()));
+                let shutdowns = Arc::new(AtomicUsize::new(0));
+                let flusher = OtlpTraceFlusher::with_parts(
+                    config,
+                    None,
+                    Some(factory(&calls, &shutdowns, None, "")),
+                    None,
+                )
+                .unwrap();
+                let spans = (0..count)
+                    .map(|_| {
+                        let mut span = mock_span();
+                        if large {
+                            span.attributes
+                                .insert("gen_ai.input.messages".into(), json!("x".repeat(4096)));
+                        }
+                        span
+                    })
+                    .collect();
+                flusher.export_spans_for_agent("claude-code", spans).await;
+                flusher.shutdown().await.unwrap();
+                let lengths: Vec<_> = calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|(_, spans)| spans.len())
+                    .collect();
+                assert_eq!(lengths, expected);
+                assert_eq!(flusher.created_exporters()[0].compression, "gzip");
+            }
+        }
+
+        #[tokio::test]
+        async fn debug_and_failure_output_matrix_writes_only_the_requested_daily_evidence() {
+            let failed_file_name =
+                regex::Regex::new(r"^test-pilot-claude-code__primary-\d{4}-\d{2}-\d{2}\.jsonl$")
+                    .unwrap();
+            for (debug, failure) in [(false, false), (true, false), (false, true), (true, true)] {
+                let dir = tempfile::tempdir().unwrap();
+                let mut config = single(dir.path());
+                config.debug = Some(debug);
+                let calls = Arc::new(Mutex::new(Vec::new()));
+                let shutdowns = Arc::new(AtomicUsize::new(0));
+                let flusher = OtlpTraceFlusher::with_parts(
+                    config,
+                    None,
+                    Some(factory(
+                        &calls,
+                        &shutdowns,
+                        if failure { Some("primary") } else { None },
+                        "401 unauthorized",
+                    )),
+                    None,
+                )
+                .unwrap();
+                flusher
+                    .export_spans_for_agent("claude-code", vec![mock_span()])
+                    .await;
+                flusher.shutdown().await.unwrap();
+                assert_eq!(calls.lock().unwrap().len(), 1);
+                for (subdir, exists) in [("otlp-debug", debug), ("otlp-failed", failure)] {
+                    let path = dir.path().join("logs").join(subdir);
+                    assert_eq!(path.exists(), exists);
+                    if !exists {
+                        continue;
+                    }
+                    let files: Vec<_> = std::fs::read_dir(&path)
+                        .unwrap()
+                        .map(|file| file.unwrap().path())
+                        .collect();
+                    assert_eq!(files.len(), 1);
+                    let name = files[0].file_name().unwrap().to_string_lossy();
+                    assert!(name.contains("test-pilot-claude-code"));
+                    let text = std::fs::read_to_string(&files[0]).unwrap();
+                    assert_eq!(text.lines().count(), 1);
+                    let record: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+                    assert_eq!(record["name"], "test-span");
+                    if subdir == "otlp-failed" {
+                        assert!(failed_file_name.is_match(&name));
+                        assert_eq!(record["_error"]["message"], "401 unauthorized");
+                    }
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn every_backend_exports_once_across_service_groups_and_one_failure_is_isolated() {
+            let failed_backend_name =
+                regex::Regex::new(r"__backend-b-\d{4}-\d{2}-\d{2}\.jsonl$").unwrap();
+            for (distinct, failing) in [(false, false), (true, false), (false, true)] {
+                let dir = tempfile::tempdir().unwrap();
+                let mut config = single(dir.path());
+                config.endpoints = vec![
+                    ep("backend-a", "http://a:4318"),
+                    ep("backend-b", "http://b:4318"),
+                ];
+                if distinct {
+                    config.endpoints[1].service_name = Some("managed-svc".into());
+                }
+                let calls = Arc::new(Mutex::new(Vec::new()));
+                let shutdowns = Arc::new(AtomicUsize::new(0));
+                let flusher = OtlpTraceFlusher::with_parts(
+                    config,
+                    None,
+                    Some(factory(
+                        &calls,
+                        &shutdowns,
+                        if failing { Some("backend-b") } else { None },
+                        "503 from b",
+                    )),
+                    None,
+                )
+                .unwrap();
+                flusher
+                    .export_spans_for_agent("claude-code", vec![mock_span()])
+                    .await;
+                flusher.shutdown().await.unwrap();
+                let calls = calls.lock().unwrap();
+                assert_eq!(calls.len(), 2);
+                for name in ["backend-a", "backend-b"] {
+                    let selected: Vec<_> = calls
+                        .iter()
+                        .filter(|(backend, _)| backend == name)
+                        .collect();
+                    assert_eq!(selected.len(), 1);
+                    assert_eq!(selected[0].1.len(), 1);
+                    assert_eq!(selected[0].1[0].name, "test-span");
+                    assert_eq!(selected[0].1[0].span_id, "b".repeat(16));
+                }
+                if distinct {
+                    assert_eq!(
+                        flusher.resource_attributes(
+                            "claude-code",
+                            &flusher.endpoint_service_name(0, "claude-code")
+                        )["service.name"],
+                        "test-pilot-claude-code"
+                    );
+                    assert_eq!(
+                        flusher.resource_attributes(
+                            "claude-code",
+                            &flusher.endpoint_service_name(1, "claude-code")
+                        )["service.name"],
+                        "managed-svc-claude-code"
+                    );
+                }
+                if failing {
+                    let files: Vec<_> =
+                        std::fs::read_dir(dir.path().join("logs").join("otlp-failed"))
+                            .unwrap()
+                            .map(|file| file.unwrap().file_name().to_string_lossy().into_owned())
+                            .collect();
+                    assert_eq!(files.len(), 1);
+                    assert!(failed_backend_name.is_match(&files[0]));
+                    assert!(!files[0].contains("__backend-a-"));
+                }
+            }
+        }
+
+        #[test]
+        fn disabled_suffix_keeps_exact_resource_service_for_both_original_agent_types() {
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = single(dir.path());
+            config.service_name = "shared-service".into();
+            config.append_agent_type_to_service_name = Some(false);
+            let flusher = OtlpTraceFlusher::new(config).unwrap();
+            for agent in ["opencode", "codex"] {
+                let service = flusher.endpoint_service_name(0, agent);
+                let resource = flusher.resource_attributes(agent, &service);
+                assert_eq!(resource["service.name"], "shared-service");
+                assert_eq!(resource["gen_ai.agent.type"], agent);
+            }
+        }
+
+        #[tokio::test]
+        async fn malicious_backend_name_stays_inside_the_safe_daily_failure_directory() {
+            let daily_file_name = regex::Regex::new(r"-\d{4}-\d{2}-\d{2}\.jsonl$").unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = single(dir.path());
+            config.endpoints = vec![ep("../../../../tmp/pwn", "http://evil:4318")];
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let shutdowns = Arc::new(AtomicUsize::new(0));
+            let flusher = OtlpTraceFlusher::with_parts(
+                config,
+                None,
+                Some(factory(
+                    &calls,
+                    &shutdowns,
+                    Some("../../../../tmp/pwn"),
+                    "boom",
+                )),
+                None,
+            )
+            .unwrap();
+            flusher
+                .export_spans_for_agent("claude-code", vec![mock_span()])
+                .await;
+            flusher.shutdown().await.unwrap();
+            let failed = dir.path().join("logs").join("otlp-failed");
+            let files: Vec<_> = std::fs::read_dir(&failed)
+                .unwrap()
+                .map(|file| file.unwrap().path())
+                .collect();
+            assert_eq!(files.len(), 1);
+            assert_eq!(files[0].parent(), Some(failed.as_path()));
+            let name = files[0].file_name().unwrap().to_string_lossy();
+            assert!(!name.contains('/'));
+            assert!(name.contains(".._.._.._.._tmp_pwn"));
+            assert!(daily_file_name.is_match(&name));
+        }
+
+        fn long_turn(turn: &str, count: usize) -> Vec<AgentActivityEntry> {
+            let mut records = Vec::new();
+            for index in 1..=count {
+                for response in [false, true] {
+                    records.push(entry(json!({
+                        "event.id": format!("{turn}.{index}.{response}"),
+                        "time_unix_nano": format!("{}", 1_780_000_000_000_000_000_i64 + index as i64 * 1_000_000 + if response { 100_000 } else { 0 }),
+                        "event.name": if response { "llm.response" } else { "llm.request" },
+                        "gen_ai.agent.type": "claude-code",
+                        "gen_ai.turn.id": turn,
+                        "gen_ai.step.id": format!("{turn}.{index}"),
+                        "gen_ai.request.model": "claude-test",
+                        "gen_ai.response.id": format!("resp-{turn}-{index}"),
+                        "gen_ai.response.finish_reasons": if response { if index == count { vec!["stop"] } else { vec!["tool_calls"] } } else { Vec::<&str>::new() }
+                    })));
+                }
+            }
+            records
+        }
+
+        #[tokio::test]
+        async fn four_call_turn_followed_by_short_turn_and_fifty_turn_session_keep_records_and_locks_isolated(
+        ) {
+            for counts in [vec![4], vec![4, 1], vec![4; 50]] {
+                let dir = tempfile::tempdir().unwrap();
+                let converter = Arc::new(RecConv {
+                    calls: Mutex::new(Vec::new()),
+                });
+                let flusher = OtlpTraceFlusher::with_parts(
+                    single(dir.path()),
+                    None,
+                    None,
+                    Some(converter.clone()),
+                )
+                .unwrap();
+                for (index, count) in counts.iter().enumerate() {
+                    for record in long_turn(&format!("turn-{index}"), *count) {
+                        flusher.send(record, None).await.unwrap();
+                    }
+                }
+                flusher.flush().await.unwrap();
+                {
+                    let calls = converter.calls.lock().unwrap();
+                    assert_eq!(calls.len(), counts.len());
+                    let lengths: Vec<_> = calls.iter().map(Vec::len).collect();
+                    assert_eq!(
+                        lengths,
+                        counts.iter().map(|count| count * 2).collect::<Vec<_>>()
+                    );
+                    for (index, records) in calls.iter().enumerate() {
+                        for record in records {
+                            assert_eq!(
+                                record.turn_id.as_deref(),
+                                Some(format!("turn-{index}").as_str())
+                            );
+                        }
+                    }
+                }
+                assert!(flusher.inner.state.lock().unwrap().buffers.is_empty());
+                {
+                    let locks = flusher.inner.convert_locks.lock().unwrap();
+                    assert_eq!(locks.len(), 1);
+                    for lock in locks.values() {
+                        assert!(
+                            lock.try_lock().is_ok(),
+                            "no unresolved conversion lock after terminal export"
+                        );
+                    }
+                }
+                flusher.shutdown().await.unwrap();
+            }
+        }
+
+        #[tokio::test]
+        async fn failed_long_conversion_drops_state_before_the_real_recovery_converter_exports() {
+            struct FailOnce {
+                calls: AtomicUsize,
+            }
+            impl EventLogConverter for FailOnce {
+                fn convert(
+                    &self,
+                    records: &[AgentActivityEntry],
+                    options: &ConvertOptions,
+                ) -> Result<ConvertResult, String> {
+                    if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                        return Err("conversion failed".into());
+                    }
+                    super::super::super::event_log_converter::GenAiEventLogConverter
+                        .convert(records, options)
+                }
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let converter = Arc::new(FailOnce {
+                calls: AtomicUsize::new(0),
+            });
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let shutdowns = Arc::new(AtomicUsize::new(0));
+            let flusher = OtlpTraceFlusher::with_parts(
+                single(dir.path()),
+                None,
+                Some(factory(&calls, &shutdowns, None, "")),
+                Some(converter.clone()),
+            )
+            .unwrap();
+            for record in long_turn("failed-turn", 4) {
+                flusher.send(record, None).await.unwrap();
+            }
+            flusher.flush().await.unwrap();
+            assert_eq!(converter.calls.load(Ordering::SeqCst), 1);
+            assert!(calls.lock().unwrap().is_empty());
+            {
+                let state = flusher.inner.state.lock().unwrap();
+                assert_eq!(state.convert_states.len(), 1);
+                assert!(state
+                    .convert_states
+                    .values()
+                    .all(|convert| convert.active == 0));
+                assert!(state.buffers.is_empty());
+            }
+            for record in long_turn("recovery-turn", 1) {
+                flusher.send(record, None).await.unwrap();
+            }
+            flusher.flush().await.unwrap();
+            assert_eq!(converter.calls.load(Ordering::SeqCst), 2);
+            {
+                let calls = calls.lock().unwrap();
+                assert_eq!(calls.len(), 1);
+                assert!(!calls[0].1.is_empty());
+                let exported = create_readable_span_to_otlp_span_json_array(&calls[0].1).join("\n");
+                assert!(exported.contains("recovery-turn"));
+                assert!(!exported.contains("failed-turn"));
+            }
+            flusher.shutdown().await.unwrap();
+        }
+    }
+    mod legacy_conversion_contracts {
+        use super::super::{
+            collect_resource_attributes, convert_state_key, enrich_claude,
+            enrich_openclaw_llm_attributes, enrich_openclaw_tool_attributes, enrich_tool_skills,
+            resource_identity,
+        };
+        use super::*;
+        use crate::flushers::create_readable_span_to_otlp_span_json_array;
+        use crate::normalization::{entry_to_object, GlobalAttributesProvider};
+        use serde_json::Map;
+
+        type Calls = Vec<(Vec<AgentActivityEntry>, ConvertOptions)>;
+        struct Capture {
+            calls: Mutex<Calls>,
+        }
+        impl EventLogConverter for Capture {
+            fn convert(
+                &self,
+                records: &[AgentActivityEntry],
+                options: &ConvertOptions,
+            ) -> Result<ConvertResult, String> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push((records.to_vec(), options.clone()));
+                Ok(ConvertResult {
+                    warnings: vec!["orphan llm.request".into()],
+                    ..Default::default()
+                })
+            }
+        }
+        fn configuration(root: &std::path::Path) -> OtlpTraceFlusherConfig {
+            let mut config = cfg(vec![ep("primary", "http://unused:4318")]);
+            config.service_name = "test-pilot".into();
+            config.data_dir = Some(root.to_string_lossy().into_owned());
+            config.resource_attributes =
+                Some(serde_json::from_value(json!({"custom.attr":"hello"})).unwrap());
+            config
+        }
+        fn capture(
+            config: OtlpTraceFlusherConfig,
+            provider: Option<Arc<Mutex<GlobalAttributesProvider>>>,
+        ) -> (OtlpTraceFlusher, Arc<Capture>) {
+            let converter = Arc::new(Capture {
+                calls: Mutex::new(Vec::new()),
+            });
+            let flusher =
+                OtlpTraceFlusher::with_parts(config, provider, None, Some(converter.clone()))
+                    .unwrap();
+            (flusher, converter)
+        }
+        fn terminal(turn: &str) -> AgentActivityEntry {
+            entry(
+                json!({"event.name":"llm.response","gen_ai.agent.type":"claude-code","gen_ai.turn.id":turn,"gen_ai.response.finish_reasons":["stop"]}),
+            )
+        }
+        fn span(kind: &str, key: Option<(&str, &str)>) -> ReadableSpan {
+            let mut span = ReadableSpan::minimal("contract", &"a".repeat(32), &"b".repeat(16));
+            span.attributes
+                .insert("gen_ai.span.kind".into(), json!(kind));
+            if let Some((key, value)) = key {
+                span.attributes.insert(key.into(), json!(value));
+            }
+            span
+        }
+
+        #[tokio::test]
+        async fn conversion_boundary_keeps_the_pair_default_options_hierarchy_and_zero_span_warning_behavior(
+        ) {
+            let dir = tempfile::tempdir().unwrap();
+            let (flusher, converter) = capture(configuration(dir.path()), None);
+            flusher.send(entry(json!({"event.name":"llm.request","gen_ai.agent.type":"claude-code","gen_ai.turn.id":"t1"})), None).await.unwrap();
+            assert!(converter.calls.lock().unwrap().is_empty());
+            flusher.send(terminal("t1"), None).await.unwrap();
+            {
+                let calls = converter.calls.lock().unwrap();
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].0.len(), 2);
+                assert_eq!(
+                    calls[0].0[0].event_name,
+                    Some(crate::types::AgentEventName::LlmRequest)
+                );
+                assert_eq!(
+                    calls[0].0[1].event_name,
+                    Some(crate::types::AgentEventName::LlmResponse)
+                );
+                assert!(!calls[0].1.strict);
+                for key in [
+                    "git.repo",
+                    "git.branch",
+                    "git.domain",
+                    "workspace.current_root",
+                    "user.name",
+                    "user.email",
+                    "gen_ai.turn.id",
+                    "gen_ai.agent.scope",
+                    "gen_ai.agent.depth",
+                    "gen_ai.agent.parent.id",
+                    "gen_ai.subagent.parent_tool_call.id",
+                ] {
+                    assert!(
+                        calls[0].1.passthrough_keys.contains(&key.to_string()),
+                        "{key}"
+                    );
+                }
+            }
+            // The injected converter returns a warning and zero spans. No exporter is created.
+            assert!(flusher.created_exporters().is_empty());
+            flusher.shutdown().await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn openclaw_identity_reconciles_sender_copies_and_never_overrides_explicit_environment_identity(
+        ) {
+            for environment in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let (flusher, converter) = capture(configuration(dir.path()), None);
+                let early = entry(json!({
+                    "event.name":"other","event.id":"early","gen_ai.agent.type":"openclaw",
+                    "gen_ai.turn.id":"openclaw-turn","user.id":if environment {"environment-user"} else {"collector-user"},
+                    "agent.openclaw.hook":"before_model_resolve","gen_ai.input.messages_delta":[],
+                    "agent.openclaw.user.id.source":if environment {"environment"} else {"hostname"}
+                }));
+                let mut sender = entry_to_object(&early);
+                sender.insert("event.id".into(), json!("sender-known"));
+                sender.insert("agent.openclaw.hook".into(), json!("before_agent_run"));
+                sender.insert("agent.openclaw.sender.id".into(), json!("channel-sender"));
+                sender.insert("agent.openclaw.channel".into(), json!("telegram"));
+                sender.insert("agent.openclaw.account.id".into(), json!("channel-account"));
+                sender.insert(
+                    "agent.openclaw.channel.id".into(),
+                    json!("channel-conversation"),
+                );
+                if !environment {
+                    sender.insert("user.id".into(), json!("channel-sender"));
+                    sender.insert("agent.openclaw.user.id.source".into(), json!("sender"));
+                }
+                let mut terminal = sender.clone();
+                terminal.insert("event.id".into(), json!("terminal"));
+                terminal.insert("agent.openclaw.hook".into(), json!("llm_output"));
+                flusher
+                    .send_batch(
+                        vec![
+                            early.clone(),
+                            entry_from_map(sender),
+                            entry_from_map(terminal),
+                        ],
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                {
+                    let calls = converter.calls.lock().unwrap();
+                    assert_eq!(calls.len(), 1);
+                    assert!(!calls[0].0.is_empty());
+                    for record in &calls[0].0 {
+                        assert_eq!(
+                            record.user_id,
+                            if environment {
+                                "environment-user"
+                            } else {
+                                "channel-sender"
+                            }
+                        );
+                        if !environment {
+                            for (key, value) in [
+                                ("agent.openclaw.user.id.source", "sender"),
+                                ("agent.openclaw.sender.id", "channel-sender"),
+                                ("agent.openclaw.channel", "telegram"),
+                                ("agent.openclaw.account.id", "channel-account"),
+                                ("agent.openclaw.channel.id", "channel-conversation"),
+                            ] {
+                                assert_eq!(record.get(key), Some(&json!(value)));
+                            }
+                        }
+                    }
+                    assert_eq!(
+                        early.user_id,
+                        if environment {
+                            "environment-user"
+                        } else {
+                            "collector-user"
+                        }
+                    );
+                    assert_eq!(
+                        early.get("agent.openclaw.user.id.source"),
+                        Some(&json!(if environment {
+                            "environment"
+                        } else {
+                            "hostname"
+                        }))
+                    );
+                }
+                flusher.shutdown().await.unwrap();
+            }
+        }
+
+        #[test]
+        fn hook_resource_projection_and_explicit_pi_identity_keep_exact_values_and_drop_secrets() {
+            let dir = tempfile::tempdir().unwrap();
+            let (flusher, _) = capture(configuration(dir.path()), None);
+            let records = vec![
+                entry(
+                    json!({"resourceAttributes":{"agentteams.worker.name":" local-worker ","agentteams.instance.id":"example-instance","agentteams.token":"should-not-leak"}}),
+                ),
+                entry(json!({"resourceAttributes":{"agentteams.worker.name":"other-worker"}})),
+            ];
+            let attrs = collect_resource_attributes(&flusher.inner, &records);
+            assert_eq!(attrs, serde_json::from_value::<Map<String, Value>>(json!({
+                "agentteams.worker.name":"local-worker","agentteams.instance.id":"example-instance"
+            })).unwrap());
+            let resource = flusher.inner.build_resource(
+                "claude-code",
+                "test-pilot",
+                &attrs,
+                "claude-code",
+                "claude",
+            );
+            assert_eq!(resource["custom.attr"], "hello");
+            assert_eq!(resource["agentteams.worker.name"], "local-worker");
+            assert_eq!(resource["agentteams.instance.id"], "example-instance");
+            assert!(!resource.contains_key("agentteams.token"));
+            let identity_records = vec![entry(
+                json!({"gen_ai.agent.system":"pi","gen_ai.framework":"pi-coding-agent"}),
+            )];
+            let (system, framework) = resource_identity("acme-code", &identity_records);
+            let resource = flusher.inner.build_resource(
+                "acme-code",
+                "test-pilot",
+                &Map::new(),
+                &framework,
+                &system,
+            );
+            assert_eq!(resource["gen_ai.agent.type"], "acme-code");
+            assert_eq!(resource["gen_ai.agent.system"], "pi");
+            assert_eq!(resource["gen_ai.framework"], "pi-coding-agent");
+        }
+
+        #[tokio::test]
+        async fn seventy_real_resource_conversions_evict_the_first_state_and_keep_the_last_below_the_cap(
+        ) {
+            let dir = tempfile::tempdir().unwrap();
+            let (flusher, converter) = capture(configuration(dir.path()), None);
+            for index in 0..70 {
+                let mut record = terminal(&format!("turn-{index}"));
+                record.resource_attributes = Some(
+                    serde_json::from_value(
+                        json!({"agentteams.worker.name":format!("worker-{index}")}),
+                    )
+                    .unwrap(),
+                );
+                flusher.send(record, None).await.unwrap();
+            }
+            assert_eq!(converter.calls.lock().unwrap().len(), 70);
+            let service = flusher.endpoint_service_name(0, "claude-code");
+            let first = convert_state_key(
+                "claude-code",
+                &service,
+                &serde_json::from_value(json!({"agentteams.worker.name":"worker-0"})).unwrap(),
+            );
+            let last = convert_state_key(
+                "claude-code",
+                &service,
+                &serde_json::from_value(json!({"agentteams.worker.name":"worker-69"})).unwrap(),
+            );
+            {
+                let state = flusher.inner.state.lock().unwrap();
+                assert!(state.convert_states.len() <= 64);
+                assert!(!state.convert_states.contains_key(&first));
+                assert!(state.convert_states.contains_key(&last));
+            }
+            flusher.shutdown().await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn global_attributes_are_fill_only_record_copies_and_prefix_passthrough_never_admits_reserved_keys(
+        ) {
+            for local in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let baseline =
+                    serde_json::from_value::<Map<String, Value>>(json!({"team":"infra"})).unwrap();
+                let provider = Arc::new(Mutex::new(GlobalAttributesProvider::new(
+                    &baseline,
+                    dir.path().join("missing-span-attributes.json"),
+                )));
+                let (flusher, converter) = capture(configuration(dir.path()), Some(provider));
+                let mut original = terminal("custom-turn");
+                if local {
+                    original.extra.insert("team".into(), json!("local"));
+                }
+                flusher.send(original.clone(), None).await.unwrap();
+                {
+                    let calls = converter.calls.lock().unwrap();
+                    assert_eq!(calls.len(), 1);
+                    assert_eq!(
+                        calls[0].0[0].get("team"),
+                        Some(&json!(if local { "local" } else { "infra" }))
+                    );
+                    assert!(calls[0].1.passthrough_keys.contains(&"team".into()));
+                    assert!(calls[0].1.passthrough_keys.contains(&"git.repo".into()));
+                    assert_eq!(
+                        original.get("team").cloned(),
+                        if local { Some(json!("local")) } else { None }
+                    );
+                }
+                flusher.shutdown().await.unwrap();
+            }
+            for prefixes in [
+                Vec::new(),
+                vec!["multica.".to_string()],
+                vec!["gen_ai.".to_string()],
+            ] {
+                let dir = tempfile::tempdir().unwrap();
+                let mut config = configuration(dir.path());
+                config.span_attribute_passthrough_prefixes = Some(prefixes.clone());
+                let (flusher, converter) = capture(config, None);
+                let mut record = terminal("prefix-turn");
+                for (key, value) in [
+                    ("multica.issue.id", "AGE-992"),
+                    ("multica.user.id", "staff"),
+                    ("other.key", "ignored"),
+                    ("gen_ai.unapproved.attribute", "ignored"),
+                ] {
+                    record.extra.insert(key.into(), json!(value));
+                }
+                flusher.send(record, None).await.unwrap();
+                {
+                    let calls = converter.calls.lock().unwrap();
+                    let keys = &calls[0].1.passthrough_keys;
+                    let enabled = prefixes.first().map(String::as_str) == Some("multica.");
+                    assert_eq!(keys.contains(&"multica.issue.id".into()), enabled);
+                    assert_eq!(keys.contains(&"multica.user.id".into()), enabled);
+                    assert!(!keys.contains(&"other.key".into()));
+                    assert!(!keys.contains(&"gen_ai.unapproved.attribute".into()));
+                    for key in [
+                        "git.repo",
+                        "gen_ai.turn.id",
+                        "gen_ai.agent.scope",
+                        "gen_ai.agent.depth",
+                        "gen_ai.agent.parent.id",
+                        "gen_ai.subagent.parent_tool_call.id",
+                    ] {
+                        assert!(keys.contains(&key.to_string()));
+                    }
+                }
+                flusher.shutdown().await.unwrap();
+            }
+        }
+
+        #[test]
+        fn skill_attributes_only_reach_the_matching_tool_and_claude_errors_stay_on_the_exact_llm() {
+            let records = vec![
+                entry(
+                    json!({"event.name":"tool.call","gen_ai.tool.call.id":"skill-call-1","gen_ai.skill.name":"dogfood","gen_ai.skill.id":"dogfood"}),
+                ),
+                entry(
+                    json!({"event.name":"tool.result","gen_ai.tool.call.id":"skill-call-1","gen_ai.skill.description":"Exploratory QA for web apps.","gen_ai.skill.version":"1.0.0"}),
+                ),
+            ];
+            let mut spans = vec![
+                span("TOOL", Some(("gen_ai.tool.call.id", "skill-call-1"))),
+                span("LLM", Some(("gen_ai.tool.call.id", "skill-call-1"))),
+            ];
+            enrich_tool_skills(&records, &mut spans);
+            for (key, value) in [
+                ("gen_ai.skill.name", "dogfood"),
+                ("gen_ai.skill.id", "dogfood"),
+                ("gen_ai.skill.description", "Exploratory QA for web apps."),
+                ("gen_ai.skill.version", "1.0.0"),
+            ] {
+                assert_eq!(spans[0].attributes[key], value);
+            }
+            assert!(!spans[1].attributes.contains_key("gen_ai.skill.name"));
+            let records = vec![
+                entry(
+                    json!({"event.name":"llm.response","gen_ai.response.id":"retry-response-1","gen_ai.request.id":"req-1","gen_ai.response.finish_reasons":["error"],"http.response.status_code":529,"error.type":"overloaded_error"}),
+                ),
+                entry(
+                    json!({"event.name":"llm.response","gen_ai.response.id":"success-response-2","gen_ai.request.id":"req-2","gen_ai.response.finish_reasons":["stop"]}),
+                ),
+            ];
+            let mut spans = vec![
+                span("LLM", Some(("gen_ai.response.id", "retry-response-1"))),
+                span("LLM", Some(("gen_ai.response.id", "success-response-2"))),
+                span("AGENT", None),
+                span("ENTRY", None),
+            ];
+            enrich_claude(&records, &mut spans);
+            assert_eq!(spans[0].attributes["gen_ai.request.id"], "req-1");
+            assert_eq!(spans[0].attributes["http.response.status_code"], 529);
+            assert_eq!(spans[0].attributes["error.type"], "overloaded_error");
+            assert!(!spans[0].attributes.contains_key("error.message"));
+            assert_eq!(spans[0].status["code"], 2);
+            assert_eq!(spans[1].attributes["gen_ai.request.id"], "req-2");
+            for span in &spans[1..] {
+                assert_eq!(span.status["code"], 0);
+            }
+            let records = vec![entry(
+                json!({"event.name":"llm.response","gen_ai.response.id":"terminal-error","gen_ai.turn.end":true,"error.type":"server_error"}),
+            )];
+            let mut spans = vec![
+                span("LLM", Some(("gen_ai.response.id", "terminal-error"))),
+                span("AGENT", None),
+                span("AGENT", None),
+                span("ENTRY", None),
+            ];
+            enrich_claude(&records, &mut spans);
+            assert_eq!(spans[0].status["code"], 2);
+            assert_eq!(spans[0].attributes["error.type"], "server_error");
+            for span in &spans[1..] {
+                assert_eq!(span.status["code"], 0);
+                assert!(!span.attributes.contains_key("error.type"));
+            }
+        }
+
+        #[test]
+        fn openclaw_reasoning_aggregates_matched_llms_and_tool_failure_status_is_case_insensitive()
+        {
+            let records = vec![
+                entry(
+                    json!({"event.name":"llm.response","gen_ai.response.id":"provider-response-1","gen_ai.usage.reasoning_tokens":59,"error.type":"model_call_error"}),
+                ),
+                entry(
+                    json!({"event.name":"llm.response","gen_ai.response.id":"provider-response-2","gen_ai.usage.reasoning_tokens":22}),
+                ),
+            ];
+            let mut spans = vec![
+                span("LLM", Some(("gen_ai.response.id", "provider-response-1"))),
+                span("LLM", Some(("gen_ai.response.id", "provider-response-2"))),
+                span("AGENT", None),
+            ];
+            enrich_openclaw_llm_attributes(&records, &mut spans);
+            assert_eq!(spans[0].attributes["gen_ai.usage.reasoning_tokens"], 59);
+            assert_eq!(spans[0].attributes["error.type"], "model_call_error");
+            assert_eq!(spans[0].status["code"], 2);
+            assert_eq!(spans[0].status["message"], "OpenClaw model call failed");
+            assert_eq!(spans[1].attributes["gen_ai.usage.reasoning_tokens"], 22);
+            assert_eq!(spans[1].status["code"], 0);
+            assert_eq!(
+                spans[2].attributes["gen_ai.usage.reasoning_tokens"].as_i64(),
+                Some(81)
+            );
+            assert_eq!(spans[2].status["code"], 0);
+
+            for status in ["failure", "error", "ERROR"] {
+                let records = vec![
+                    entry(
+                        json!({"event.name":"tool.result","gen_ai.tool.call.id":"failed-tool-1","tool.result.status":status,"error.type":"tool_use_failure","error.message":"command exited with code 7"}),
+                    ),
+                    entry(
+                        json!({"event.name":"tool.result","gen_ai.tool.call.id":"successful-tool-1","tool.result.status":"success"}),
+                    ),
+                ];
+                let mut spans = vec![
+                    span("TOOL", Some(("gen_ai.tool.call.id", "failed-tool-1"))),
+                    span("TOOL", Some(("gen_ai.tool.call.id", "successful-tool-1"))),
+                ];
+                enrich_openclaw_tool_attributes(&records, &mut spans);
+                assert_eq!(spans[0].attributes["tool.result.status"], status);
+                assert_eq!(spans[0].attributes["error.type"], "tool_use_failure");
+                assert_eq!(
+                    spans[0].attributes["error.message"],
+                    "command exited with code 7"
+                );
+                assert_eq!(spans[0].status["code"], 2);
+                assert_eq!(spans[0].status["message"], "command exited with code 7");
+                assert_eq!(spans[1].attributes["tool.result.status"], "success");
+                assert_eq!(spans[1].status["code"], 0);
+            }
+            let records = vec![entry(
+                json!({"event.name":"tool.result","gen_ai.tool.call.id":"status-only","tool.result.status":"ErRoR"}),
+            )];
+            let mut spans = vec![span("TOOL", Some(("gen_ai.tool.call.id", "status-only")))];
+            enrich_openclaw_tool_attributes(&records, &mut spans);
+            assert_eq!(spans[0].status["code"], 2);
+            assert_eq!(spans[0].status["message"], "OpenClaw tool call failed");
+        }
+
+        #[tokio::test]
+        async fn complete_llm_and_tool_pairs_survive_the_real_flusher_boundary_as_all_four_records()
+        {
+            let dir = tempfile::tempdir().unwrap();
+            let (flusher, converter) = capture(configuration(dir.path()), None);
+            for fields in [
+                json!({"event.name":"llm.request","gen_ai.agent.type":"claude-code","gen_ai.turn.id":"t6","gen_ai.step.id":"t6:s1"}),
+                json!({"event.name":"tool.call","gen_ai.agent.type":"claude-code","gen_ai.turn.id":"t6","gen_ai.step.id":"t6:s1","gen_ai.tool.call.id":"call_ok"}),
+                json!({"event.name":"tool.result","gen_ai.agent.type":"claude-code","gen_ai.turn.id":"t6","gen_ai.step.id":"t6:s1","gen_ai.tool.call.id":"call_ok"}),
+                json!({"event.name":"llm.response","gen_ai.agent.type":"claude-code","gen_ai.turn.id":"t6","gen_ai.step.id":"t6:s1","gen_ai.response.finish_reasons":["stop"]}),
+            ] {
+                flusher.send(entry(fields), None).await.unwrap();
+            }
+            {
+                let calls = converter.calls.lock().unwrap();
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].0.len(), 4);
+            }
+            flusher.shutdown().await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn real_openclaw_converter_exports_the_agent_reasoning_sum_and_status_only_tool_error(
+        ) {
+            struct Exported(Arc<Mutex<Vec<ReadableSpan>>>);
+            #[async_trait]
+            impl TraceExporter for Exported {
+                async fn export(&self, spans: Vec<ReadableSpan>) -> Result<(), String> {
+                    self.0.lock().unwrap().extend(spans);
+                    Ok(())
+                }
+                async fn shutdown(&self) {}
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let exported = Arc::new(Mutex::new(Vec::new()));
+            let sink = exported.clone();
+            let flusher = OtlpTraceFlusher::with_parts(
+                configuration(dir.path()),
+                None,
+                Some(Arc::new(move |_| {
+                    Arc::new(Exported(sink.clone())) as Arc<dyn TraceExporter>
+                })),
+                None,
+            )
+            .unwrap();
+            let payloads = [
+                json!({"event.name":"llm.request","gen_ai.step.id":"step-1","gen_ai.response.id":"provider-response-1","gen_ai.request.model":"model"}),
+                json!({"event.name":"llm.response","gen_ai.step.id":"step-1","gen_ai.response.id":"provider-response-1","gen_ai.response.finish_reasons":["tool_calls"],"gen_ai.usage.reasoning_tokens":59,"error.type":"model_call_error"}),
+                json!({"event.name":"tool.call","gen_ai.step.id":"step-1","gen_ai.tool.call.id":"status-only-tool","gen_ai.tool.name":"shell"}),
+                json!({"event.name":"tool.result","gen_ai.step.id":"step-1","gen_ai.tool.call.id":"status-only-tool","tool.result.status":"ErRoR"}),
+                json!({"event.name":"llm.request","gen_ai.step.id":"step-2","gen_ai.response.id":"provider-response-2","gen_ai.request.model":"model"}),
+                json!({"event.name":"llm.response","gen_ai.step.id":"step-2","gen_ai.response.id":"provider-response-2","gen_ai.response.finish_reasons":["stop"],"gen_ai.usage.reasoning_tokens":22}),
+                json!({"event.name":"other","agent.openclaw.hook":"llm_output"}),
+            ];
+            let records = payloads
+                .into_iter()
+                .enumerate()
+                .map(|(index, payload)| {
+                    let mut object = payload.as_object().unwrap().clone();
+                    object.insert("event.id".into(), json!(format!("native-{index}")));
+                    object.insert(
+                        "time_unix_nano".into(),
+                        json!((1_780_000_000_000_000_000_i64 + index as i64 * 100_000_000)
+                            .to_string()),
+                    );
+                    object.insert("trace_id".into(), json!("4bf92f3577b34da6a3ce929d0e0e4736"));
+                    object.insert("gen_ai.agent.type".into(), json!("openclaw"));
+                    object.insert("gen_ai.session.id".into(), json!("real-session"));
+                    object.insert("gen_ai.turn.id".into(), json!("real-openclaw"));
+                    entry_from_map(object)
+                })
+                .collect();
+            flusher.send_batch(records, None).await.unwrap();
+            flusher.shutdown().await.unwrap();
+            let spans = exported.lock().unwrap();
+            assert!(!spans.is_empty());
+            let agent = spans
+                .iter()
+                .find(|span| span.attributes.get("gen_ai.span.kind") == Some(&json!("AGENT")))
+                .unwrap();
+            assert_eq!(
+                agent.attributes["gen_ai.usage.reasoning_tokens"].as_i64(),
+                Some(81)
+            );
+            assert_eq!(agent.status["code"], 0);
+
+            // Inspect actual debug JSON and encoded/decoded OTLP wire variants,
+            // rather than coercing both integer and float through as_f64.
+            assert_reasoning_wire_kind(&spans, 81, [59, 22]);
+            let llms: Vec<_> = spans
+                .iter()
+                .filter(|span| span.attributes.get("gen_ai.span.kind") == Some(&json!("LLM")))
+                .collect();
+            assert_eq!(llms.len(), 2);
+            let failed = llms
+                .iter()
+                .find(|span| {
+                    span.attributes.get("gen_ai.response.id") == Some(&json!("provider-response-1"))
+                })
+                .unwrap();
+            assert_eq!(failed.attributes["gen_ai.usage.reasoning_tokens"], 59);
+            assert_eq!(failed.status["code"], 2);
+            assert_eq!(failed.status["message"], "OpenClaw model call failed");
+            let tool = spans
+                .iter()
+                .find(|span| span.attributes.get("gen_ai.span.kind") == Some(&json!("TOOL")))
+                .unwrap();
+            assert_eq!(tool.attributes["tool.result.status"], "ErRoR");
+            assert_eq!(tool.status["code"], 2);
+            assert_eq!(tool.status["message"], "OpenClaw tool call failed");
+        }
+
+        #[tokio::test]
+        async fn agent_input_is_excluded_only_from_the_actual_converter_call_and_native_context_is_explicit(
+        ) {
+            let dir = tempfile::tempdir().unwrap();
+            let (flusher, converter) = capture(configuration(dir.path()), None);
+            let source = entry(json!({
+                "time_unix_nano":"1700000000000000000","event.id":"input-other","event.name":"other",
+                "user.id":"user-1","gen_ai.session.id":"session-1","gen_ai.agent.type":"claude-code",
+                "gen_ai.provider.name":"anthropic","gen_ai.turn.id":"dual-write-turn",
+                "gen_ai.input.messages_delta":[{"role":"user","content":"hello"}]
+            }));
+            let mut finish = entry_to_object(&source);
+            finish.insert("time_unix_nano".into(), json!("1700000001000000000"));
+            finish.insert("event.id".into(), json!("terminal"));
+            finish.insert("event.name".into(), json!("llm.response"));
+            finish.insert("gen_ai.response.finish_reasons".into(), json!(["stop"]));
+            finish.remove("gen_ai.input.messages_delta");
+            let mut records = crate::normalization::expand_agent_input_events(vec![source]);
+            assert_eq!(records.len(), 2);
+            assert_eq!(
+                records[1].event_name,
+                Some(crate::types::AgentEventName::AgentInput)
+            );
+            records.push(entry_from_map(finish));
+            flusher.send_batch(records, None).await.unwrap();
+            {
+                let calls = converter.calls.lock().unwrap();
+                assert_eq!(calls.len(), 1);
+                assert_eq!(
+                    calls[0]
+                        .0
+                        .iter()
+                        .map(|record| record.event_name)
+                        .collect::<Vec<_>>(),
+                    [
+                        Some(crate::types::AgentEventName::Other),
+                        Some(crate::types::AgentEventName::LlmResponse)
+                    ]
+                );
+            }
+            flusher.shutdown().await.unwrap();
+            let (flusher, converter) = capture(configuration(dir.path()), None);
+            for index in 0..2 {
+                flusher.send(entry(json!({
+                    "event.name":"other","gen_ai.agent.type":"codex","gen_ai.turn.id":format!("t2-{index}"),
+                    "agent.codex.turn_status":"completed","gen_ai.turn.end":true
+                })),None).await.unwrap();
+            }
+            assert_eq!(converter.calls.lock().unwrap().len(), 2);
+            {
+                let state = flusher.inner.state.lock().unwrap();
+                assert_eq!(state.convert_states.len(), 1);
+                assert!(state.convert_states.values().all(|state| state.active == 0));
+            }
+            flusher.shutdown().await.unwrap();
+        }
+
+        fn assert_reasoning_wire_kind(
+            spans: &[ReadableSpan],
+            expected_agent: i64,
+            expected_llms: [i64; 2],
+        ) {
+            use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+            use opentelemetry_proto::tonic::common::v1::any_value;
+            use prost::Message;
+            let json: Vec<Value> = create_readable_span_to_otlp_span_json_array(spans)
+                .iter()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            let agent = json
+                .iter()
+                .find(|span| span["attributes"]["gen_ai.span.kind"] == "AGENT")
+                .unwrap();
+            assert_eq!(
+                agent["attributes"]["gen_ai.usage.reasoning_tokens"],
+                json!(expected_agent)
+            );
+            assert_eq!(
+                agent["attributes"]["gen_ai.usage.reasoning_tokens"].as_i64(),
+                Some(expected_agent)
+            );
+            let encoded = crate::flushers::otlp_http_exporter::encode_request(spans)
+                .unwrap()
+                .encode_to_vec();
+            let request = ExportTraceServiceRequest::decode(encoded.as_slice()).unwrap();
+            let wire: Vec<_> = request
+                .resource_spans
+                .iter()
+                .flat_map(|resource| resource.scope_spans.iter())
+                .flat_map(|scope| scope.spans.iter())
+                .collect();
+            let attribute = |span: &opentelemetry_proto::tonic::trace::v1::Span, key: &str| {
+                span.attributes
+                    .iter()
+                    .find(|attribute| attribute.key == key)
+                    .unwrap()
+                    .value
+                    .as_ref()
+                    .unwrap()
+                    .value
+                    .clone()
+                    .unwrap()
+            };
+            let agent = wire
+                .iter()
+                .find(|span| {
+                    attribute(span, "gen_ai.span.kind")
+                        == any_value::Value::StringValue("AGENT".into())
+                })
+                .unwrap();
+            assert_eq!(
+                attribute(agent, "gen_ai.usage.reasoning_tokens"),
+                any_value::Value::IntValue(expected_agent)
+            );
+            let mut llm_counts: Vec<_> = wire
+                .iter()
+                .filter(|span| {
+                    attribute(span, "gen_ai.span.kind")
+                        == any_value::Value::StringValue("LLM".into())
+                })
+                .map(
+                    |span| match attribute(span, "gen_ai.usage.reasoning_tokens") {
+                        any_value::Value::IntValue(value) => value,
+                        other => panic!("reasoning token lost its integer wire kind: {other:?}"),
+                    },
+                )
+                .collect();
+            llm_counts.sort_unstable();
+            let mut expected_llms = expected_llms;
+            expected_llms.sort_unstable();
+            assert_eq!(llm_counts, expected_llms);
+        }
+
+        #[test]
+        fn openclaw_aggregate_number_kind_matches_the_original_js_sdk_for_integer_and_fractional_sums(
+        ) {
+            use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+            use opentelemetry_proto::tonic::common::v1::any_value;
+            use prost::Message;
+            let oracle: Value = serde_json::from_str(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/openclaw-sdk-number-kind-oracle.json"
+            )))
+            .unwrap();
+            for case in oracle["cases"].as_array().unwrap() {
+                let mut spans = vec![
+                    span("LLM", Some(("gen_ai.response.id", "r0"))),
+                    span("LLM", Some(("gen_ai.response.id", "r1"))),
+                    span("AGENT", None),
+                ];
+                let records:Vec<_>=case["input"].as_array().unwrap().iter().enumerate().map(|(index,value)|entry(json!({
+                    "event.name":"llm.response","gen_ai.response.id":format!("r{index}"),"gen_ai.usage.reasoning_tokens":value
+                }))).collect();
+                enrich_openclaw_llm_attributes(&records, &mut spans);
+                let value = &spans[2].attributes["gen_ai.usage.reasoning_tokens"];
+                let expected = &case["anyValue"];
+                if let Some(integer) = expected.get("intValue").and_then(Value::as_i64) {
+                    assert_eq!(value.as_i64(), Some(integer), "{case}");
+                } else {
+                    assert!(value.is_f64(), "{case}");
+                    assert_eq!(value.as_f64(), expected["doubleValue"].as_f64(), "{case}");
+                }
+                let lines = create_readable_span_to_otlp_span_json_array(&spans);
+                let actual_json: Value = serde_json::from_str(&lines[2]).unwrap();
+                assert_eq!(
+                    actual_json["attributes"]["gen_ai.usage.reasoning_tokens"], case["total"],
+                    "{case}"
+                );
+                let bytes = crate::flushers::otlp_http_exporter::encode_request(&spans)
+                    .unwrap()
+                    .encode_to_vec();
+                let request = ExportTraceServiceRequest::decode(bytes.as_slice()).unwrap();
+                let agent = request
+                    .resource_spans
+                    .iter()
+                    .flat_map(|resource| resource.scope_spans.iter())
+                    .flat_map(|scope| scope.spans.iter())
+                    .find(|span| {
+                        span.attributes.iter().any(|attribute| {
+                            attribute.key == "gen_ai.span.kind"
+                                && attribute
+                                    .value
+                                    .as_ref()
+                                    .and_then(|value| value.value.as_ref())
+                                    == Some(&any_value::Value::StringValue("AGENT".into()))
+                        })
+                    })
+                    .unwrap();
+                let wire = agent
+                    .attributes
+                    .iter()
+                    .find(|attribute| attribute.key == "gen_ai.usage.reasoning_tokens")
+                    .unwrap()
+                    .value
+                    .as_ref()
+                    .unwrap()
+                    .value
+                    .as_ref()
+                    .unwrap();
+                if let Some(integer) = expected.get("intValue").and_then(Value::as_i64) {
+                    assert_eq!(wire, &any_value::Value::IntValue(integer), "{case}");
+                } else {
+                    assert_eq!(
+                        wire,
+                        &any_value::Value::DoubleValue(expected["doubleValue"].as_f64().unwrap()),
+                        "{case}"
+                    );
+                }
+            }
+        }
     }
 }

@@ -1573,6 +1573,7 @@ mod tests {
             .unwrap();
         flusher.flush().await.unwrap();
         assert_eq!(http.calls.lock().unwrap().len(), 3);
+        assert_eq!(alarm.messages.lock().unwrap().len(), 1);
         let message = alarm.messages.lock().unwrap()[0].clone();
         assert!(message.contains("category=dns code=ENOTFOUND attempts=3"));
         assert!(message.contains("TypeError: fetch failed"));
@@ -1610,6 +1611,7 @@ mod tests {
             .unwrap();
         flusher.flush().await.unwrap();
         assert_eq!(http.calls.lock().unwrap().len(), 1);
+        assert_eq!(alarm.messages.lock().unwrap().len(), 1);
         let message = &alarm.messages.lock().unwrap()[0];
         assert!(message.contains("category=http code=Forbidden status=403 attempts=1"));
         assert!(!message.contains("original response text"));
@@ -1679,5 +1681,709 @@ mod tests {
         flusher.flush().await.unwrap();
         assert_eq!(ak.calls.lock().unwrap().len(), 4);
         assert!(ak.max.load(Ordering::SeqCst) <= 2);
+    }
+
+    // Frozen baseline ef8953: routing, lifecycle, configuration and tag contracts.
+    mod migration_dispatch_contracts {
+        use super::*;
+        use crate::types::{SlsRetryConfig, SlsTimeoutConfig};
+
+        fn scoped(
+            config: SlsFlusherConfig,
+        ) -> (tempfile::TempDir, SlsFlusher, Arc<RecAk>, Arc<RecHttp>) {
+            let dir = tempfile::tempdir().unwrap();
+            let ak = Arc::new(RecAk {
+                calls: Mutex::new(Vec::new()),
+                failures: Mutex::new(VecDeque::new()),
+                current: AtomicUsize::new(0),
+                max: AtomicUsize::new(0),
+            });
+            let http = Arc::new(RecHttp {
+                calls: Mutex::new(Vec::new()),
+                results: Mutex::new(VecDeque::new()),
+            });
+            let flusher = SlsFlusher::with_io(
+                config,
+                dir.path().to_str().unwrap(),
+                Some("0.0.0-test".into()),
+                http.clone(),
+                ak.clone(),
+            );
+            (dir, flusher, ak, http)
+        }
+
+        fn activity(name: &str, mode: SlsMode) -> SlsEndpoint {
+            endpoint(
+                name,
+                mode,
+                "proj-a",
+                "store-a",
+                SlsEndpointKind::AgentActivity,
+            )
+        }
+
+        fn tag(group: &SlsLogGroupPayload, key: &str) -> Option<String> {
+            group
+                .tags
+                .as_ref()?
+                .iter()
+                .find_map(|item| item.get(key).cloned())
+        }
+
+        #[tokio::test]
+        async fn independent_endpoint_redaction_preserves_routing_ip_and_success_counters() {
+            let ipv4_source = regex::Regex::new(r"^\d+\.\d+\.\d+\.\d+$").unwrap();
+            let mut telemetry = endpoint(
+                "telemetry",
+                SlsMode::Ak,
+                "p2",
+                "l2",
+                SlsEndpointKind::AgentTelemetry,
+            );
+            telemetry.redact = Some(true);
+            let (_dir, flusher, ak, _) =
+                scoped(config(vec![activity("activity", SlsMode::Ak), telemetry]));
+            let entry = crate::normalization::build_test_entry(&json!({
+                "filePath": "/visible/file.ts", "content": "secret content", "inlineDiffMessage": "secret diff",
+                "agent.content": "secret content", "agent.inline_diff_message": "secret diff",
+                "agent.qoder.cwd": "/workspace/project", "agent.cursor.hook_event_name": "preToolUse"
+            }));
+            flusher.send(entry.clone(), None).await.unwrap();
+            flusher.send(entry, None).await.unwrap();
+            flusher.flush().await.unwrap();
+            let calls = ak.calls.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            for (project, logstore, group) in calls.iter() {
+                assert_eq!(group.logs.len(), 2);
+                let source = group.source.as_deref().unwrap();
+                assert!(source.parse::<std::net::IpAddr>().unwrap().is_ipv4());
+                assert!(ipv4_source.is_match(source));
+                if project == "proj-a" {
+                    assert_eq!(logstore, "store-a");
+                    assert_eq!(
+                        group.logs[0]
+                            .content
+                            .get("agent.file_path")
+                            .map(String::as_str),
+                        Some("/visible/file.ts")
+                    );
+                    assert_eq!(
+                        group.logs[0]
+                            .content
+                            .get("agent.content")
+                            .map(String::as_str),
+                        Some("secret content")
+                    );
+                } else {
+                    assert_eq!(project, "p2");
+                    assert_eq!(logstore, "l2");
+                    for key in [
+                        "filePath",
+                        "content",
+                        "inlineDiffMessage",
+                        "agent.content",
+                        "agent.inline_diff_message",
+                    ] {
+                        assert!(!group.logs[0].content.contains_key(key), "{key}");
+                    }
+                }
+                assert!(!group.logs[0].content.contains_key("agent.qoder.cwd"));
+                assert!(!group.logs[0]
+                    .content
+                    .contains_key("agent.cursor.hook_event_name"));
+                assert_eq!(
+                    group.logs[0].content.get("version").map(String::as_str),
+                    Some("0.0.0-test")
+                );
+            }
+            for counter in flusher.endpoint_counters().values() {
+                assert_eq!(counter.out_entries, 2);
+                assert!(counter.out_bytes > 0);
+                assert_eq!(counter.out_failed, 0);
+            }
+        }
+
+        #[tokio::test]
+        async fn batch_threshold_three_and_actual_shutdown_timer_finish_the_pending_batch() {
+            let mut cfg = config(vec![activity("activity", SlsMode::Ak)]);
+            cfg.batch_max_size = 3;
+            let (_dir, flusher, ak, _) = scoped(cfg);
+            for _ in 0..2 {
+                flusher
+                    .send(crate::normalization::build_test_entry(&json!({})), None)
+                    .await
+                    .unwrap();
+            }
+            assert!(ak.calls.lock().unwrap().is_empty());
+            flusher
+                .send(crate::normalization::build_test_entry(&json!({})), None)
+                .await
+                .unwrap();
+            assert_eq!(ak.calls.lock().unwrap().len(), 1);
+            assert_eq!(ak.calls.lock().unwrap()[0].2.logs.len(), 3);
+            flusher.start().await.unwrap();
+            let timer = flusher
+                .inner
+                .timer
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .abort_handle();
+            flusher
+                .send(crate::normalization::build_test_entry(&json!({})), None)
+                .await
+                .unwrap();
+            flusher.shutdown().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !timer.is_finished() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(flusher.inner.timer.lock().unwrap().is_none());
+            let calls = ak.calls.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            assert_eq!(calls[1].2.logs.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn ak_and_webtracking_failures_write_only_one_bounded_metadata_record() {
+            for mode in [SlsMode::Ak, SlsMode::Webtracking] {
+                let (dir, flusher, ak, http) = scoped(config(vec![activity("activity", mode)]));
+                if mode == SlsMode::Ak {
+                    ak.failures
+                        .lock()
+                        .unwrap()
+                        .push_back("invalid request".into());
+                } else {
+                    http.results.lock().unwrap().push_back(Ok(SlsHttpResponse {
+                        status: 400,
+                        body: "invalid payload".into(),
+                    }));
+                }
+                flusher
+                    .send(
+                        crate::normalization::build_test_entry(
+                            &json!({"content": "SYNTHETIC_PAYLOAD_MUST_NOT_PERSIST"}),
+                        ),
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                flusher.flush().await.unwrap();
+                let expected = dir.path().join("logs").join("sls-failed-logs");
+                assert_eq!(flusher.failed_log_directory(), expected);
+                let files: Vec<_> = std::fs::read_dir(expected)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path())
+                    .collect();
+                assert_eq!(files.len(), 1);
+                let text = std::fs::read_to_string(&files[0]).unwrap();
+                assert_eq!(text.lines().count(), 1);
+                let record: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+                assert_eq!(record["endpoint"], "activity");
+                assert_eq!(record["project"], "proj-a");
+                assert_eq!(record["logstore"], "store-a");
+                assert_eq!(record["kind"], "agentActivity");
+                assert_eq!(record["mode"], mode.as_str());
+                assert_eq!(record["batch_count"], 1);
+                assert!(record["batch_bytes"].as_u64().unwrap() > 0);
+                assert!(record.get("logGroup").is_none());
+                assert!(record.get("__logs__").is_none());
+                assert!(!text.contains("SYNTHETIC_PAYLOAD_MUST_NOT_PERSIST"));
+                if mode == SlsMode::Ak {
+                    assert!(record["error_summary"]
+                        .as_str()
+                        .unwrap()
+                        .contains("invalid request"));
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn prefix_tags_distinguish_agents_unknown_and_empty_endpoint_overrides() {
+            for (prefix, override_name, expected_user, expected_inner) in [
+                (
+                    "loongsuite-pilot",
+                    None,
+                    Some("loongsuite-pilot-claude-code"),
+                    Some("loongsuite-pilot-claude-code"),
+                ),
+                (
+                    "",
+                    Some("managed-svc"),
+                    None,
+                    Some("managed-svc-claude-code"),
+                ),
+                ("", None, None, None),
+            ] {
+                let user = activity("user", SlsMode::Ak);
+                let mut inner = endpoint(
+                    "inner",
+                    SlsMode::Ak,
+                    "p2",
+                    "l2",
+                    SlsEndpointKind::AgentActivity,
+                );
+                inner.service_name = override_name.map(str::to_string);
+                let mut cfg = config(vec![user, inner]);
+                cfg.service_name_prefix = prefix.into();
+                let (_dir, flusher, ak, _) = scoped(cfg);
+                flusher
+                    .send(
+                        crate::normalization::build_test_entry(
+                            &json!({"agentType": "claude-code"}),
+                        ),
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                flusher.flush().await.unwrap();
+                let calls = ak.calls.lock().unwrap();
+                assert_eq!(calls.len(), 2);
+                for (project, _, group) in calls.iter() {
+                    assert!(tag(group, "__hostname__").is_some());
+                    assert_eq!(
+                        tag(group, "__service_name__").as_deref(),
+                        if project == "proj-a" {
+                            expected_user
+                        } else {
+                            expected_inner
+                        }
+                    );
+                }
+            }
+            let mut cfg = config(vec![activity("activity", SlsMode::Ak)]);
+            cfg.service_name_prefix = "pilot".into();
+            let (_dir, flusher, ak, _) = scoped(cfg);
+            for agent in ["claude-code", "cursor", ""] {
+                flusher
+                    .send(
+                        crate::normalization::build_test_entry(&json!({"agentType": agent})),
+                        None,
+                    )
+                    .await
+                    .unwrap();
+            }
+            flusher.flush().await.unwrap();
+            let calls = ak.calls.lock().unwrap();
+            assert_eq!(calls.len(), 3);
+            let mut names: Vec<_> = calls
+                .iter()
+                .map(|(_, _, group)| tag(group, "__service_name__").unwrap())
+                .collect();
+            names.sort();
+            assert_eq!(
+                names,
+                ["pilot-claude-code", "pilot-cursor", "pilot-unknown"]
+            );
+        }
+
+        #[tokio::test]
+        async fn raw_prefix_has_no_agent_suffix_and_one_endpoint_failure_is_swallowed() {
+            let mut cfg = config(vec![
+                endpoint("raw", SlsMode::Ak, "p", "l", SlsEndpointKind::Mcp),
+                activity("activity", SlsMode::Ak),
+            ]);
+            cfg.service_name_prefix = "my-service".into();
+            let (_dir, flusher, ak, _) = scoped(cfg);
+            let payload = json!({"key": "val"}).as_object().unwrap().clone();
+            flusher.send_raw("topic", &payload).await.unwrap();
+            {
+                let calls = ak.calls.lock().unwrap();
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].0, "p");
+                assert_eq!(
+                    tag(&calls[0].2, "__service_name__").as_deref(),
+                    Some("my-service")
+                );
+                assert_eq!(
+                    calls[0].2.logs[0].content.get("topic").map(String::as_str),
+                    Some("topic")
+                );
+                assert_eq!(
+                    calls[0].2.logs[0].content.get("key").map(String::as_str),
+                    Some("val")
+                );
+            }
+            ak.failures.lock().unwrap().push_back("fail".into());
+            flusher
+                .send_raw("t", json!({"d": 1}).as_object().unwrap())
+                .await
+                .unwrap();
+            assert_eq!(ak.calls.lock().unwrap().len(), 2);
+        }
+
+        #[tokio::test]
+        async fn custom_timeout_and_retry_attempts_reach_the_transport_including_zero_guard() {
+            for (configured, expected) in [(5, 5), (0, 1)] {
+                let mut cfg = config(vec![activity("web", SlsMode::Webtracking)]);
+                cfg.timeout = Some(SlsTimeoutConfig {
+                    timeout_ms: Some(25_000),
+                    ..Default::default()
+                });
+                cfg.retry = Some(SlsRetryConfig {
+                    retry_max_attempts: Some(configured),
+                    retry_base_delay_ms: Some(1),
+                    retry_jitter: Some(false),
+                });
+                let (_dir, flusher, _, http) = scoped(cfg);
+                for _ in 0..expected {
+                    http.results
+                        .lock()
+                        .unwrap()
+                        .push_back(Err(SendError::Message("TimeoutError".into())));
+                }
+                flusher
+                    .send(crate::normalization::build_test_entry(&json!({})), None)
+                    .await
+                    .unwrap();
+                flusher.flush().await.unwrap();
+                let calls = http.calls.lock().unwrap();
+                assert_eq!(calls.len(), expected);
+                assert!(calls
+                    .iter()
+                    .all(|request| request.timeout == Duration::from_millis(25_000)));
+            }
+        }
+
+        #[tokio::test]
+        async fn default_concurrency_three_and_zero_guard_process_every_agent_bucket() {
+            for (configured, bound) in [(None, 3), (Some(0), 1)] {
+                let mut cfg = config(vec![activity("activity", SlsMode::Ak)]);
+                cfg.flush_concurrency = configured;
+                cfg.service_name_prefix = "pilot".into();
+                let (_dir, flusher, ak, _) = scoped(cfg);
+                for agent in ["claude-code", "cursor", "opencode", "codex", "qoder-cn"] {
+                    flusher
+                        .send(
+                            crate::normalization::build_test_entry(&json!({"agentType": agent})),
+                            None,
+                        )
+                        .await
+                        .unwrap();
+                }
+                flusher.flush().await.unwrap();
+                assert_eq!(ak.calls.lock().unwrap().len(), 5);
+                let max = ak.max.load(Ordering::SeqCst);
+                assert!(max >= 1 && max <= bound);
+            }
+        }
+    }
+
+    mod migration_dual_write_contracts {
+        mod independent_md5 {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/support/independent_md5.rs"
+            ));
+        }
+        use super::*;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        fn scoped(
+            endpoints: Vec<SlsEndpoint>,
+        ) -> (tempfile::TempDir, SlsFlusher, Arc<RecAk>, Arc<RecHttp>) {
+            let dir = tempfile::tempdir().unwrap();
+            let ak = Arc::new(RecAk {
+                calls: Mutex::new(Vec::new()),
+                failures: Mutex::new(VecDeque::new()),
+                current: AtomicUsize::new(0),
+                max: AtomicUsize::new(0),
+            });
+            let http = Arc::new(RecHttp {
+                calls: Mutex::new(Vec::new()),
+                results: Mutex::new(VecDeque::new()),
+            });
+            let flusher = SlsFlusher::with_io(
+                config(endpoints),
+                dir.path().to_str().unwrap(),
+                Some("0.0.0-test".into()),
+                http.clone(),
+                ak.clone(),
+            );
+            (dir, flusher, ak, http)
+        }
+
+        fn destination(name: &str, mode: SlsMode, region: &str, project: &str) -> SlsEndpoint {
+            let mut ep = endpoint(
+                name,
+                mode,
+                project,
+                &format!("{project}-store"),
+                SlsEndpointKind::AgentActivity,
+            );
+            ep.endpoint = format!("https://{region}.log.aliyuncs.com");
+            ep
+        }
+
+        fn failures(dir: &std::path::Path) -> Vec<Value> {
+            let path = dir.join("logs").join("sls-failed-logs");
+            if !path.exists() {
+                return Vec::new();
+            }
+            std::fs::read_dir(path)
+                .unwrap()
+                .flat_map(|file| {
+                    std::fs::read_to_string(file.unwrap().path())
+                        .unwrap()
+                        .lines()
+                        .map(|line| serde_json::from_str(line).unwrap())
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        }
+
+        #[tokio::test]
+        async fn webtracking_ak_and_mixed_destinations_dispatch_independently_with_cached_clients()
+        {
+            for modes in [
+                vec![SlsMode::Webtracking],
+                vec![SlsMode::Ak],
+                vec![SlsMode::Ak, SlsMode::Webtracking],
+            ] {
+                let endpoints: Vec<_> = modes
+                    .iter()
+                    .enumerate()
+                    .map(|(index, mode)| {
+                        destination(
+                            &format!("endpoint-{index}"),
+                            *mode,
+                            if index == 0 {
+                                "cn-shanghai"
+                            } else {
+                                "cn-heyuan"
+                            },
+                            if index == 0 {
+                                "user-proj"
+                            } else {
+                                "internal-proj"
+                            },
+                        )
+                    })
+                    .collect();
+                let (_dir, flusher, ak, http) = scoped(endpoints.clone());
+                for _ in 0..2 {
+                    flusher
+                        .send(crate::normalization::build_test_entry(&json!({})), None)
+                        .await
+                        .unwrap();
+                    flusher.flush().await.unwrap();
+                }
+                let ak_count = modes.iter().filter(|mode| **mode == SlsMode::Ak).count();
+                let wt_count = modes.len() - ak_count;
+                assert_eq!(ak.calls.lock().unwrap().len(), ak_count * 2);
+                assert_eq!(http.calls.lock().unwrap().len(), wt_count * 2);
+                let inits = flusher.ak_client_inits();
+                assert_eq!(inits.len(), ak_count);
+                for init in inits {
+                    let ep = endpoints
+                        .iter()
+                        .find(|ep| ep.endpoint == init.endpoint)
+                        .unwrap();
+                    assert_eq!(init.access_key_id, ep.access_key_id.as_deref().unwrap());
+                    assert_eq!(ep.mode, SlsMode::Ak);
+                }
+                for request in http.calls.lock().unwrap().iter() {
+                    let ep = endpoints
+                        .iter()
+                        .find(|ep| ep.mode == SlsMode::Webtracking)
+                        .unwrap();
+                    assert!(request.url.contains(&format!(
+                        "{}.{}",
+                        ep.project,
+                        ep.endpoint.strip_prefix("https://").unwrap()
+                    )));
+                    let body: Value = serde_json::from_slice(&request.body).unwrap();
+                    assert_eq!(body["__logs__"].as_array().unwrap().len(), 1);
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn one_failed_leg_preserves_healthy_dispatch_and_same_kind_failures_keep_distinct_metadata(
+        ) {
+            let user = destination("user-sls", SlsMode::Ak, "cn-shanghai", "user-proj");
+            let inner = destination(
+                "internal-sls",
+                SlsMode::Webtracking,
+                "cn-heyuan",
+                "internal-proj",
+            );
+            let (dir, flusher, ak, http) = scoped(vec![user.clone(), inner]);
+            ak.failures
+                .lock()
+                .unwrap()
+                .push_back("quota exceeded".into());
+            flusher
+                .send(crate::normalization::build_test_entry(&json!({})), None)
+                .await
+                .unwrap();
+            flusher.flush().await.unwrap();
+            assert_eq!(ak.calls.lock().unwrap().len(), 1);
+            assert_eq!(http.calls.lock().unwrap().len(), 1);
+            let rows = failures(dir.path());
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0]["endpoint"], "user-sls");
+            assert!(rows[0]["error_summary"]
+                .as_str()
+                .unwrap()
+                .contains("quota exceeded"));
+            assert!(rows[0].get("logGroup").is_none());
+            assert_eq!(flusher.endpoint_counters()["internal-sls"].out_entries, 1);
+
+            let inner = destination("internal-sls", SlsMode::Ak, "cn-heyuan", "internal-proj");
+            let (dir, flusher, ak, _) = scoped(vec![user, inner]);
+            ak.failures
+                .lock()
+                .unwrap()
+                .extend(["user-fail".into(), "internal-fail".into()]);
+            flusher
+                .send(crate::normalization::build_test_entry(&json!({})), None)
+                .await
+                .unwrap();
+            flusher.flush().await.unwrap();
+            let rows = failures(dir.path());
+            assert_eq!(rows.len(), 2);
+            let mut names: Vec<_> = rows
+                .iter()
+                .map(|row| row["endpoint"].as_str().unwrap())
+                .collect();
+            names.sort();
+            assert_eq!(names, ["internal-sls", "user-sls"]);
+            assert_eq!(ak.calls.lock().unwrap().len(), 2);
+        }
+
+        struct WireRequest {
+            line: String,
+            headers: HashMap<String, String>,
+            body: Vec<u8>,
+        }
+
+        async fn server(status: u16) -> (String, tokio::task::JoinHandle<WireRequest>) {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let task = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = Vec::new();
+                let header_end = loop {
+                    let mut part = [0_u8; 4096];
+                    let read = socket.read(&mut part).await.unwrap();
+                    assert!(read > 0);
+                    buffer.extend_from_slice(&part[..read]);
+                    assert!(buffer.len() <= 65_536);
+                    if let Some(pos) = buffer.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                        break pos + 4;
+                    }
+                };
+                let text = String::from_utf8(buffer[..header_end].to_vec()).unwrap();
+                let mut lines = text.split("\r\n");
+                let line = lines.next().unwrap().to_string();
+                let headers: HashMap<_, _> = lines
+                    .filter_map(|line| line.split_once(':'))
+                    .map(|(key, value)| (key.to_ascii_lowercase(), value.trim().to_string()))
+                    .collect();
+                let length: usize = headers["content-length"].parse().unwrap();
+                while buffer.len() < header_end + length {
+                    let mut part = [0_u8; 4096];
+                    let read = socket.read(&mut part).await.unwrap();
+                    assert!(read > 0);
+                    buffer.extend_from_slice(&part[..read]);
+                }
+                let body = buffer[header_end..header_end + length].to_vec();
+                let response = if status == 200 {
+                    ""
+                } else {
+                    r#"{"errorCode":"Forbidden"}"#
+                };
+                let reason = if status == 200 { "OK" } else { "Forbidden" };
+                socket.write_all(format!("HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).as_bytes()).await.unwrap();
+                WireRequest {
+                    line,
+                    headers,
+                    body,
+                }
+            });
+            (url, task)
+        }
+
+        #[tokio::test]
+        async fn real_api_key_flusher_posts_protobuf_and_forbidden_persistence_never_contains_the_key(
+        ) {
+            for status in [200, 403] {
+                let (url, task) = server(status).await;
+                let dir = tempfile::tempdir().unwrap();
+                let mut endpoint =
+                    destination("api-key-sls", SlsMode::ApiKey, "unused", "api-key-project");
+                endpoint.endpoint = url;
+                let flusher = SlsFlusher::new(config(vec![endpoint]), dir.path().to_str().unwrap());
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    flusher
+                        .send(crate::normalization::build_test_entry(&json!({})), None)
+                        .await
+                        .unwrap();
+                    flusher.flush().await.unwrap();
+                })
+                .await
+                .unwrap();
+                let received = tokio::time::timeout(Duration::from_secs(3), task)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    received.line,
+                    "POST /logstores/api-key-project-store/shards/lb HTTP/1.1"
+                );
+                assert_eq!(
+                    received.headers["authorization"],
+                    "Bearer api-key-sls-api-key"
+                );
+                assert_eq!(received.headers["content-type"], "application/x-protobuf");
+                assert!(chrono::DateTime::parse_from_rfc2822(&received.headers["date"]).is_ok());
+                assert_eq!(received.headers["x-log-apiversion"], "0.6.0");
+                assert!(!received.headers.contains_key("x-log-signaturemethod"));
+                assert_eq!(
+                    received.headers["x-log-bodyrawsize"],
+                    received.body.len().to_string()
+                );
+                let digest = &received.headers["content-md5"];
+                assert_eq!(digest.len(), 32);
+                assert!(digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte)));
+                // Hash the exact captured dynamic body using the independent test oracle,
+                // separately checked against offline Node crypto vectors.
+                assert_eq!(digest, &independent_md5::digest_hex(&received.body));
+                assert!(received
+                    .body
+                    .windows(b"gen_ai.session.id".len())
+                    .any(|bytes| bytes == b"gen_ai.session.id"));
+                assert!(received
+                    .body
+                    .windows(b"test-session-1".len())
+                    .any(|bytes| bytes == b"test-session-1"));
+                let rows = failures(dir.path());
+                if status == 200 {
+                    assert!(rows.is_empty());
+                } else {
+                    assert_eq!(rows.len(), 1);
+                    let row = &rows[0];
+                    assert_eq!(row["endpoint"], "api-key-sls");
+                    assert_eq!(row["mode"], "apiKey");
+                    assert_eq!(row["project"], "api-key-project");
+                    assert_eq!(row["logstore"], "api-key-project-store");
+                    assert_eq!(row["kind"], "agentActivity");
+                    assert_eq!(row["batch_count"], 1);
+                    assert!(row["batch_bytes"].as_u64().unwrap() > 0);
+                    assert!(row["error_summary"].as_str().unwrap().contains("Forbidden"));
+                    assert!(!serde_json::to_string(row)
+                        .unwrap()
+                        .contains("api-key-sls-api-key"));
+                }
+            }
+        }
     }
 }

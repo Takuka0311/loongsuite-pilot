@@ -1146,3 +1146,131 @@ mod tests {
             .unwrap_or(0)
     }
 }
+
+#[cfg(test)]
+mod migration_api_key_wire_contracts {
+    use super::*;
+    use indexmap::IndexMap;
+    use std::collections::HashMap;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    struct Capture {
+        request_line: String,
+        headers: HashMap<String, String>,
+        body: Vec<u8>,
+    }
+
+    #[tokio::test]
+    async fn actual_api_key_http_retry_preserves_frozen_protobuf_and_independent_md5() {
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/sls-api-key-golden.json"))
+                .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            tokio::time::timeout(Duration::from_secs(10),async move {
+                let mut captures=Vec::new();
+                for status in [500,200] {
+                    let (mut socket,_)=listener.accept().await.unwrap();
+                    let mut received=Vec::new();
+                    let mut buffer=[0u8;4096];
+                    let (head_end,headers,request_line,length)=loop {
+                        let count=socket.read(&mut buffer).await.unwrap();
+                        assert_ne!(count,0);
+                        received.extend_from_slice(&buffer[..count]);
+                        assert!(received.len()<=65536);
+                        if let Some(end)=received.windows(4).position(|window|window==b"\r\n\r\n") {
+                            let text=std::str::from_utf8(&received[..end]).unwrap();
+                            let headers:HashMap<String,String>=text.lines().skip(1).map(|line|{
+                                let (name,value)=line.split_once(':').unwrap();
+                                (name.to_ascii_lowercase(),value.trim().to_owned())
+                            }).collect();
+                            let length=headers["content-length"].parse::<usize>().unwrap();
+                            break (end+4,headers,text.lines().next().unwrap().to_owned(),length);
+                        }
+                    };
+                    while received.len()<head_end+length {
+                        let count=socket.read(&mut buffer).await.unwrap();
+                        assert_ne!(count,0);
+                        received.extend_from_slice(&buffer[..count]);
+                        assert!(received.len()<=65536);
+                    }
+                    captures.push(Capture{
+                        request_line,headers,body:received[head_end..head_end+length].to_vec()
+                    });
+                    let body=if status==500 { b"{\"errorCode\":\"retry\"}".as_slice() } else {b"".as_slice()};
+                    let response=format!("HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len());
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                    socket.write_all(body).await.unwrap();
+                }
+                captures
+            }).await.expect("local API-key retry exchange did not settle")
+        });
+        let group = SlsLogGroupPayload {
+            logs: vec![super::super::sls_loggroup_codec::SlsLogEntryPayload {
+                timestamp: 1_782_820_111,
+                content: IndexMap::from([
+                    (
+                        "message".to_owned(),
+                        "local mock api key transport test".to_owned(),
+                    ),
+                    ("test_case".to_owned(), "api-key-transport".to_owned()),
+                ]),
+                timestamp_ns_part: None,
+            }],
+            topic: Some("api-key-test".into()),
+            source: Some("unit-test".into()),
+            tags: Some(vec![IndexMap::from([(
+                "__hostname__".into(),
+                "unit-host".into(),
+            )])]),
+        };
+        post_api_key_log_store_logs(
+            &SlsTransportConfig {
+                endpoint: format!("http://{address}"),
+                project: "api-key-project".into(),
+                logstore: "shimu-test".into(),
+                max_retries: Some(2),
+                retry_base_delay_ms: Some(1),
+                timeout_ms: Some(5_000),
+            },
+            "secret-api-key",
+            &group,
+            &PostApiKeyOptions {
+                user_agent: Some("unit-test-agent".into()),
+                ..Default::default()
+            },
+            &ReqwestSlsHttp::new(),
+        )
+        .await
+        .unwrap();
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests {
+            assert_eq!(
+                request.request_line,
+                "POST /logstores/shimu-test/shards/lb HTTP/1.1"
+            );
+            assert_eq!(
+                request.headers["host"],
+                format!("api-key-project.127.0.0.1:{}", address.port())
+            );
+            assert_eq!(request.headers["authorization"], "Bearer secret-api-key");
+            assert_eq!(request.headers["content-type"], "application/x-protobuf");
+            assert_eq!(
+                request.headers["content-md5"],
+                golden["md5"].as_str().unwrap()
+            );
+            assert_eq!(hex::encode(&request.body), golden["hex"].as_str().unwrap());
+            assert!(chrono::DateTime::parse_from_rfc2822(&request.headers["date"]).is_ok());
+            assert_eq!(
+                request.headers["x-log-bodyrawsize"],
+                request.body.len().to_string()
+            );
+            assert!(!request.headers.contains_key("x-log-signaturemethod"));
+            assert!(String::from_utf8_lossy(&request.body).contains("api-key-transport"));
+        }
+    }
+}

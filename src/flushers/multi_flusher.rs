@@ -337,3 +337,187 @@ mod tests {
         assert_eq!(*second.flushes.lock().unwrap(), 1);
     }
 }
+
+#[cfg(test)]
+mod migration_dispatch_contracts {
+    use super::*;
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use tokio::sync::Barrier;
+
+    type CapturedBatch = (Vec<Value>, Option<Vec<f64>>);
+
+    struct RecordingSink {
+        label: &'static str,
+        fail: AtomicBool,
+        barrier: Option<Arc<Barrier>>,
+        singles: Mutex<Vec<Value>>,
+        batches: Mutex<Vec<CapturedBatch>>,
+        raw: Mutex<Vec<(String, Map<String, Value>)>>,
+        flushes: AtomicUsize,
+        shutdowns: AtomicUsize,
+    }
+
+    impl RecordingSink {
+        fn new(label: &'static str, barrier: Option<Arc<Barrier>>) -> Arc<Self> {
+            Arc::new(Self {
+                label,
+                fail: AtomicBool::new(false),
+                barrier,
+                singles: Mutex::new(Vec::new()),
+                batches: Mutex::new(Vec::new()),
+                raw: Mutex::new(Vec::new()),
+                flushes: AtomicUsize::new(0),
+                shutdowns: AtomicUsize::new(0),
+            })
+        }
+        fn result(&self) -> Result<(), FlushError> {
+            if self.fail.load(Ordering::SeqCst) {
+                Err(FlushError::new("synthetic ordinary child failure"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[async_trait]
+    impl BaseFlusher for RecordingSink {
+        fn name(&self) -> &str {
+            self.label
+        }
+        async fn send(&self, entry: AgentActivityEntry, _: Option<f64>) -> Result<(), FlushError> {
+            self.singles
+                .lock()
+                .unwrap()
+                .push(serde_json::to_value(entry).unwrap());
+            self.result()
+        }
+        async fn send_batch(
+            &self,
+            entries: Vec<AgentActivityEntry>,
+            bytes: Option<Vec<f64>>,
+        ) -> Result<(), FlushError> {
+            self.batches.lock().unwrap().push((
+                entries
+                    .into_iter()
+                    .map(|entry| serde_json::to_value(entry).unwrap())
+                    .collect(),
+                bytes,
+            ));
+            if let Some(barrier) = &self.barrier {
+                barrier.wait().await;
+            }
+            self.result()
+        }
+        async fn send_raw(
+            &self,
+            topic: &str,
+            payload: &Map<String, Value>,
+        ) -> Result<(), FlushError> {
+            self.raw
+                .lock()
+                .unwrap()
+                .push((topic.to_owned(), payload.clone()));
+            self.result()
+        }
+        async fn flush(&self) -> Result<(), FlushError> {
+            self.flushes.fetch_add(1, Ordering::SeqCst);
+            self.result()
+        }
+        async fn shutdown(&self) -> Result<(), FlushError> {
+            self.shutdowns.fetch_add(1, Ordering::SeqCst);
+            self.result()
+        }
+    }
+
+    fn entry(id: &str) -> AgentActivityEntry {
+        crate::normalization::build_test_entry(&json!({
+            "uuid":id,"agentType":"qoder","sessionId":"synthetic-session",
+            "gen_ai.input.messages":[{"role":"user","parts":[{"type":"text","content":"synthetic input"}]}],
+            "gen_ai.usage.total_tokens":17
+        }))
+    }
+
+    #[tokio::test]
+    async fn concurrent_batch_dispatch_preserves_each_entry_and_existing_byte_measurement() {
+        let barrier = Arc::new(Barrier::new(2));
+        let first = RecordingSink::new("first", Some(barrier.clone()));
+        let second = RecordingSink::new("second", Some(barrier));
+        let multi = MultiFlusher::new(vec![first.clone(), second.clone()]);
+        for (entries, sizes) in [
+            (vec![entry("measured")], Some(vec![123.0])),
+            (vec![entry("left"), entry("right")], None),
+        ] {
+            let expected: Vec<Value> = entries
+                .iter()
+                .map(|row| serde_json::to_value(row).unwrap())
+                .collect();
+            // Both children must reach the barrier. Sequential fan-out would
+            // deadlock, rather than merely happen to retain two final counts.
+            tokio::time::timeout(
+                Duration::from_secs(3),
+                multi.send_batch(entries, sizes.clone()),
+            )
+            .await
+            .expect("child batches did not run concurrently")
+            .unwrap();
+            for sink in [&first, &second] {
+                let batches = sink.batches.lock().unwrap();
+                assert_eq!(batches.last().unwrap(), &(expected.clone(), sizes.clone()));
+            }
+            assert!(multi.trace_runtime_snapshot().is_empty());
+        }
+        assert_eq!(first.batches.lock().unwrap().len(), 2);
+        assert_eq!(second.batches.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn either_ordinary_child_failure_preserves_all_dispatch_and_lifecycle_calls() {
+        for failing in 0..2 {
+            let first = RecordingSink::new("first", None);
+            let second = RecordingSink::new("second", None);
+            let sinks = [&first, &second];
+            let multi = MultiFlusher::new(vec![first.clone(), second.clone()]);
+            let input = entry("single");
+            let expected = serde_json::to_value(&input).unwrap();
+            multi.send(input, None).await.unwrap();
+            let payload = json!({"data":"payload"}).as_object().unwrap().clone();
+            multi.send_raw("topic-x", &payload).await.unwrap();
+            for sink in sinks {
+                assert_eq!(*sink.singles.lock().unwrap(), vec![expected.clone()]);
+                assert_eq!(
+                    *sink.raw.lock().unwrap(),
+                    vec![("topic-x".to_owned(), payload.clone())]
+                );
+            }
+            sinks[failing].fail.store(true, Ordering::SeqCst);
+            let batch = entry("ordinary-failure-batch");
+            let expected = serde_json::to_value(&batch).unwrap();
+            multi.send_batch(vec![batch], None).await.unwrap();
+            let payload = json!({"x":1}).as_object().unwrap().clone();
+            multi.send_raw("topic", &payload).await.unwrap();
+            multi.shutdown().await.unwrap();
+            for sink in sinks {
+                assert_eq!(
+                    *sink.batches.lock().unwrap(),
+                    vec![(vec![expected.clone()], None)]
+                );
+                assert_eq!(
+                    sink.raw.lock().unwrap()[1],
+                    ("topic".to_owned(), payload.clone())
+                );
+                assert_eq!(sink.shutdowns.load(Ordering::SeqCst), 1);
+            }
+            sinks[failing].fail.store(false, Ordering::SeqCst);
+            multi.shutdown().await.unwrap();
+            multi.flush().await.unwrap();
+            for sink in sinks {
+                assert_eq!(sink.shutdowns.load(Ordering::SeqCst), 2);
+                assert_eq!(sink.flushes.load(Ordering::SeqCst), 1);
+            }
+        }
+    }
+}

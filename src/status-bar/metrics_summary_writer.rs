@@ -224,6 +224,9 @@ struct CurrentDayState {
     files: Vec<CurrentDayFileState>,
 }
 
+#[cfg(test)]
+type BeforeCurrentScan = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
 pub struct MetricsSummaryWriter {
     data_dir: String,
     output_dir: String,
@@ -234,6 +237,8 @@ pub struct MetricsSummaryWriter {
     stopped: Mutex<bool>,
     refresh_lock: tokio::sync::Mutex<()>,
     scan_bytes: Mutex<Vec<u64>>,
+    #[cfg(test)]
+    before_current_scan: Mutex<Option<BeforeCurrentScan>>,
 }
 
 impl MetricsSummaryWriter {
@@ -271,6 +276,8 @@ impl MetricsSummaryWriter {
             stopped: Mutex::new(false),
             refresh_lock: tokio::sync::Mutex::new(()),
             scan_bytes: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            before_current_scan: Mutex::new(None),
         }
     }
 
@@ -298,7 +305,11 @@ impl MetricsSummaryWriter {
         if *self.stopped.lock().unwrap_or_else(|err| err.into_inner()) {
             return;
         }
-        let _ = self.aggregate().await;
+        if let Err(error) = self.aggregate().await {
+            let details = serde_json::json!({"error": format!("Error: {error}")});
+            crate::utils::create_logger("MetricsSummaryWriter")
+                .warn("metrics summary refresh failed", details.as_object());
+        }
     }
 
     async fn aggregate(&self) -> Result<(), String> {
@@ -478,6 +489,17 @@ impl MetricsSummaryWriter {
             let mut stats = previous
                 .map(|file| deserialize_day_stats(&file.stats))
                 .unwrap_or_default();
+            #[cfg(test)]
+            {
+                let hook = self
+                    .before_current_scan
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone();
+                if let Some(hook) = hook {
+                    hook(file_path);
+                }
+            }
             let result = scan_jsonl_tail_checked(
                 file_path,
                 start_offset,
@@ -1572,3 +1594,7 @@ mod tests {
         assert_eq!(std::fs::read(output.join(&name)).unwrap(), before);
     }
 }
+
+#[cfg(test)]
+#[path = "metrics_summary_migration_tests.rs"]
+mod migration_contract_tests;

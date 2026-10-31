@@ -486,4 +486,96 @@ mod tests {
             5
         );
     }
+    #[tokio::test]
+    async fn configured_url_path_headers_and_raw_body_reach_the_real_socket() {
+        let server = serve(vec![200]).await;
+        let url = format!("{}/report?tenant=synthetic", server.url);
+        let flusher = HttpFlusher::new(HttpFlusherConfig {
+            enabled: true,
+            url,
+            headers: Some(HashMap::from([(
+                "X-Api-Key".to_owned(),
+                "secret".to_owned(),
+            )])),
+            batch_max_size: 1,
+            flush_interval_ms: 99_999,
+            request_timeout_ms: 5_000,
+        });
+        assert_eq!(flusher.request_timeout_ms(), 5_000);
+        let payload = json!({"key":"val"}).as_object().unwrap().clone();
+        flusher.send_raw("test-topic", &payload).await.unwrap();
+        let rows = server.requests.lock().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0]
+            .0
+            .starts_with("POST /report?tenant=synthetic HTTP/1.1\r\n"));
+        let header = rows[0].0.to_ascii_lowercase();
+        assert!(header.contains("x-api-key: secret"));
+        assert!(header.contains("content-type: application/json"));
+        assert_eq!(rows[0].1, json!({"topic":"test-topic","key":"val"}));
+    }
+
+    #[tokio::test]
+    async fn configured_request_timeout_is_effective_and_preserves_the_failed_batch() {
+        // Keep the listener alive without accepting/responding. A missing
+        // request timeout would leave send waiting until the outer test bound.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let flusher = HttpFlusher::new(HttpFlusherConfig {
+            enabled: true,
+            url: format!("http://{}", listener.local_addr().unwrap()),
+            headers: None,
+            batch_max_size: 1,
+            flush_interval_ms: 99_999,
+            request_timeout_ms: 40,
+        });
+        let entry = crate::normalization::build_test_entry(&json!({"uuid":"timeout-preserved"}));
+        tokio::time::timeout(Duration::from_secs(3), flusher.send(entry, None))
+            .await
+            .expect("configured request timeout did not take effect")
+            .unwrap();
+        let buffer = flusher.inner.buffer.lock().unwrap();
+        assert_eq!(buffer.len(), 1);
+        assert_eq!(
+            buffer[0].get("event.id").map(String::as_str),
+            Some("timeout-preserved")
+        );
+        drop(buffer);
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn shutdown_aborts_the_actual_timer_before_returning() {
+        let server = serve(vec![200]).await;
+        let flusher = flusher(&server.url, 5);
+        flusher.start().await.unwrap();
+        let task = flusher
+            .inner
+            .timer
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .abort_handle();
+        for id in ["first", "second"] {
+            flusher
+                .send(
+                    crate::normalization::build_test_entry(&json!({"uuid":id})),
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+        flusher.shutdown().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !task.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("flush timer remained alive after shutdown");
+        assert!(flusher.inner.timer.lock().unwrap().is_none());
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].1["entries"].as_array().unwrap().len(), 2);
+    }
 }

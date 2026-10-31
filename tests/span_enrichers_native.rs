@@ -57,7 +57,26 @@ async fn native_esm_modules_keep_order_module_state_realpath_identity_and_origin
     }
     paths.push(second);
     let runner = Arc::new(runner(&paths));
-    let original = span();
+    let mut original = span();
+    original.parent_span_id = Some("fedcba9876543210".into());
+    original.start_time = [1000, 17];
+    original.end_time = [1003, 62];
+    original.duration = [3, 45];
+    original.ended = true;
+    original.dropped_attributes_count = 7;
+    original.dropped_events_count = 8;
+    original.dropped_links_count = 9;
+    original.resource_attributes = Some(
+        serde_json::from_value(json!({
+            "service.name": "test-codex", "metadata.preserved": true
+        }))
+        .unwrap(),
+    );
+    original.links = vec![json!({
+        "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "spanId": "bbbbbbbbbbbbbbbb",
+        "attributes": {"link.preserved": true}
+    })];
     let (a, b) = tokio::join!(
         runner.enrich(vec![original.clone()], context()),
         runner.enrich(vec![original.clone()], context())
@@ -69,6 +88,27 @@ async fn native_esm_modules_keep_order_module_state_realpath_identity_and_origin
     assert_eq!(a[0].name, original.name);
     assert_eq!(a[0].trace_id, original.trace_id);
     assert_eq!(a[0].span_id, original.span_id);
+    for enriched in [&a[0], &b[0]] {
+        assert_eq!(enriched.parent_span_id, original.parent_span_id);
+        assert_eq!(enriched.start_time, original.start_time);
+        assert_eq!(enriched.end_time, original.end_time);
+        assert_eq!(enriched.duration, original.duration);
+        assert_eq!(enriched.ended, original.ended);
+        assert_eq!(
+            enriched.dropped_attributes_count,
+            original.dropped_attributes_count
+        );
+        assert_eq!(enriched.dropped_events_count, original.dropped_events_count);
+        assert_eq!(enriched.dropped_links_count, original.dropped_links_count);
+        assert_eq!(enriched.resource_attributes, original.resource_attributes);
+        assert_eq!(enriched.links, original.links);
+        // The frozen SDK fixture has no events; preserve that list as well.
+        assert_eq!(enriched.events.len(), original.events.len());
+        for (event, original_event) in enriched.events.iter().zip(&original.events) {
+            assert_eq!(event.name, original_event.name);
+            assert_eq!(event.attributes, original_event.attributes);
+        }
+    }
     runner.shutdown().await;
 }
 

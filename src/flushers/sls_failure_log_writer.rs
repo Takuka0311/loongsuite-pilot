@@ -3,11 +3,8 @@
 //! Failure files store bounded metadata only. The batch payload is never
 //! written. File names are `{safeEndpoint}-{segment}-{localDate}.jsonl`.
 //!
-//! JavaScript `String.prototype.normalize('NFKC')` is not applied. ASCII
-//! endpoint names, which are what the writer is given in practice, are
-//! unchanged by NFKC. Non-ASCII compatibility characters can therefore differ
-//! in the filename prefix; the SHA-256 suffix is still taken from the original
-//! endpoint string.
+//! Filename prefixes preserve NFKC and invalid-character run semantics.
+//! The SHA-256 suffix always identifies the original endpoint string.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -392,16 +389,18 @@ pub fn build_sls_failure_log_record(
 }
 
 pub fn safe_endpoint_file_prefix(endpoint: &str) -> String {
-    let replaced: String = endpoint
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect();
+    let normalized = icu_normalizer::ComposingNormalizer::new_nfkc().normalize(endpoint);
+    let mut replaced = String::new();
+    let mut invalid_run = false;
+    for ch in normalized.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+            replaced.push(ch);
+            invalid_run = false;
+        } else if !invalid_run {
+            replaced.push('-');
+            invalid_run = true;
+        }
+    }
     let trimmed = replaced.trim_matches(|ch| matches!(ch, '.' | '_' | '-'));
     let mut base: String = trimmed.chars().take(48).collect();
     if base.is_empty() {
@@ -580,6 +579,12 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
             .collect();
         assert_eq!(files.len(), 1);
+        assert!(
+            Regex::new(r"^internal-sls-[a-f0-9]{10}-0000-2026-07-20\.jsonl$")
+                .unwrap()
+                .is_match(&files[0]),
+            "filename must independently preserve the ten-hex hash contract"
+        );
         let prefix = safe_endpoint_file_prefix("internal-sls");
         assert!(files[0].starts_with(&format!("{prefix}-0000-2026-07-20")));
         let record: serde_json::Value =
@@ -749,5 +754,27 @@ mod tests {
         second.insert("content".to_string(), "中文".to_string());
         assert!(estimate_string_record_bytes(&[first, second]) > 9);
         assert_eq!(estimate_string_record_bytes(&[]), 0);
+    }
+}
+
+#[cfg(test)]
+mod migration_unicode_prefix_contracts {
+    use super::*;
+
+    #[test]
+    fn endpoint_prefix_matches_frozen_typescript_nfkc_and_invalid_run_oracle() {
+        let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../tests/fixtures/sls-failure-prefix-cases.json"
+        ))
+        .unwrap();
+        assert_eq!(cases.len(), 15);
+        for case in cases {
+            let endpoint = case["endpoint"].as_str().unwrap();
+            assert_eq!(
+                safe_endpoint_file_prefix(endpoint),
+                case["prefix"].as_str().unwrap(),
+                "original endpoint {endpoint:?}"
+            );
+        }
     }
 }
