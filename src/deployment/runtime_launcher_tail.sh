@@ -1,3 +1,18 @@
+# Keep the container control plane on its native, container-aware helper.
+# The selected source package remains immutable and owns runtime version/ABI.
+sync_installed_scripts_from_version() {
+  local version_dir="$1"
+  native_version_root "$version_dir" || return 1
+  [[ "$LP_RUNTIME_HELPER" == /* && -f "$LP_RUNTIME_HELPER" &&
+     -x "$LP_RUNTIME_HELPER" && ! -L "$LP_RUNTIME_HELPER" ]] || {
+    printf '%s\n' '[loongsuite-pilot] pinned container control helper unavailable' >&2
+    return 1
+  }
+  LP_SOURCE_DIR="$version_dir" LP_CACHE_DIR="$CACHE_DIR" LP_DATA_DIR="$DATA_DIR" \
+    LP_CONFIG_PATH="$CONFIG_FILE" LP_BIN_DIR="${LOONGSUITE_PILOT_BIN%/*}" \
+    "$LP_RUNTIME_HELPER" installer-helper sync-service --from-env
+}
+
 # Only this verified container context uses background role management.
 # Host init-type and service registrations remain untouched.
 LP_RUNTIME_STATE="/tmp/loongsuite-pilot-container-$LP_RUNTIME_ID-$LP_RUNTIME_UID"
@@ -93,6 +108,14 @@ esac
 # Retain every original shell-dispatch command, including upgrade and rollback.
 # Unknown/new native CLI commands go to ELF; unsupported uninstall/autostart stay errors.
 case "${1:-status}" in
+  installer-helper)
+    [[ "$LP_RUNTIME_HELPER" == /* && -f "$LP_RUNTIME_HELPER" &&
+       -x "$LP_RUNTIME_HELPER" && ! -L "$LP_RUNTIME_HELPER" ]] || {
+      printf '%s\n' '[loongsuite-pilot] pinned container control helper unavailable' >&2
+      exit 1
+    }
+    exec "$LP_RUNTIME_HELPER" "$@"
+    ;;
   start|stop|restart|status|info|inject|hook|deploy|dashboard|token-usage|tokens|menubar|span-attr|worker|agent|upgrade|rollback|start-collector|restart-collector|schedule-updater-restart|restart-updater|run|run-updater|hook-process|probe|interceptor|help|--help|-h|log|diagnose-service) ;;
   *)
     pilot_bin=$(resolve_pilot_bin) || exit 1

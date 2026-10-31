@@ -1078,14 +1078,6 @@ impl Updater {
             return Err("候选包提交与更新清单不一致".into());
         }
         let binary = resource_file(staging, &runtime.binary).map_err(|err| err.to_string())?;
-        let service_files = crate::deployment::native_install::service_files(
-            staging,
-            Path::new(&self.paths.loongsuite_pilot_bin),
-            Path::new(&self.paths.cache_dir),
-            Path::new(&self.paths.data_dir),
-            Path::new(&self.config_path),
-        )
-        .map_err(|err| err.to_string())?;
         let mut env = self.process_env.clone();
         env.insert(
             "LOONGSUITE_PILOT_DATA_DIR".into(),
@@ -1135,6 +1127,12 @@ impl Updater {
         {
             return Err("候选包版本、配置或资源预检失败".into());
         }
+        crate::deployment::native_install::check_container_candidate(
+            Path::new(&self.paths.cache_dir),
+            Path::new(&self.paths.data_dir),
+            &check,
+        )
+        .map_err(|err| err.to_string())?;
         crate::deployment::native_install::check_service_owner(
             Path::new(&self.paths.loongsuite_pilot_bin),
             Path::new(&self.paths.cache_dir),
@@ -1158,6 +1156,15 @@ impl Updater {
         std::fs::create_dir_all(&self.paths.versions_dir).map_err(|err| err.to_string())?;
         std::fs::rename(staging, &target).map_err(|err| err.to_string())?;
         let switch = (|| -> anyhow::Result<()> {
+            // Pin the installed final target, never the temporary unpacked path.
+            let service_files = crate::deployment::native_install::service_files(
+                &target,
+                Path::new(&self.paths.loongsuite_pilot_bin),
+                Path::new(&self.paths.cache_dir),
+                Path::new(&self.paths.data_dir),
+                Path::new(&self.config_path),
+                true,
+            )?;
             if let Some(previous) = old_current {
                 transaction.write("previous", format!("{previous}\n").as_bytes(), 0o600)?;
             }
@@ -2638,6 +2645,7 @@ mod tests {
             Path::new(base),
             Path::new(base),
             Path::new(&updater.config_path),
+            false,
         )
         .unwrap();
         let layout = dir.path().join("loongsuite-pilot-layout.json");
@@ -2865,6 +2873,155 @@ mod tests {
         )
         .unwrap();
         manifest
+    }
+
+    #[cfg(target_os = "linux")]
+    fn container_activation_fixture(root: &Path) -> Updater {
+        use std::os::unix::fs::PermissionsExt;
+        let mut updater = Updater::new(base_config(), root.to_str());
+        updater.paths.loongsuite_pilot_bin = root
+            .join("bin/loongsuite-pilot")
+            .to_string_lossy()
+            .into_owned();
+        updater.config_path = root.join("config.json").to_string_lossy().into_owned();
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        std::fs::create_dir_all(root.join("versions")).unwrap();
+        std::fs::write(&updater.paths.loongsuite_pilot_bin, b"previous service").unwrap();
+        std::fs::write(
+            &updater.config_path,
+            b"\xef\xbb\xbf{\"autoUpdate\":false}\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&updater.config_path, std::fs::Permissions::from_mode(0o640))
+            .unwrap();
+        std::fs::write(&updater.paths.current_file, b"original\n").unwrap();
+        std::fs::write(&updater.paths.previous_file, b"older\n").unwrap();
+        let descriptor = json!({"schema":1,"containerId":"a".repeat(64),"image":format!("sha256:{}","b".repeat(64)),
+            "dockerBinary":"/usr/bin/docker","launcherPath":updater.paths.loongsuite_pilot_bin,
+            "cacheDir":root,"dataDir":root,"configPath":updater.config_path,
+            "uid":unsafe{libc::geteuid()},"gid":unsafe{libc::getegid()},"startUpdater":false});
+        std::fs::write(
+            root.join("container-runtime.json"),
+            serde_json::to_vec(&descriptor).unwrap(),
+        )
+        .unwrap();
+        std::fs::set_permissions(
+            root.join("container-runtime.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        updater
+    }
+
+    #[cfg(target_os = "linux")]
+    fn container_candidate(root: &Path) -> VersionManifest {
+        use crate::utils::runtime_paths::{sha256_file, RuntimeManifest};
+        let manifest = native_package(root);
+        let script = root.join("scripts/loongsuite-pilot.sh");
+        std::fs::write(&script, include_str!("../../scripts/loongsuite-pilot.sh")).unwrap();
+        let path = root.join("runtime-manifest.json");
+        let mut runtime: RuntimeManifest =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        runtime
+            .resources
+            .iter_mut()
+            .find(|r| r.path == "scripts/loongsuite-pilot.sh")
+            .unwrap()
+            .sha256 = sha256_file(&script).unwrap();
+        std::fs::write(path, serde_json::to_vec(&runtime).unwrap()).unwrap();
+        manifest
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn container_updater_rejects_missing_actual_caps_before_rename_or_state_writes() {
+        let root = tempfile::tempdir().unwrap();
+        let mut updater = container_activation_fixture(root.path());
+        let staging = root.path().join("versions/unpacked");
+        let manifest = container_candidate(&staging);
+        let net = ScriptedNet::new(vec![], preflight_outputs(&manifest));
+        updater.net = net.clone();
+        let old_config = std::fs::read(&updater.config_path).unwrap();
+        let old_mtime = std::fs::metadata(&updater.config_path)
+            .unwrap()
+            .modified()
+            .unwrap();
+        let error = updater
+            .activate_staged(&staging, &manifest)
+            .await
+            .err()
+            .expect("missing capabilities must reject");
+        assert!(error.contains("候选运行时不支持本安装的容器服务入口与 Hook pin"));
+        assert!(staging.is_dir());
+        assert_eq!(
+            std::fs::read(&updater.paths.current_file).unwrap(),
+            b"original\n"
+        );
+        assert_eq!(
+            std::fs::read(&updater.paths.previous_file).unwrap(),
+            b"older\n"
+        );
+        assert_eq!(
+            std::fs::read(&updater.paths.loongsuite_pilot_bin).unwrap(),
+            b"previous service"
+        );
+        assert_eq!(std::fs::read(&updater.config_path).unwrap(), old_config);
+        assert_eq!(
+            std::fs::metadata(&updater.config_path)
+                .unwrap()
+                .modified()
+                .unwrap(),
+            old_mtime
+        );
+        assert!(!root.path().join("update-recovery.json").exists());
+        assert_eq!(net.exec_log.lock().unwrap().len(), 2);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn container_updater_pins_final_package_after_rename_and_rolls_state_back() {
+        let root = tempfile::tempdir().unwrap();
+        let mut updater = container_activation_fixture(root.path());
+        let staging = root.path().join("versions/unpacked");
+        let manifest = container_candidate(&staging);
+        let mut outputs = preflight_outputs(&manifest);
+        outputs[1] = Ok(ExecOutput {
+            stdout: json!({"schema":1,"runtime":"rust","ok":true,
+            "version":manifest.version,"target":build_target(),"edition":build_edition(),
+            "check":{"details":{"gitCommit":manifest.git_commit,
+                "runtimeCapabilities":{"containerServiceHelper":1,"containerHookPin":1}}}})
+            .to_string(),
+            ..ExecOutput::default()
+        });
+        let net = ScriptedNet::new(vec![], outputs);
+        updater.net = net.clone();
+        let tx = updater.activate_staged(&staging, &manifest).await.unwrap();
+        let current = read_pointer_file(&updater.paths.current_file)
+            .await
+            .unwrap();
+        let installed = root.path().join("versions").join(&current);
+        let helper = std::fs::canonicalize(installed.join("bin/loongsuite-pilot")).unwrap();
+        let script = std::fs::read_to_string(&updater.paths.loongsuite_pilot_bin).unwrap();
+        let quoted = format!("'{}'", helper.to_string_lossy().replace('\'', "'\"'\"'"));
+        assert!(script.contains(&format!("LP_RUNTIME_HELPER={quoted}\n")));
+        assert!(!script.contains(&format!("LP_RUNTIME_HELPER='{}", staging.display())));
+        assert!(!staging.exists());
+        assert!(helper.is_file());
+        assert_eq!(net.exec_log.lock().unwrap().len(), 2);
+        drop(tx);
+        assert_eq!(
+            std::fs::read(&updater.paths.current_file).unwrap(),
+            b"original\n"
+        );
+        assert_eq!(
+            std::fs::read(&updater.paths.previous_file).unwrap(),
+            b"older\n"
+        );
+        assert_eq!(
+            std::fs::read(&updater.paths.loongsuite_pilot_bin).unwrap(),
+            b"previous service"
+        );
+        assert!(!root.path().join("update-recovery.json").exists());
     }
 
     fn preflight_outputs(manifest: &VersionManifest) -> Vec<Result<ExecOutput, CommandFailure>> {

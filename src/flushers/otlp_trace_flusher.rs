@@ -233,6 +233,9 @@ impl Drop for OtlpBatch {
     }
 }
 
+#[cfg(test)]
+type TestConversionClock = Arc<dyn Fn() -> Instant + Send + Sync>;
+
 struct OtlpInner {
     codex_journal: Mutex<Option<CodexJournalContext>>,
     journal_restore: tokio::sync::OnceCell<()>,
@@ -250,6 +253,8 @@ struct OtlpInner {
     failed_dir: PathBuf,
     resource_attribute_keys: Vec<String>,
     passthrough_prefixes: Vec<String>,
+    #[cfg(test)]
+    test_conversion_clock: Mutex<Option<TestConversionClock>>,
     idle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     convert_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
@@ -386,6 +391,8 @@ impl OtlpTraceFlusher {
                 .map(|prefix| prefix.trim().to_string())
                 .filter(|prefix| !prefix.is_empty())
                 .collect(),
+            #[cfg(test)]
+            test_conversion_clock: Mutex::new(None),
             idle: Mutex::new(None),
             convert_locks: Mutex::new(HashMap::new()),
             endpoints,
@@ -1097,6 +1104,21 @@ impl OtlpInner {
             .clone()
     }
 
+    fn conversion_instant(&self) -> Instant {
+        #[cfg(test)]
+        {
+            let clock = self
+                .test_conversion_clock
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone();
+            if let Some(clock) = clock {
+                return clock();
+            }
+        }
+        Instant::now()
+    }
+
     async fn do_convert(
         self: &Arc<Self>,
         scope: ConvertScope<'_>,
@@ -1122,14 +1144,18 @@ impl OtlpInner {
         let prepared = prepare_records(self, agent_type, &records);
         let trace_records = super::trace_event_compat::prepare_trace_events(&prepared.records);
         let sanitized = drop_orphan_pairs(&trace_records);
-        let started = Instant::now();
+        let started = self.conversion_instant();
         let result = route_convert(agent_type, &sanitized, &prepared.passthrough, converter);
         let succeeded = result.is_ok();
         {
             let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
             if let Some(counters) = state.counters.get_mut(agent_type) {
                 counters.converter_calls_total += 1;
-                counters.converter_duration_ms_total += started.elapsed().as_secs_f64() * 1000.0;
+                counters.converter_duration_ms_total += self
+                    .conversion_instant()
+                    .saturating_duration_since(started)
+                    .as_secs_f64()
+                    * 1000.0;
                 if !succeeded {
                     counters.converter_failed_total += 1;
                 }
@@ -1426,7 +1452,12 @@ impl OtlpInner {
     }
 
     fn snapshot(&self) -> Vec<TraceRuntimeSnapshot> {
+        self.snapshot_at(None)
+    }
+
+    fn snapshot_at(&self, now: Option<Instant>) -> Vec<TraceRuntimeSnapshot> {
         let state = self.state.lock().unwrap_or_else(|err| err.into_inner());
+        let now = now.unwrap_or_else(Instant::now);
         let mut rows: IndexMap<String, TraceRuntimeSnapshot> = IndexMap::new();
         for (agent_type, counters) in &state.counters {
             rows.insert(
@@ -1438,7 +1469,7 @@ impl OtlpInner {
             let Some(row) = rows.get_mut(&buffer.agent_type) else {
                 continue;
             };
-            let age = buffer.opened_at.elapsed().as_millis() as u64;
+            let age = now.saturating_duration_since(buffer.opened_at).as_millis() as u64;
             row.pending_buffers += 1;
             row.pending_records += buffer.records.len() as u64;
             row.pending_logical_bytes += buffer.logical_bytes;
@@ -1485,6 +1516,19 @@ impl OtlpInner {
         spans: &[ReadableSpan],
         message: &str,
     ) {
+        self.write_failed_log_at(agent_type, endpoint_name, spans, 1, message, None)
+            .await;
+    }
+
+    async fn write_failed_log_at(
+        &self,
+        agent_type: &str,
+        endpoint_name: &str,
+        spans: &[ReadableSpan],
+        error_code: i64,
+        message: &str,
+        local_time: Option<chrono::DateTime<Local>>,
+    ) {
         let safe: String = endpoint_name
             .chars()
             .map(|ch| {
@@ -1497,17 +1541,18 @@ impl OtlpInner {
             .collect();
         let dir = self.failed_dir.to_string_lossy().to_string();
         ensure_dir(&dir).await;
+        let local_time = local_time.unwrap_or_else(Local::now);
         let path = self.failed_dir.join(format!(
             "{}-{agent_type}__{safe}-{}.jsonl",
             self.cfg.service_name,
-            get_today_date_string()
+            local_time.format("%Y-%m-%d")
         ));
         for line in create_readable_span_to_otlp_span_json_array(spans) {
             let mut obj: Value = serde_json::from_str(&line).unwrap_or(Value::Object(Map::new()));
             if let Value::Object(map) = &mut obj {
                 map.insert(
                     "_error".to_string(),
-                    serde_json::json!({"code": 1, "message": message}),
+                    serde_json::json!({"code": error_code, "message": message}),
                 );
             }
             if let Ok(text) = serde_json::to_string(&obj) {
@@ -2267,34 +2312,218 @@ fn enrich_claude(records: &[AgentActivityEntry], spans: &mut [ReadableSpan]) {
     }
 }
 
+#[derive(Default)]
+struct GrokToolExtension {
+    duration: Option<Value>,
+    status: Option<String>,
+    error_type: Option<String>,
+    match_strategy: Option<String>,
+    timing_source: Option<String>,
+}
+
+#[derive(Default)]
+struct GrokLlmExtension {
+    error_type: Option<String>,
+    timing_source: Option<String>,
+}
+
 fn enrich_grok(records: &[AgentActivityEntry], meta: &GrokMeta, spans: &mut [ReadableSpan]) {
-    if let Some(description) = &meta.agent_description {
-        for span in spans.iter_mut() {
-            if span
-                .attributes
-                .get("gen_ai.span.kind")
-                .and_then(|v| v.as_str())
-                == Some("AGENT")
-            {
-                span.attributes.insert(
-                    "gen_ai.agent.description".to_string(),
-                    Value::String(description.clone()),
-                );
+    use crate::types::AgentEventName;
+    let mut tools: HashMap<String, GrokToolExtension> = HashMap::new();
+    let mut llms: HashMap<String, GrokLlmExtension> = HashMap::new();
+    let mut terminal: Option<(String, Option<String>)> = None;
+    for record in records {
+        if matches!(
+            record.event_name,
+            Some(AgentEventName::ToolCall | AgentEventName::ToolResult)
+        ) {
+            if let Some(call_id) = record.tool_call_id.as_ref().filter(|id| !id.is_empty()) {
+                let tool = tools.entry(call_id.clone()).or_default();
+                if let Some(duration) = record
+                    .tool_call_duration
+                    .filter(|value| value.is_finite() && *value > 0.0)
+                {
+                    // Original JS SDK: integral millisecond durations use OTLP intValue.
+                    tool.duration = Some(
+                        if duration.fract() == 0.0
+                            && ((i64::MIN as f64)..-(i64::MIN as f64)).contains(&duration)
+                        {
+                            Value::from(duration as i64)
+                        } else {
+                            Value::Number(
+                                serde_json::Number::from_f64(duration)
+                                    .expect("finite positive duration"),
+                            )
+                        },
+                    );
+                }
+                if let Some(status) = record
+                    .tool_result_status
+                    .as_ref()
+                    .filter(|value| !value.is_empty())
+                {
+                    tool.status = Some(status.clone());
+                }
+                if let Some(error) = record.error_type.as_ref().filter(|value| !value.is_empty()) {
+                    tool.error_type = Some(error.clone());
+                }
+                if let Some(strategy) = record.grok_match_strategy.as_ref() {
+                    tool.match_strategy = Some(strategy.as_str().to_string());
+                }
+                if let Some(source) = record.grok_timing_source.as_ref() {
+                    tool.timing_source = Some(source.as_str().to_string());
+                }
+            }
+        }
+        if matches!(
+            record.event_name,
+            Some(AgentEventName::LlmRequest | AgentEventName::LlmResponse)
+        ) {
+            if let Some(response_id) = record.response_id.as_ref().filter(|id| !id.is_empty()) {
+                let llm = llms.entry(response_id.clone()).or_default();
+                if let Some(error) = record.error_type.as_ref().filter(|value| !value.is_empty()) {
+                    llm.error_type = Some(error.clone());
+                }
+                if let Some(source) = record.grok_timing_source.as_ref() {
+                    llm.timing_source = Some(source.as_str().to_string());
+                }
+            }
+        }
+        if record.event_name == Some(AgentEventName::Other) {
+            if let Some(reason) = record.finish_reasons.as_ref().and_then(|reasons| {
+                reasons
+                    .iter()
+                    .find(|reason| matches!(reason.as_str(), "error" | "cancelled"))
+            }) {
+                terminal = Some((
+                    reason.clone(),
+                    record.error_type.clone().filter(|value| !value.is_empty()),
+                ));
             }
         }
     }
-    if let Some(data_source) = &meta.data_source_id {
-        for span in spans.iter_mut() {
-            if span
+    for span in spans.iter_mut() {
+        let kind = span
+            .attributes
+            .get("gen_ai.span.kind")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        if kind == "TOOL" {
+            if let Some(data) = span
                 .attributes
-                .get("gen_ai.span.kind")
-                .and_then(|v| v.as_str())
-                == Some("AGENT")
+                .get("gen_ai.tool.call.id")
+                .and_then(Value::as_str)
+                .and_then(|id| tools.get(id))
             {
+                if let Some(duration) = &data.duration {
+                    span.attributes
+                        .insert("gen_ai.tool.call.duration".into(), duration.clone());
+                }
+                for (key, value) in [
+                    ("tool.result.status", &data.status),
+                    ("loongsuite.grok.match.strategy", &data.match_strategy),
+                    ("loongsuite.grok.timing.source", &data.timing_source),
+                ] {
+                    if let Some(value) = value {
+                        span.attributes
+                            .insert(key.into(), Value::String(value.clone()));
+                    }
+                }
+                if matches!(data.status.as_deref(), Some("failure" | "cancelled")) {
+                    let cancelled = data.status.as_deref() == Some("cancelled");
+                    let message = if cancelled {
+                        "tool execution cancelled"
+                    } else {
+                        "tool execution failed"
+                    };
+                    span.attributes.insert(
+                        "error.type".into(),
+                        Value::String(data.error_type.clone().unwrap_or_else(|| {
+                            if cancelled {
+                                "ToolCancelled"
+                            } else {
+                                "ToolError"
+                            }
+                            .into()
+                        })),
+                    );
+                    span.attributes
+                        .insert("error.message".into(), Value::String(message.into()));
+                    span.status.insert("code".into(), Value::from(2));
+                    span.status
+                        .insert("message".into(), Value::String(message.into()));
+                }
+            }
+            continue;
+        }
+        if kind == "LLM" {
+            if let Some(data) = span
+                .attributes
+                .get("gen_ai.response.id")
+                .and_then(Value::as_str)
+                .and_then(|id| llms.get(id))
+            {
+                if let Some(source) = &data.timing_source {
+                    span.attributes.insert(
+                        "loongsuite.grok.timing.source".into(),
+                        Value::String(source.clone()),
+                    );
+                }
+                if let Some(error) = &data.error_type {
+                    span.attributes
+                        .insert("error.type".into(), Value::String(error.clone()));
+                    span.attributes.insert(
+                        "error.message".into(),
+                        Value::String("model request failed".into()),
+                    );
+                    span.status.insert("code".into(), Value::from(2));
+                    span.status.insert(
+                        "message".into(),
+                        Value::String("model request failed".into()),
+                    );
+                }
+            }
+            continue;
+        }
+        if kind == "AGENT" {
+            if let Some(description) = &meta.agent_description {
                 span.attributes.insert(
-                    "gen_ai.data_source.id".to_string(),
-                    Value::String(data_source.clone()),
+                    "gen_ai.agent.description".into(),
+                    Value::String(description.clone()),
                 );
+            }
+            if let Some(source) = &meta.data_source_id {
+                span.attributes.insert(
+                    "gen_ai.data_source.id".into(),
+                    Value::String(source.clone()),
+                );
+            }
+        }
+        if matches!(kind.as_str(), "AGENT" | "ENTRY") {
+            if let Some((reason, error)) = &terminal {
+                let cancelled = reason == "cancelled";
+                let message = if cancelled {
+                    "turn cancelled"
+                } else {
+                    "model request failed"
+                };
+                span.attributes.insert(
+                    "error.type".into(),
+                    Value::String(error.clone().unwrap_or_else(|| {
+                        if cancelled {
+                            "cancelled"
+                        } else {
+                            "model_error"
+                        }
+                        .into()
+                    })),
+                );
+                span.attributes
+                    .insert("error.message".into(), Value::String(message.into()));
+                span.status.insert("code".into(), Value::from(2));
+                span.status
+                    .insert("message".into(), Value::String(message.into()));
             }
         }
     }
@@ -2304,20 +2533,18 @@ fn enrich_grok(records: &[AgentActivityEntry], meta: &GrokMeta, spans: &mut [Rea
             .filter(|span| {
                 span.attributes
                     .get("gen_ai.span.kind")
-                    .and_then(|v| v.as_str())
+                    .and_then(Value::as_str)
                     == Some("LLM")
             })
             .min_by_key(|span| (span.start_time[0], span.start_time[1]))
         {
             if let Ok(text) = serde_json::to_string(&meta.system_instructions) {
-                first.attributes.insert(
-                    "gen_ai.system_instructions".to_string(),
-                    Value::String(text),
-                );
+                first
+                    .attributes
+                    .insert("gen_ai.system_instructions".into(), Value::String(text));
             }
         }
     }
-    let _ = records;
 }
 
 fn prepare_openclaw_collection(records: &[AgentActivityEntry]) -> Vec<AgentActivityEntry> {
@@ -4884,5 +5111,1179 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod legacy_failed_log_contracts {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn span() -> ReadableSpan {
+        let mut span = ReadableSpan::minimal("failed-span", &"a".repeat(32), &"b".repeat(16));
+        span.start_time = [1000, 0];
+        span.end_time = [1001, 0];
+        span.duration = [1, 0];
+        span.attributes
+            .insert("gen_ai.agent.type".into(), serde_json::json!("claude-code"));
+        span.attributes.insert(
+            "gen_ai.input.messages".into(),
+            serde_json::json!("diagnostic payload"),
+        );
+        span.status.insert("code".into(), Value::from(2));
+        span.status
+            .insert("message".into(), Value::String("failed".into()));
+        span.resource_attributes = Some(
+            serde_json::from_value(serde_json::json!({"service.name":"test-pilot-claude-code"}))
+                .unwrap(),
+        );
+        span
+    }
+    fn flusher(root: &std::path::Path, name: &str) -> OtlpTraceFlusher {
+        let config: OtlpTraceFlusherConfig = serde_json::from_value(serde_json::json!({
+            "enabled":true,"protocol":"http/protobuf","serviceName":"test-pilot","dataDir":root,
+            "turnIdleTimeoutMs":0,"endpoints":[{"name":name,"endpoint":"http://unused:4318"}]
+        }))
+        .unwrap();
+        OtlpTraceFlusher::new(config).unwrap()
+    }
+    fn files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(root.join("logs").join("otlp-failed"))
+            .unwrap()
+            .map(|file| file.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "jsonl")
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn complete_error_object_and_diagnostic_span_stay_in_one_safe_daily_file() {
+        let root = tempfile::tempdir().unwrap();
+        let flusher = flusher(root.path(), "../../../../tmp/pwn");
+        flusher
+            .inner
+            .write_failed_log_at(
+                "claude-code",
+                "../../../../tmp/pwn",
+                &[span()],
+                2,
+                "connection refused",
+                Some(Local::now()),
+            )
+            .await;
+        let files = files(root.path());
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            files[0].parent(),
+            Some(root.path().join("logs").join("otlp-failed").as_path())
+        );
+        let name = files[0].file_name().unwrap().to_string_lossy();
+        assert!(name.contains("__.._.._.._.._tmp_pwn-"));
+        assert!(!name.contains('/'));
+        assert!(Regex::new(r"-\d{4}-\d{2}-\d{2}\.jsonl$")
+            .unwrap()
+            .is_match(&name));
+        let text = std::fs::read_to_string(&files[0]).unwrap();
+        assert_eq!(text.lines().count(), 1);
+        let record: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(
+            record["_error"],
+            serde_json::json!({"code":2,"message":"connection refused"})
+        );
+        assert_eq!(record["name"], "failed-span");
+        assert!(text.contains("diagnostic payload"));
+    }
+
+    #[tokio::test]
+    async fn a_fresh_legacy_fixed_file_remains_untouched_when_daily_evidence_is_written() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("logs").join("otlp-failed");
+        std::fs::create_dir_all(&folder).unwrap();
+        let legacy = folder.join("test-pilot-claude-code__primary.jsonl");
+        std::fs::write(&legacy, "legacy\n").unwrap();
+        let flusher = flusher(root.path(), "primary");
+        flusher
+            .inner
+            .write_failed_log_at(
+                "claude-code",
+                "primary",
+                &[span()],
+                2,
+                "failed",
+                Some(Local::now()),
+            )
+            .await;
+        assert_eq!(std::fs::read_to_string(&legacy).unwrap(), "legacy\n");
+        let files = files(root.path());
+        assert_eq!(files.len(), 2);
+        let daily = Regex::new(r"-\d{4}-\d{2}-\d{2}\.jsonl$").unwrap();
+        assert!(files
+            .iter()
+            .any(|path| daily.is_match(&path.file_name().unwrap().to_string_lossy())));
+    }
+
+    #[tokio::test]
+    async fn local_midnight_rollover_uses_two_daily_files_and_preserves_each_error() {
+        let root = tempfile::tempdir().unwrap();
+        let flusher = flusher(root.path(), "primary");
+        let before = Local
+            .with_ymd_and_hms(2026, 8, 20, 23, 59, 0)
+            .single()
+            .unwrap();
+        let after = Local
+            .with_ymd_and_hms(2026, 8, 21, 0, 1, 0)
+            .single()
+            .unwrap();
+        flusher
+            .inner
+            .write_failed_log_at(
+                "claude-code",
+                "primary",
+                &[span()],
+                2,
+                "first day",
+                Some(before),
+            )
+            .await;
+        flusher
+            .inner
+            .write_failed_log_at(
+                "claude-code",
+                "primary",
+                &[span()],
+                2,
+                "second day",
+                Some(after),
+            )
+            .await;
+        let files = files(root.path());
+        assert_eq!(files.len(), 2);
+        for (suffix, message) in [
+            ("-2026-08-20.jsonl", "first day"),
+            ("-2026-08-21.jsonl", "second day"),
+        ] {
+            let file = files
+                .iter()
+                .find(|path| {
+                    path.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .ends_with(suffix)
+                })
+                .unwrap();
+            let text = std::fs::read_to_string(file).unwrap();
+            assert_eq!(text.lines().count(), 1);
+            let record: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+            assert_eq!(
+                record["_error"],
+                serde_json::json!({"code":2,"message":message})
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod legacy_concurrent_subagent_contracts {
+    use super::*;
+
+    struct Capture(Mutex<Vec<Vec<AgentActivityEntry>>>);
+    impl Capture {
+        fn calls(&self) -> Vec<Vec<AgentActivityEntry>> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+    impl EventLogConverter for Capture {
+        fn convert(
+            &self,
+            records: &[AgentActivityEntry],
+            _options: &ConvertOptions,
+        ) -> Result<ConvertResult, String> {
+            self.0.lock().unwrap().push(records.to_vec());
+            Ok(ConvertResult::default())
+        }
+    }
+    fn entry(fields: Value) -> AgentActivityEntry {
+        let mut object = serde_json::json!({
+            "event.name":"llm.response","gen_ai.agent.type":"mimo-code",
+            "trace_id":"4bf92f3577b34da6a3ce929d0e0e4736"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        object.extend(fields.as_object().unwrap().clone());
+        entry_from_map(object)
+    }
+    fn setup() -> (tempfile::TempDir, OtlpTraceFlusher, Arc<Capture>) {
+        let root = tempfile::tempdir().unwrap();
+        let config:OtlpTraceFlusherConfig=serde_json::from_value(serde_json::json!({
+            "enabled":true,"protocol":"http/protobuf","serviceName":"test-pilot","dataDir":root.path(),
+            "turnIdleTimeoutMs":0,"endpoints":[{"name":"primary","endpoint":"http://unused:4318","headers":{"x-test":"1"}}]
+        })).unwrap();
+        let capture = Arc::new(Capture(Mutex::new(Vec::new())));
+        let flusher =
+            OtlpTraceFlusher::with_parts(config, None, None, Some(capture.clone())).unwrap();
+        (root, flusher, capture)
+    }
+    async fn send(flusher: &OtlpTraceFlusher, fields: Value) {
+        flusher.send(entry(fields), None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn different_session_subagent_never_splits_the_main_turn_before_its_own_completion() {
+        let (_root, flusher, capture) = setup();
+        let main = serde_json::json!({"gen_ai.turn.id":"main-session:t1","gen_ai.session.id":"main-session","trace_id":"aaaa2f3577b34da6a3ce929d0e0e4736"});
+        let sub = serde_json::json!({"gen_ai.turn.id":"sub-session:t1","gen_ai.session.id":"sub-session","trace_id":"bbbb2f3577b34da6a3ce929d0e0e4736"});
+        for (fields, events) in [
+            (
+                &main,
+                vec![
+                    serde_json::json!({"event.name":"other"}),
+                    serde_json::json!({"event.name":"llm.request","gen_ai.step.id":"main-session:t1:s1"}),
+                    serde_json::json!({"event.name":"llm.response","gen_ai.step.id":"main-session:t1:s1","gen_ai.response.finish_reasons":["tool_call"]}),
+                ],
+            ),
+            (
+                &sub,
+                vec![
+                    serde_json::json!({"event.name":"other"}),
+                    serde_json::json!({"event.name":"llm.request","gen_ai.step.id":"sub-session:t1:s1"}),
+                ],
+            ),
+        ] {
+            for event in events {
+                let mut object = fields.as_object().unwrap().clone();
+                object.extend(event.as_object().unwrap().clone());
+                send(&flusher, Value::Object(object)).await;
+            }
+            assert!(capture.calls().is_empty());
+        }
+        let mut object = sub.as_object().unwrap().clone();
+        object.extend(serde_json::json!({"event.name":"llm.response","gen_ai.step.id":"sub-session:t1:s1","gen_ai.response.finish_reasons":["stop"]}).as_object().unwrap().clone());
+        send(&flusher, Value::Object(object)).await;
+        let calls = capture.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].len(), 3);
+        assert!(calls[0]
+            .iter()
+            .all(|record| record.turn_id.as_deref() == Some("sub-session:t1")));
+        for event in [
+            serde_json::json!({"event.name":"llm.request","gen_ai.step.id":"main-session:t1:s2"}),
+            serde_json::json!({"event.name":"llm.response","gen_ai.step.id":"main-session:t1:s2","gen_ai.response.finish_reasons":["stop"]}),
+        ] {
+            let mut object = main.as_object().unwrap().clone();
+            object.extend(event.as_object().unwrap().clone());
+            send(&flusher, Value::Object(object)).await;
+        }
+        flusher.flush().await.unwrap();
+        let calls = capture.calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1].len(), 5);
+        for record in &calls[1] {
+            assert_eq!(record.turn_id.as_deref(), Some("main-session:t1"));
+            assert_eq!(
+                record.trace_id.as_deref(),
+                Some("aaaa2f3577b34da6a3ce929d0e0e4736")
+            );
+        }
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn interleaved_codex_sessions_keep_exact_four_and_two_record_conversions_without_cross_preemption(
+    ) {
+        let (_root, flusher, capture) = setup();
+        let a = serde_json::json!({"gen_ai.agent.type":"codex","gen_ai.turn.id":"codex-session-a:t1","gen_ai.session.id":"codex-session-a","trace_id":"77772f3577b34da6a3ce929d0e0e4736"});
+        let b = serde_json::json!({"gen_ai.agent.type":"codex","gen_ai.turn.id":"codex-session-b:t1","gen_ai.session.id":"codex-session-b","trace_id":"88882f3577b34da6a3ce929d0e0e4736"});
+        for (base, event) in [
+            (&a, serde_json::json!({"event.name":"other"})),
+            (
+                &a,
+                serde_json::json!({"event.name":"llm.response","gen_ai.response.finish_reasons":["tool_call"]}),
+            ),
+            (&b, serde_json::json!({"event.name":"other"})),
+            (&a, serde_json::json!({"event.name":"llm.request"})),
+        ] {
+            let mut object = base.as_object().unwrap().clone();
+            object.extend(event.as_object().unwrap().clone());
+            send(&flusher, Value::Object(object)).await;
+        }
+        assert!(capture.calls().is_empty());
+        for base in [&b, &a] {
+            let mut object = base.as_object().unwrap().clone();
+            object.extend(serde_json::json!({"event.name":"llm.response","gen_ai.response.finish_reasons":["stop"]}).as_object().unwrap().clone());
+            send(&flusher, Value::Object(object)).await;
+        }
+        // As in the original declaration, assert the final conversions after flush.
+        // Do not weaken the production Codex explicit terminal/durability rules.
+        flusher.flush().await.unwrap();
+        let calls = capture.calls();
+        assert_eq!(calls.len(), 2);
+        let by_turn: HashMap<_, _> = calls
+            .iter()
+            .map(|records| (records[0].turn_id.as_deref().unwrap(), records))
+            .collect();
+        assert_eq!(by_turn["codex-session-a:t1"].len(), 4);
+        assert_eq!(by_turn["codex-session-b:t1"].len(), 2);
+        for (turn, records) in by_turn {
+            assert!(records
+                .iter()
+                .all(|record| record.turn_id.as_deref() == Some(turn)));
+        }
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn signal_b_requires_two_known_matching_sessions_and_learns_late_session_identity() {
+        for (first, second) in [
+            (None, None),
+            (Some("known-session"), None),
+            (None, Some("known-session")),
+        ] {
+            let (_root, flusher, capture) = setup();
+            for (index, session) in [first, second].into_iter().enumerate() {
+                let mut fields=serde_json::json!({"event.name":"other","gen_ai.turn.id":format!("unknown-pair:t{index}"),"trace_id":if index==0{"33332f3577b34da6a3ce929d0e0e4736"}else{"44442f3577b34da6a3ce929d0e0e4736"}}).as_object().unwrap().clone();
+                if let Some(session) = session {
+                    fields.insert("gen_ai.session.id".into(), serde_json::json!(session));
+                }
+                send(&flusher, Value::Object(fields)).await;
+            }
+            assert!(capture.calls().is_empty());
+            assert_eq!(flusher.inner.state.lock().unwrap().buffers.len(), 2);
+            flusher.shutdown().await.unwrap();
+        }
+        let (_root, flusher, capture) = setup();
+        for (turn, trace) in [
+            ("s1:t1", "11112f3577b34da6a3ce929d0e0e4736"),
+            ("s1:t2", "22222f3577b34da6a3ce929d0e0e4736"),
+        ] {
+            send(&flusher,serde_json::json!({"event.name":"other","gen_ai.turn.id":turn,"gen_ai.session.id":"s1","trace_id":trace})).await;
+        }
+        let calls = capture.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].len(), 1);
+        assert_eq!(calls[0][0].turn_id.as_deref(), Some("s1:t1"));
+        flusher.flush().await.unwrap();
+        assert!(!capture.calls().is_empty());
+        flusher.shutdown().await.unwrap();
+
+        let (_root, flusher, capture) = setup();
+        send(&flusher,serde_json::json!({"event.name":"other","gen_ai.turn.id":"late-session:t1","trace_id":"55552f3577b34da6a3ce929d0e0e4736"})).await;
+        send(&flusher,serde_json::json!({"event.name":"llm.response","gen_ai.turn.id":"late-session:t1","gen_ai.session.id":"late-session","trace_id":"55552f3577b34da6a3ce929d0e0e4736","gen_ai.response.finish_reasons":["tool_call"]})).await;
+        {
+            let state = flusher.inner.state.lock().unwrap();
+            assert_eq!(
+                state.buffers["turn:late-session:t1"].session_id.as_deref(),
+                Some("late-session")
+            );
+        }
+        send(&flusher,serde_json::json!({"event.name":"other","gen_ai.turn.id":"parallel-session:t1","gen_ai.session.id":"parallel-session","trace_id":"66662f3577b34da6a3ce929d0e0e4736"})).await;
+        assert!(capture.calls().is_empty());
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn seventy_unfinished_sessions_force_out_the_six_oldest_before_explicit_flush() {
+        let (_root, flusher, capture) = setup();
+        for index in 0..70 {
+            let hex = format!("{index:08x}");
+            let trace = format!("{hex}2f3577b34da6a3ce929d0e0e4736")[..32].to_string();
+            send(&flusher,serde_json::json!({"event.name":"other","gen_ai.turn.id":format!("s{index}:t1"),"gen_ai.session.id":format!("s{index}"),"trace_id":trace})).await;
+        }
+        assert_eq!(flusher.inner.state.lock().unwrap().buffers.len(), 64);
+        let calls = capture.calls();
+        assert_eq!(calls.len(), 6);
+        for (index, records) in calls.iter().enumerate() {
+            assert_eq!(records.len(), 1);
+            assert_eq!(
+                records[0].turn_id.as_deref(),
+                Some(format!("s{index}:t1").as_str())
+            );
+        }
+        flusher.flush().await.unwrap();
+        assert!(capture.calls().len() >= 6);
+        assert_eq!(capture.calls().len(), 70);
+        flusher.shutdown().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod legacy_turn_boundary_contracts {
+    use super::*;
+    use crate::normalization::TurnBoundaryProcessor;
+
+    struct Capture(Mutex<Vec<Vec<AgentActivityEntry>>>);
+    impl Capture {
+        fn calls(&self) -> Vec<Vec<AgentActivityEntry>> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+    impl EventLogConverter for Capture {
+        fn convert(
+            &self,
+            records: &[AgentActivityEntry],
+            _options: &ConvertOptions,
+        ) -> Result<ConvertResult, String> {
+            self.0.lock().unwrap().push(records.to_vec());
+            Ok(ConvertResult::default())
+        }
+    }
+    fn index(value: i64, len: usize) -> usize {
+        if value < 0 {
+            (len as i64 + value) as usize
+        } else {
+            value as usize
+        }
+    }
+    fn check(checkpoint: &Value, calls: &[Vec<AgentActivityEntry>], source: &str) {
+        let kind = checkpoint["kind"].as_str().unwrap();
+        if kind == "calls" {
+            assert_eq!(
+                calls.len(),
+                checkpoint["count"].as_u64().unwrap() as usize,
+                "{source}: {checkpoint}"
+            );
+            return;
+        }
+        if kind == "calls-at-least" {
+            assert!(
+                calls.len() >= checkpoint["count"].as_u64().unwrap() as usize,
+                "{source}: {checkpoint}"
+            );
+            return;
+        }
+        let call = index(checkpoint["call"].as_i64().unwrap(), calls.len());
+        let records = calls
+            .get(call)
+            .unwrap_or_else(|| panic!("{source}: missing call for {checkpoint}"));
+        if kind == "records" {
+            assert_eq!(
+                records.len(),
+                checkpoint["count"].as_u64().unwrap() as usize,
+                "{source}: {checkpoint}"
+            );
+            return;
+        }
+        let selected: Vec<_> = if checkpoint["record"].as_str() == Some("all") {
+            assert!(
+                !records.is_empty(),
+                "{source}: forall contract must have real records"
+            );
+            records.iter().collect()
+        } else {
+            let record = index(checkpoint["record"].as_i64().unwrap(), records.len());
+            vec![records
+                .get(record)
+                .unwrap_or_else(|| panic!("{source}: missing record for {checkpoint}"))]
+        };
+        for record in selected {
+            let object = entry_to_object(record);
+            match kind {
+                "property" => {
+                    let key = checkpoint["key"].as_str().unwrap();
+                    assert_eq!(
+                        object.get(key),
+                        Some(&checkpoint["value"]),
+                        "{source}: {checkpoint}"
+                    );
+                }
+                "subset" => {
+                    for (key, expected) in checkpoint["fields"].as_object().unwrap() {
+                        assert_eq!(object.get(key), Some(expected), "{source}: {checkpoint}");
+                    }
+                }
+                _ => panic!("unsupported frozen assertion {source}: {checkpoint}"),
+            }
+        }
+    }
+
+    async fn replay(source_id: &str) {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/turn-boundary-frozen-contracts.json"
+        )))
+        .unwrap();
+        let case = fixture["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["source"]["id"] == source_id)
+            .unwrap();
+        assert!(!case["checkpoints"].as_array().unwrap().is_empty());
+        let root = tempfile::tempdir().unwrap();
+        let config:OtlpTraceFlusherConfig=serde_json::from_value(serde_json::json!({
+            "enabled":true,"protocol":"http/protobuf","serviceName":"test-pilot","dataDir":root.path(),
+            "turnIdleTimeoutMs":0,"endpoints":[{"name":"primary","endpoint":"http://unused:4318","headers":{"x-test":"1"}}]
+        })).unwrap();
+        let capture = Arc::new(Capture(Mutex::new(Vec::new())));
+        let flusher =
+            OtlpTraceFlusher::with_parts(config, None, None, Some(capture.clone())).unwrap();
+        let mut boundaries = TurnBoundaryProcessor::new();
+        let operations = case["operations"].as_array().unwrap();
+        for completed in 0..=operations.len() {
+            if completed > 0 {
+                let operation = &operations[completed - 1];
+                match operation["op"].as_str().unwrap() {
+                    "send" | "batch" => {
+                        let enrich = operation["enrich"] == true;
+                        let input = if enrich {
+                            &operation["raw"]
+                        } else {
+                            &operation["records"]
+                        };
+                        let mut records: Vec<AgentActivityEntry> =
+                            serde_json::from_value(input.clone()).unwrap();
+                        if enrich {
+                            boundaries.enrich(&mut records);
+                            for (record, expected) in
+                                records.iter().zip(operation["records"].as_array().unwrap())
+                            {
+                                let actual = entry_to_object(record);
+                                for (key, value) in expected.as_object().unwrap() {
+                                    assert_eq!(
+                                        actual.get(key),
+                                        Some(value),
+                                        "{source_id}: original boundary normalization {key}"
+                                    );
+                                }
+                                for key in ["gen_ai.turn.start", "gen_ai.turn.end"] {
+                                    assert_eq!(
+                                        actual.get(key),
+                                        expected.get(key),
+                                        "{source_id}: boundary marker {key}"
+                                    );
+                                }
+                            }
+                        }
+                        if operation["op"] == "send" {
+                            assert_eq!(records.len(), 1);
+                            flusher.send(records.remove(0), None).await.unwrap();
+                        } else {
+                            flusher.send_batch(records, None).await.unwrap();
+                        }
+                    }
+                    "flush" => flusher.flush().await.unwrap(),
+                    "shutdown" => flusher.shutdown().await.unwrap(),
+                    other => panic!("unknown frozen operation {other}"),
+                }
+            }
+            for checkpoint in case["checkpoints"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|checkpoint| checkpoint["after"].as_u64().unwrap() as usize == completed)
+            {
+                check(checkpoint, &capture.calls(), source_id);
+            }
+        }
+        if source_id == "L89:C3" {
+            // The original declaration also checks that incomplete cleanup did
+            // not add a model failure or a success claim to the original input.
+            let terminal = &operations.last().unwrap()["records"][0];
+            assert!(terminal.get("error.type").is_none());
+            assert!(terminal.get("agent.openclaw.success").is_none());
+            let calls = capture.calls();
+            assert_eq!(calls.len(), 1);
+            assert!(!calls[0].is_empty());
+            for record in &calls[0] {
+                assert!(record.error_type.is_none());
+                assert!(record.get("agent.openclaw.success").is_none());
+            }
+        }
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn hermes_realtime_retry_overlapping_turns_wait_for_explicit_end() {
+        replay("L47:C3").await;
+    }
+
+    #[tokio::test]
+    async fn legacy_openclaw_agent_end_flushes_failed_turn() {
+        replay("L73:C3").await;
+    }
+
+    #[tokio::test]
+    async fn legacy_openclaw_cleanup_does_not_invent_model_failure() {
+        replay("L89:C3").await;
+    }
+
+    #[tokio::test]
+    async fn stop_finishes_the_complete_pair() {
+        replay("L103:C3").await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_finishes_the_complete_pair() {
+        replay("L120:C3").await;
+    }
+
+    #[tokio::test]
+    async fn codex_root_and_subagent_stops_wait_for_explicit_parent_end() {
+        replay("L135:C3").await;
+    }
+
+    #[tokio::test]
+    async fn claude_retry_error_waits_for_turn_end() {
+        replay("L176:C3").await;
+    }
+
+    #[tokio::test]
+    async fn tool_calls_does_not_close_the_turn() {
+        replay("L201:C3").await;
+    }
+
+    #[tokio::test]
+    async fn openclaw_per_call_stop_waits_for_llm_output() {
+        replay("L213:C3").await;
+    }
+
+    #[tokio::test]
+    async fn known_session_new_trace_preempts_the_old_buffer() {
+        replay("L240:C3").await;
+    }
+
+    #[tokio::test]
+    async fn unknown_session_traces_do_not_preempt_each_other() {
+        replay("L262:C3").await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_drains_the_pending_buffer_once() {
+        replay("L293:C3").await;
+    }
+
+    #[tokio::test]
+    async fn trace_group_key_backfills_turn_identity() {
+        replay("L307:C3").await;
+    }
+
+    #[tokio::test]
+    async fn codex_step_with_tools_in_one_batch_keeps_six_records() {
+        replay("L326:C5").await;
+    }
+
+    #[tokio::test]
+    async fn hermes_retry_in_the_same_batch_keeps_four_records() {
+        replay("L367:C5").await;
+    }
+
+    #[tokio::test]
+    async fn openclaw_error_and_recovery_batches_wait_for_the_output_marker() {
+        replay("L400:C5").await;
+    }
+
+    #[tokio::test]
+    async fn claude_sorted_tools_and_stop_batch_keeps_four_records() {
+        replay("L457:C5").await;
+    }
+
+    #[tokio::test]
+    async fn cursor_stop_and_child_records_in_the_same_batch_all_survive() {
+        replay("L485:C5").await;
+    }
+
+    #[tokio::test]
+    async fn two_codex_turns_in_a_batch_convert_once_each() {
+        replay("L523:C5").await;
+    }
+
+    #[tokio::test]
+    async fn late_tool_from_the_next_batch_never_reopens_the_closed_turn() {
+        replay("L555:C5").await;
+    }
+
+    #[tokio::test]
+    async fn late_single_events_and_shutdown_never_convert_again() {
+        replay("L584:C3").await;
+    }
+}
+
+#[cfg(test)]
+mod legacy_runtime_contracts {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+
+    struct Capture(Mutex<Vec<Vec<AgentActivityEntry>>>);
+    impl Capture {
+        fn calls(&self) -> Vec<Vec<AgentActivityEntry>> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+    impl EventLogConverter for Capture {
+        fn convert(
+            &self,
+            records: &[AgentActivityEntry],
+            _options: &ConvertOptions,
+        ) -> Result<ConvertResult, String> {
+            self.0.lock().unwrap().push(records.to_vec());
+            Ok(ConvertResult::default())
+        }
+    }
+    fn record(turn: &str, agent: &str, session: &str) -> AgentActivityEntry {
+        entry_from_map(
+            serde_json::json!({
+                "event.name":"llm.response","gen_ai.agent.type":agent,"gen_ai.turn.id":turn,
+                "gen_ai.session.id":session,"gen_ai.output.messages":"private body"
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        )
+    }
+    fn configuration(root: &std::path::Path) -> OtlpTraceFlusherConfig {
+        serde_json::from_value(serde_json::json!({
+            "enabled":true,"serviceName":"test","protocol":"http/protobuf","dataDir":root,
+            "turnIdleTimeoutMs":0,"endpoints":[{"name":"primary","endpoint":"http://unused:4318","headers":{}}]
+        })).unwrap()
+    }
+    fn setup() -> (tempfile::TempDir, OtlpTraceFlusher, Arc<Capture>) {
+        let root = tempfile::tempdir().unwrap();
+        let capture = Arc::new(Capture(Mutex::new(Vec::new())));
+        let flusher = OtlpTraceFlusher::with_parts(
+            configuration(root.path()),
+            None,
+            None,
+            Some(capture.clone()),
+        )
+        .unwrap();
+        (root, flusher, capture)
+    }
+
+    #[tokio::test]
+    async fn snapshots_keep_exact_largest_oldest_scalars_without_live_counter_aliasing() {
+        let (_root, flusher, _) = setup();
+        flusher
+            .send(record("older", "codex", "a"), Some(20.0))
+            .await
+            .unwrap();
+        flusher
+            .send_batch(
+                vec![
+                    record("larger", "codex", "b"),
+                    record("larger", "codex", "b"),
+                ],
+                Some(vec![40.0, 60.0]),
+            )
+            .await
+            .unwrap();
+        let now = Instant::now();
+        {
+            let mut state = flusher.inner.state.lock().unwrap();
+            for buffer in state.buffers.values_mut() {
+                buffer.opened_at = now
+                    - Duration::from_millis(if buffer.key_value == "older" {
+                        200
+                    } else {
+                        100
+                    });
+            }
+        }
+        let mut rows = flusher.inner.snapshot_at(Some(now));
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.pending_buffers, 2);
+        assert_eq!(row.pending_records, 3);
+        assert_eq!(row.pending_logical_bytes, 120.0);
+        assert_eq!(row.pending_unmeasured_records, 0);
+        assert_eq!(row.largest_buffer_turn_id.as_deref(), Some("larger"));
+        assert_eq!(row.largest_buffer_session_id.as_deref(), Some("b"));
+        assert_eq!(row.largest_buffer_logical_bytes, 100.0);
+        assert_eq!(row.largest_buffer_records, 2);
+        assert_eq!(row.largest_buffer_age_ms, 100);
+        assert_eq!(row.oldest_buffer_age_ms, 200);
+        assert!(!format!("{rows:?}").contains("private body"));
+        rows[0].removed_buffers_total = 999;
+        assert_eq!(
+            flusher.inner.snapshot_at(Some(now))[0].removed_buffers_total,
+            0
+        );
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn main_claude_successor_accounts_original_bytes_while_the_original_codex_fixture_is_retained(
+    ) {
+        let (_root, flusher, capture) = setup();
+        let mut entries = vec![record("first", "claude-code", "session")];
+        entries.extend((0..64).map(|_| record("next", "claude-code", "session")));
+        let mut bytes = vec![123.0];
+        bytes.extend([10.0; 64]);
+        flusher.send_batch(entries, Some(bytes)).await.unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.removed_buffers_total, 1);
+        assert_eq!(row.removed_logical_bytes_total, 123.0);
+        assert_eq!(row.pending_buffers, 1);
+        assert_eq!(row.pending_records, 64);
+        assert_eq!(row.pending_logical_bytes, 640.0);
+        flusher.flush().await.unwrap();
+        let cleared = flusher.trace_runtime_snapshot();
+        assert_eq!(cleared[0].pending_buffers, 0);
+        assert_eq!(cleared[0].removed_buffers_total, 2);
+        assert_eq!(cleared[0].removed_logical_bytes_total, 763.0);
+        assert_eq!(
+            capture.calls().iter().map(Vec::len).collect::<Vec<_>>(),
+            [1, 64]
+        );
+        flusher.flush().await.unwrap();
+        assert_eq!(flusher.trace_runtime_snapshot(), cleared);
+        flusher.shutdown().await.unwrap();
+
+        // Baseline used Codex here. Main explicitly switches accounting to
+        // Claude and separately requires native Codex turns to remain resident.
+        let (_root, flusher, capture) = setup();
+        let mut entries = vec![record("first", "codex", "session")];
+        entries.extend((0..64).map(|_| record("next", "codex", "session")));
+        let mut bytes = vec![123.0];
+        bytes.extend([10.0; 64]);
+        flusher.send_batch(entries, Some(bytes)).await.unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.pending_buffers, 2);
+        assert_eq!(row.pending_records, 65);
+        assert_eq!(row.pending_logical_bytes, 763.0);
+        assert_eq!(row.removed_buffers_total, 0);
+        assert!(capture.calls().is_empty());
+        flusher.shutdown().await.unwrap();
+
+        let (_root, flusher, _) = setup();
+        flusher
+            .send(record("first", "codex", "session"), Some(12.0))
+            .await
+            .unwrap();
+        flusher
+            .send(record("next", "codex", "session"), Some(34.0))
+            .await
+            .unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.pending_buffers, 2);
+        assert_eq!(row.pending_logical_bytes, 46.0);
+        assert_eq!(row.removed_buffers_total, 0);
+        let mut terminal = record("first", "codex", "session");
+        terminal.turn_end = Some(true);
+        terminal.extra.insert(
+            "agent.codex.turn_status".into(),
+            serde_json::json!("completed"),
+        );
+        flusher.send(terminal, Some(0.0)).await.unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.pending_buffers, 1);
+        assert_eq!(row.pending_logical_bytes, 34.0);
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unavailable_measurements_never_block_collection_and_are_removed_exactly_once() {
+        let (_root, flusher, _) = setup();
+        flusher
+            .send_batch(
+                vec![
+                    record("turn", "codex", "session"),
+                    record("turn", "codex", "session"),
+                ],
+                Some(vec![100.0]),
+            )
+            .await
+            .unwrap();
+        for bytes in [f64::NAN, -1.0, 0.0] {
+            flusher
+                .send(record("turn", "codex", "session"), Some(bytes))
+                .await
+                .unwrap();
+        }
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.pending_records, 5);
+        assert_eq!(row.pending_logical_bytes, 0.0);
+        assert_eq!(row.pending_unmeasured_records, 4);
+        flusher.flush().await.unwrap();
+        assert_eq!(
+            flusher.trace_runtime_snapshot()[0].removed_unmeasured_records_total,
+            4
+        );
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removal_accounting_is_visible_before_the_blocked_conversion_settles() {
+        let (_root, flusher, capture) = setup();
+        flusher
+            .send(record("first", "claude-code", "session"), Some(12.0))
+            .await
+            .unwrap();
+        let service = flusher.endpoint_service_name(0, "claude-code");
+        let key = convert_state_key("claude-code", &service, &Map::new());
+        let gate = flusher.inner.convert_lock(&key).lock_owned().await;
+        let old = {
+            let mut state = flusher.inner.state.lock().unwrap();
+            state.buffers.shift_remove("turn:first").unwrap()
+        };
+        let inner = flusher.inner.clone();
+        let finishing = tokio::spawn(async move { inner.finish_buffer(old, false).await });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while flusher.trace_runtime_snapshot()[0].removed_buffers_total == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!finishing.is_finished());
+        assert!(capture.calls().is_empty());
+        flusher
+            .send(record("next", "claude-code", "session"), Some(34.0))
+            .await
+            .unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.pending_buffers, 1);
+        assert_eq!(row.pending_logical_bytes, 34.0);
+        assert_eq!(row.removed_logical_bytes_total, 12.0);
+        // Rust send awaits conversion backpressure; hold the actual conversion
+        // lock to observe the same removal/next-buffer lifecycle without
+        // changing production Signal B or reverting Codex ownership rules.
+        drop(gate);
+        finishing.await.unwrap().unwrap();
+        flusher.flush().await.unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.pending_buffers, 0);
+        assert_eq!(row.removed_buffers_total, 2);
+        assert_eq!(row.removed_logical_bytes_total, 46.0);
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cumulative_counters_keep_every_record_after_the_intentional_hard_64_eviction_fix() {
+        let (_root, flusher, capture) = setup();
+        for index in 0..70 {
+            flusher
+                .send(
+                    record(
+                        &format!("turn-{index}"),
+                        "codex",
+                        &format!("session-{index}"),
+                    ),
+                    Some(1.0),
+                )
+                .await
+                .unwrap();
+        }
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.pending_buffers, 64);
+        assert_eq!(row.removed_buffers_total, 6);
+        assert_eq!(flusher.inner.state.lock().unwrap().buffers.len(), 64);
+        flusher.flush().await.unwrap();
+        let snapshot = flusher.trace_runtime_snapshot();
+        assert_eq!(snapshot[0].removed_buffers_total, 70);
+        assert_eq!(snapshot[0].removed_logical_bytes_total, 70.0);
+        assert_eq!(capture.calls().iter().map(Vec::len).sum::<usize>(), 70);
+        assert_eq!(flusher.trace_runtime_snapshot(), snapshot);
+        flusher
+            .send(record("fresh", "codex", "session"), Some(7.0))
+            .await
+            .unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.removed_buffers_total, 70);
+        assert_eq!(row.pending_logical_bytes, 7.0);
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn diagnostic_dimensions_cap_at_64_without_dropping_any_of_the_seventy_business_records()
+    {
+        let (_root, flusher, capture) = setup();
+        for index in 0..70 {
+            flusher
+                .send(
+                    record(
+                        &format!("turn-{index}"),
+                        &format!("agent-{index}"),
+                        &format!("session-{index}"),
+                    ),
+                    Some(1.0),
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(flusher.trace_runtime_snapshot().len(), 64);
+        assert_eq!(flusher.inner.state.lock().unwrap().buffers.len(), 64);
+        flusher.flush().await.unwrap();
+        assert_eq!(flusher.inner.state.lock().unwrap().buffers.len(), 0);
+        assert_eq!(flusher.trace_runtime_snapshot().len(), 64);
+        assert_eq!(capture.calls().iter().map(Vec::len).sum::<usize>(), 70);
+        flusher.shutdown().await.unwrap();
+    }
+
+    struct Clock {
+        base: Instant,
+        ms: AtomicU64,
+        failed: AtomicBool,
+        calls: AtomicUsize,
+    }
+    impl Clock {
+        fn now(&self) -> Instant {
+            self.base + Duration::from_millis(self.ms.load(Ordering::SeqCst))
+        }
+        fn advance(&self, ms: u64) {
+            self.ms.fetch_add(ms, Ordering::SeqCst);
+        }
+    }
+    struct TimedConverter(Arc<Clock>);
+    impl EventLogConverter for TimedConverter {
+        fn convert(
+            &self,
+            records: &[AgentActivityEntry],
+            options: &ConvertOptions,
+        ) -> Result<ConvertResult, String> {
+            self.0.calls.fetch_add(1, Ordering::SeqCst);
+            self.0.advance(10);
+            if self.0.failed.load(Ordering::SeqCst) {
+                return Err("conversion failure".into());
+            }
+            crate::flushers::event_log_converter::GenAiEventLogConverter.convert(records, options)
+        }
+    }
+    type Release = Arc<Mutex<Option<tokio::sync::OwnedMutexGuard<()>>>>;
+    struct Export {
+        clock: Arc<Clock>,
+        exports: Arc<AtomicUsize>,
+        name: String,
+        release: Release,
+    }
+    #[async_trait]
+    impl TraceExporter for Export {
+        async fn export(&self, spans: Vec<ReadableSpan>) -> Result<(), String> {
+            assert!(!spans.is_empty());
+            self.exports.fetch_add(1, Ordering::SeqCst);
+            if self.name == "user" {
+                let released = self.release.lock().unwrap().take();
+                if released.is_some() {
+                    self.clock.advance(500);
+                    drop(released);
+                }
+            }
+            Ok(())
+        }
+        async fn shutdown(&self) {}
+    }
+    fn stage_records() -> Vec<AgentActivityEntry> {
+        [
+            serde_json::json!({"time_unix_nano":"1780000000000000000","event.name":"llm.request"}),
+            serde_json::json!({"time_unix_nano":"1780000000001000000","event.name":"llm.response","gen_ai.response.finish_reasons":["stop"]})
+        ].into_iter().map(|value|{
+            let mut object=value.as_object().unwrap().clone();
+            object.extend(serde_json::json!({"trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","gen_ai.session.id":"session","gen_ai.turn.id":"turn","gen_ai.agent.type":"opencode","gen_ai.step.id":"step","gen_ai.request.model":"model"}).as_object().unwrap().clone());
+            entry_from_map(object)
+        }).collect()
+    }
+    type StageSetup = (
+        tempfile::TempDir,
+        OtlpTraceFlusher,
+        Arc<Clock>,
+        Arc<AtomicUsize>,
+        Release,
+    );
+    fn stage_setup(services: &[&str]) -> StageSetup {
+        let root = tempfile::tempdir().unwrap();
+        let endpoints:Vec<_>=services.iter().map(|service|serde_json::json!({"name":service,"serviceName":service,"endpoint":"http://unused:4318"})).collect();
+        let config:OtlpTraceFlusherConfig=serde_json::from_value(serde_json::json!({
+            "enabled":true,"protocol":"http/protobuf","serviceName":"fallback","appendAgentTypeToServiceName":false,
+            "dataDir":root.path(),"turnIdleTimeoutMs":0,"endpoints":endpoints
+        })).unwrap();
+        let clock = Arc::new(Clock {
+            base: Instant::now(),
+            ms: AtomicU64::new(0),
+            failed: AtomicBool::new(false),
+            calls: AtomicUsize::new(0),
+        });
+        let exports = Arc::new(AtomicUsize::new(0));
+        let release: Release = Arc::new(Mutex::new(None));
+        let converter = Arc::new(TimedConverter(clock.clone()));
+        let factory_clock = clock.clone();
+        let factory_exports = exports.clone();
+        let factory_release = release.clone();
+        let factory: ExporterFactory = Arc::new(move |options| {
+            Arc::new(Export {
+                clock: factory_clock.clone(),
+                exports: factory_exports.clone(),
+                name: options.name,
+                release: factory_release.clone(),
+            }) as Arc<dyn TraceExporter>
+        });
+        let flusher =
+            OtlpTraceFlusher::with_parts(config, None, Some(factory), Some(converter)).unwrap();
+        let time = clock.clone();
+        *flusher.inner.test_conversion_clock.lock().unwrap() = Some(Arc::new(move || time.now()));
+        (root, flusher, clock, exports, release)
+    }
+
+    #[tokio::test]
+    async fn actual_conversion_calls_and_durations_follow_one_or_two_service_groups() {
+        for (services, expected) in [(["same", "same"], 1), (["user", "inner"], 2)] {
+            let (_root, flusher, clock, exports, _release) = stage_setup(&services);
+            flusher
+                .send_batch(stage_records(), Some(vec![100.0, 200.0]))
+                .await
+                .unwrap();
+            let snapshot = flusher.trace_runtime_snapshot();
+            let row = &snapshot[0];
+            assert_eq!(clock.calls.load(Ordering::SeqCst), expected);
+            assert_eq!(row.converter_calls_total, expected as u64);
+            assert_eq!(row.converter_duration_ms_total, expected as f64 * 10.0);
+            assert_eq!(row.converter_failed_total, 0);
+            assert_eq!(row.removed_buffers_total, 1);
+            assert_eq!(row.pending_buffers, 0);
+            assert_eq!(exports.load(Ordering::SeqCst), 2);
+            flusher.shutdown().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn actual_conversion_lock_wait_is_excluded_while_two_durations_still_sum() {
+        let (_root, flusher, clock, exports, release) = stage_setup(&["user", "inner"]);
+        let input = stage_records();
+        let key = convert_state_key(
+            "opencode",
+            "inner",
+            &collect_resource_attributes(&flusher.inner, &input),
+        );
+        let gate = flusher.inner.convert_lock(&key).lock_owned().await;
+        *release.lock().unwrap() = Some(gate);
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            flusher.send_batch(input, Some(vec![100.0, 200.0])),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(clock.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(clock.ms.load(Ordering::SeqCst), 520);
+        assert_eq!(row.converter_calls_total, 2);
+        assert_eq!(row.converter_duration_ms_total, 20.0);
+        assert_eq!(exports.load(Ordering::SeqCst), 2);
+        assert!(release.lock().unwrap().is_none());
+        flusher.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_conversion_accounts_bytes_once_without_a_pending_diagnostic_turn() {
+        let (_root, flusher, clock, exports, _release) = stage_setup(&["single"]);
+        clock.failed.store(true, Ordering::SeqCst);
+        flusher
+            .send_batch(stage_records(), Some(vec![100.0, 200.0]))
+            .await
+            .unwrap();
+        let row = &flusher.trace_runtime_snapshot()[0];
+        assert_eq!(row.converter_calls_total, 1);
+        assert_eq!(row.converter_duration_ms_total, 10.0);
+        assert_eq!(row.converter_failed_total, 1);
+        assert_eq!(row.removed_logical_bytes_total, 300.0);
+        assert_eq!(row.pending_buffers, 0);
+        assert_eq!(exports.load(Ordering::SeqCst), 0);
+        {
+            let state = flusher.inner.state.lock().unwrap();
+            assert!(state.buffers.is_empty());
+            assert_eq!(state.convert_states.len(), 1);
+            assert!(state.convert_states.values().all(|state| state.active == 0));
+        }
+        flusher.shutdown().await.unwrap();
     }
 }

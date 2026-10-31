@@ -364,16 +364,67 @@ fn native_argument_probe_fixture() {
     if !args.iter().any(|arg| arg == "pilot-argument-values") {
         return;
     }
+    let output =
+        PathBuf::from(std::env::var_os("PILOT_ARGV_PROBE_OUTPUT").expect("isolated probe output"));
+    let started = output.with_extension("descendant-started");
+    let done = output.with_extension("descendant-done");
+    if args.iter().any(|arg| arg == "pilot-descendant") {
+        fs::write(&started, "started").unwrap();
+        std::thread::sleep(Duration::from_secs(4));
+        fs::write(done, "done").unwrap();
+        return;
+    }
     let mut input = Vec::new();
     std::io::stdin().read_to_end(&mut input).unwrap();
     fs::write(
-        std::env::var_os("PILOT_ARGV_PROBE_OUTPUT").expect("isolated probe output"),
+        &output,
         serde_json::to_vec(&json!({"args":args,"input":input})).unwrap(),
     )
     .unwrap();
-    std::io::stdout()
-        .write_all("PILOT_NATIVE_STDOUT:中文🚀\n".as_bytes())
-        .unwrap();
+    if args.iter().any(|arg| arg == "pilot-detached") {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::{
+            CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS,
+        };
+        Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_argument_probe_fixture",
+                "--nocapture",
+                "--",
+                "pilot-argument-values",
+                "pilot-descendant",
+            ])
+            .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | DETACHED_PROCESS)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        // Wait for actual startup evidence, not a delay that hides a fast-exit
+        // handle race. The descendant remains alive for four seconds afterwards.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !started.is_file() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(started.is_file(), "detached fixture never started");
+    }
+    let mut stdout = std::io::stdout();
+    stdout.write_all(b"PILOT_NATIVE_STDOUT:").unwrap();
+    stdout.write_all(&input).unwrap();
+    stdout.write_all(b"\n").unwrap();
+    stdout.flush().unwrap();
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "pilot-stderr-0" | "pilot-exit-17"))
+    {
+        let mut stderr = std::io::stderr();
+        stderr.write_all(b"PILOT_NATIVE_STDERR\n").unwrap();
+        stderr.flush().unwrap();
+    }
+    if args.iter().any(|arg| arg == "pilot-exit-17") {
+        std::process::exit(17);
+    }
 }
 
 #[cfg(windows)]
@@ -392,6 +443,8 @@ fn powershell_bridge_preserves_raw_bytes_and_native_argument_boundaries() {
         r#"trailing space \"#,
         "中文🚀",
         r#"C:\space dir\quote"and-slash\"#,
+        "literal %PATH%",
+        "literal $() ; & | ^ < >",
     ];
     let mut args = vec![
         "--exact",
@@ -401,70 +454,126 @@ fn powershell_bridge_preserves_raw_bytes_and_native_argument_boundaries() {
     ];
     args.extend(values);
     let literal = |arg: &str| format!("'{}'", arg.replace(char::from(39), "''"));
-    let array = args
-        .iter()
-        .map(|arg| literal(arg))
-        .collect::<Vec<_>>()
-        .join(",");
     let mut input = vec![0xef, 0xbb, 0xbf];
     input.extend(serde_json::to_vec(&json!({"probe":"中文🚀"})).unwrap());
+    input.extend_from_slice(b"\r\n\0after-nul\n");
     for shell in ["powershell.exe", "pwsh.exe"] {
         let executable = which::which(shell).unwrap_or_else(|_| panic!("Windows 验收缺少 {shell}"));
         for constrained in [false, true] {
-            let output_path = root.path().join("argv-probe.json");
-            if output_path.exists() {
-                fs::remove_file(&output_path).unwrap();
+            for scenario in [
+                "exit-0",
+                "pilot-stderr-0",
+                "pilot-exit-17",
+                "pilot-detached",
+            ] {
+                let output_path = root.path().join("argv-probe.json");
+                let shell_result = root.path().join("argv-probe.json.shell.json");
+                let started = output_path.with_extension("descendant-started");
+                let done = output_path.with_extension("descendant-done");
+                for path in [&output_path, &shell_result, &started, &done] {
+                    if path.exists() {
+                        fs::remove_file(path).unwrap();
+                    }
+                }
+                let mut probe_args = args.clone();
+                if scenario != "exit-0" {
+                    probe_args.push(scenario);
+                }
+                let array = probe_args
+                    .iter()
+                    .map(|arg| literal(arg))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let script = hooks.join(format!("argv-{shell}-{constrained}-{scenario}.ps1"));
+                let mode = if constrained {
+                    "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
+                } else {
+                    ""
+                };
+                let body = format!(
+                    "$ErrorActionPreference = 'Stop'\n\
+                    {mode}. ($PSScriptRoot + '\\shared\\native.ps1')\n\
+                    Invoke-PilotNative -HookDir $PSScriptRoot -Arguments @({array}) -EmptyResult ''\n\
+                    @{{ exitCode=$global:LASTEXITCODE; language=[string]$ExecutionContext.SessionState.LanguageMode; errorActionPreference=[string]$ErrorActionPreference }} | ConvertTo-Json -Compress | Set-Content -LiteralPath ($env:PILOT_ARGV_PROBE_OUTPUT + '.shell.json') -Encoding UTF8\n"
+                );
+                // Windows PowerShell 5.1 needs a BOM for literal Unicode in scripts.
+                let mut source = vec![0xef, 0xbb, 0xbf];
+                source.extend(body.as_bytes());
+                fs::write(&script, source).unwrap();
+                let mut command = Command::new(&executable);
+                command
+                    .args([
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                    ])
+                    .arg(&script);
+                let output = execute(command, root.path(), &input);
+                assert!(
+                    output.status.success(),
+                    "{shell} constrained={constrained} scenario={scenario}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if matches!(scenario, "pilot-stderr-0" | "pilot-exit-17") {
+                    assert!(
+                        stderr.contains("PILOT_NATIVE_STDERR"),
+                        "{shell} constrained={constrained} scenario={scenario}: native stderr lost: {stderr}"
+                    );
+                    assert_eq!(
+                        stderr.contains("native hook unavailable"),
+                        scenario == "pilot-exit-17",
+                        "stderr must not change native success/failure: {stderr}"
+                    );
+                } else {
+                    assert!(
+                        output.stderr.is_empty(),
+                        "{shell} constrained={constrained} scenario={scenario}: {stderr}"
+                    );
+                }
+                let mut expected_stdout = b"PILOT_NATIVE_STDOUT:".to_vec();
+                expected_stdout.extend_from_slice(&input);
+                expected_stdout.push(b'\n');
+                assert!(output
+                    .stdout
+                    .windows(expected_stdout.len())
+                    .any(|bytes| bytes == expected_stdout.as_slice()));
+                let observed: Value =
+                    serde_json::from_slice(&fs::read(&output_path).unwrap()).unwrap();
+                let actual: Vec<String> = serde_json::from_value(observed["args"].clone()).unwrap();
+                let expected: Vec<String> = probe_args.iter().map(|arg| arg.to_string()).collect();
+                assert_eq!(&actual[1..], expected.as_slice());
+                assert_eq!(observed["input"], json!(input));
+                let shell_bytes = fs::read(&shell_result).unwrap();
+                let result: Value = serde_json::from_slice(
+                    shell_bytes
+                        .strip_prefix(&[0xef, 0xbb, 0xbf])
+                        .unwrap_or(&shell_bytes),
+                )
+                .unwrap();
+                assert_eq!(
+                    result["exitCode"],
+                    if scenario == "pilot-exit-17" { 17 } else { 0 }
+                );
+                assert_eq!(
+                    result["language"],
+                    if constrained {
+                        "ConstrainedLanguage"
+                    } else {
+                        "FullLanguage"
+                    }
+                );
+                assert_eq!(result["errorActionPreference"], "Stop");
+                if scenario == "pilot-detached" {
+                    assert!(
+                        started.is_file(),
+                        "detached child must actually have started"
+                    );
+                    assert!(!done.exists(), "Hook waited for its detached descendant");
+                }
             }
-            let script = hooks.join(format!("argv-{shell}-{constrained}.ps1"));
-            let mode = if constrained {
-                "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n"
-            } else {
-                ""
-            };
-            let body = format!(
-                "{mode}. ($PSScriptRoot + '\\shared\\native.ps1')\n\
-                $initialErrors = $Error.Count\n\
-                Invoke-PilotNative -HookDir $PSScriptRoot -Arguments @({array}) -EmptyResult ''\n\
-                $probeErrors = $Error.Count - $initialErrors\n\
-                $probeRecords = @($Error)\n\
-                for ($i = 0; $i -lt $probeErrors -and $i -lt 3; $i++) {{\n\
-                    $record = $probeRecords[$i]\n\
-                    Write-Error ('argv fixture: ' + [string]$record.FullyQualifiedErrorId + ': ' + [string]$record.Exception.Message) -ErrorAction Continue\n\
-                }}\n"
-            );
-            // Windows PowerShell 5.1 needs a BOM for literal Unicode in scripts.
-            let mut source = vec![0xef, 0xbb, 0xbf];
-            source.extend(body.as_bytes());
-            fs::write(&script, source).unwrap();
-            let mut command = Command::new(&executable);
-            command
-                .args([
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                ])
-                .arg(&script);
-            let output = execute(command, root.path(), &input);
-            assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            assert!(
-                output.stderr.is_empty(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            assert!(String::from_utf8(output.stdout)
-                .unwrap()
-                .contains("PILOT_NATIVE_STDOUT:中文🚀"));
-            let observed: Value = serde_json::from_slice(&fs::read(&output_path).unwrap()).unwrap();
-            let actual: Vec<String> = serde_json::from_value(observed["args"].clone()).unwrap();
-            let expected: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
-            assert_eq!(&actual[1..], expected.as_slice());
-            assert_eq!(observed["input"], json!(input));
         }
     }
 }

@@ -168,8 +168,13 @@ $env:PILOT_FIXTURE_MODE = 'fail'
 Invoke-Pilot -Arguments @('probe') 2>$null
 if ($script:PilotExitCode -eq 0) { throw 'failure hidden' }
 $LASTEXITCODE = 0
-Invoke-Pilot -Binary (Join-Path $DATA_DIR 'missing.exe') -Arguments @() 2>$null
-if ($script:PilotExitCode -eq 0) { throw 'missing binary reused stale success' }
+$missingThrew = $false
+try { Invoke-Pilot -Binary (Join-Path $DATA_DIR 'missing.exe') -Arguments @() 2>$null }
+catch {
+    if ($_.FullyQualifiedErrorId -notmatch 'CommandNotFoundException') { throw }
+    $missingThrew = $true
+}
+if (-not $missingThrew -or $script:PilotExitCode -eq 0) { throw 'missing binary failure hidden or reused stale success' }
 "#, constrained));
             let records = fixture.records();
             assert_eq!(records.len(), 2);

@@ -110,14 +110,15 @@ pub(crate) async fn run(operation: &str, input: Value) -> Result<String> {
                                     &paths.cache_dir,
                                     &paths.data_dir,
                                 )?;
+                                let publish = operation == "publish-package";
                                 let files = service_files(
                                     &paths.source_dir,
                                     &destination,
                                     &paths.cache_dir,
                                     &paths.data_dir,
                                     &paths.config_path,
+                                    publish,
                                 )?;
-                                let publish = operation == "publish-package";
                                 if publish {
                                     ensure!(
                                         fs::canonicalize(
@@ -193,7 +194,7 @@ pub(crate) async fn run(operation: &str, input: Value) -> Result<String> {
     .await
 }
 
-fn read_pointer(path: &Path) -> Result<Option<String>> {
+pub(super) fn read_pointer(path: &Path) -> Result<Option<String>> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
@@ -427,6 +428,24 @@ async fn preflight(
             && report["check"]["details"]["gitCommit"] == manifest.git_commit,
         "候选预检报告与安装包不匹配"
     );
+    check_container_candidate(&paths.cache_dir, &paths.data_dir, &report)?;
+    Ok(())
+}
+
+pub(crate) fn check_container_candidate(cache: &Path, data: &Path, report: &Value) -> Result<()> {
+    if super::runtime_launcher::RuntimeLauncher::read(cache, data)?.is_some() {
+        require_container_runtime_capabilities(report)?;
+    }
+    Ok(())
+}
+
+fn require_container_runtime_capabilities(report: &Value) -> Result<()> {
+    let capabilities = &report["check"]["details"]["runtimeCapabilities"];
+    ensure!(
+        capabilities["containerServiceHelper"].as_u64() == Some(1)
+            && capabilities["containerHookPin"].as_u64() == Some(1),
+        "候选运行时不支持本安装的容器服务入口与 Hook pin；保留当前版本、入口和配置"
+    );
     Ok(())
 }
 
@@ -540,6 +559,7 @@ pub(crate) fn service_files(
     cache: &Path,
     data: &Path,
     config: &Path,
+    activate_source: bool,
 ) -> Result<BTreeMap<String, (Vec<u8>, u32)>> {
     let windows = destination
         .extension()
@@ -562,7 +582,7 @@ pub(crate) fn service_files(
             .context("服务脚本不是 UTF-8")?
             .to_owned();
         if let Some(runtime) = super::runtime_launcher::RuntimeLauncher::read(cache, data)? {
-            source = runtime.bind(&source, destination, config)?;
+            source = runtime.bind(&source, destination, config, root, activate_source)?;
         }
         let (shebang, rest) = source.split_once('\n').context("服务脚本缺少 shebang")?;
         ensure!(shebang.starts_with("#!"), "服务脚本缺少 shebang");
@@ -604,6 +624,40 @@ pub(crate) fn service_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn container_runtime_requires_both_actual_integer_capabilities() {
+        let report = |service: Value, hook: Value| {
+            json!({
+                "check":{"details":{"runtimeCapabilities":{
+                    "containerServiceHelper":service,"containerHookPin":hook
+                }}}
+            })
+        };
+        assert!(require_container_runtime_capabilities(&report(json!(1), json!(1))).is_ok());
+        for wrong in [
+            Value::Null,
+            json!(0),
+            json!(2),
+            json!(-1),
+            json!(1.0),
+            json!("1"),
+            json!(true),
+            json!({}),
+            json!([]),
+        ] {
+            assert!(
+                require_container_runtime_capabilities(&report(wrong.clone(), json!(1))).is_err()
+            );
+            assert!(require_container_runtime_capabilities(&report(json!(1), wrong)).is_err());
+        }
+        for missing in [
+            json!({}),
+            json!({"check":{"details":{}}}),
+            json!({"runtimeCapabilities":{"containerServiceHelper":1,"containerHookPin":1}}),
+        ] {
+            assert!(require_container_runtime_capabilities(&missing).is_err());
+        }
+    }
 
     #[cfg(unix)]
     #[tokio::test]

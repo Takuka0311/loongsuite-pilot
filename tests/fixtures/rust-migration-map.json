@@ -33053,6 +33053,2062 @@
           }
         }
       ]
+    },
+    {
+      "legacy": "tests/unit/core/hook-install-alarm-dedup.test.ts",
+      "coverage": "complete",
+      "source_hash": "829dcbe79e7db9e8911d6ae535c543855fafe812791ccea0a483968e481d9015",
+      "cases": [
+        {
+          "source": {
+            "id": "L19:C3",
+            "title": "relays one alarm per identity and timestamp",
+            "suites": [
+              "hook install alarm dedup"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留一条历史声明全部五类断言：首次报警、相同identity+ts去重、alarmSent=true不报警、全Agent ok不报警、ts变化允许再次报警。后两项由本次补丁加强现有测试。候选尚未root执行。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/deployment/hook_install_alarm.rs",
+                "test": "relays_once_per_identity_and_timestamp"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "现有Rust测试补齐缺失断言；全部平台执行证据以root验证为准。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/core/legacy-sls-failed-log-cleanup-service.test.ts",
+      "coverage": "complete",
+      "source_hash": "285a2107417dbae24a0747f09e74a79ad0b3dcebd0874b09129915addc9e0414",
+      "cases": [
+        {
+          "source": {
+            "id": "L42:C3",
+            "title": "schedules cleanup with an unref timer and stop cancels it",
+            "suites": [
+              "LegacySlsFailedLogCleanupService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实原生测试子进程注册60s清理定时任务后退出，父进程5s有界等候确认Tokio runtime不被任务保活；另真实文件在stop后跨越截止时间仍保留，直接run_cleanup则删除成功。 草案仅静态检查，执行待root。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "startup_task_does_not_keep_the_native_runtime_alive"
+              },
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "scheduled_cleanup_waits_for_its_deadline_and_stop_cancels_real_work"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L52:C3",
+            "title": "does not touch the filesystem until the startup delay has elapsed",
+            "suites": [
+              "LegacySlsFailedLogCleanupService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实任务调度+暂停时钟：29,999ms前原始文件存在、pending不存在且任务仍挂起，30,000ms后才发生实际rename与删除；生产start的文件系统入口run_cleanup严格位于sleep之后。 草案仅静态检查，执行待root。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "scheduled_cleanup_waits_for_its_deadline_and_stop_cancels_real_work"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L79:C3",
+            "title": "renames the legacy directory and unlinks a 10GB sparse file without parsing it",
+            "suites": [
+              "LegacySlsFailedLogCleanupService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留历史10GiB稀疏坏JSON+第二坏JSON+README+目录，精确验证rename=true/deleted=2/logicalBytes>=10GiB、只一次100ms间隔、两JSONL删除、未知文件/目录保留；Windows显式FSCTL_SET_SPARSE避免真实占用10GiB，实际执行仍待验证。 草案仅静态检查，执行待root。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "sparse_ten_gib_cleanup_keeps_unknown_entries_and_delays_only_between_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L104:C3",
+            "title": "resumes an existing pending directory on the next startup",
+            "suites": [
+              "LegacySlsFailedLogCleanupService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实已存在pending内一个无效JSON，断言renamed=false、deleted=1以及空pending最终不存在。 草案仅静态检查，执行待root。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "existing_pending_directory_resumes_and_is_removed_after_its_last_file"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L116:C3",
+            "title": "retries transient rename failures with bounded backoff",
+            "suites": [
+              "LegacySlsFailedLogCleanupService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "生产retry被故障闭包驱动并于第三次执行真实rename；逐边界249/250与999/1000ms核验次数1/2/3，之后run_cleanup实际删掉一文件。 草案仅静态检查，执行待root。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "transient_rename_retry_uses_exact_250_and_1000_millisecond_backoff"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L140:C3",
+            "title": "keeps a file after bounded unlink retries and continues with the next file",
+            "suites": [
+              "LegacySlsFailedLogCleanupService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "普通非ignored Unix入口：隔离当前测试exe，非root保持原UID、root时setuid65534；由child自己创建/拥有/tmp fixture。pending chmod0555使首个busy.jsonl真实unlink EACCES，实际既有logger在4次重试耗尽后的WARN才触发线程隔离subscriber恢复0755，故同轮第二文件真实删除。断言WARN发生时权限仍0555且时间5250ms、仅该WARN一次、首文件原字节保留、第二文件消失及完整精确summary。Windows普通入口保留share_mode(0)真实sharing violation证明。旧ignored root-sticky仅补充证据，不再作为canonical目标。新入口尚待root运行，暂保持partial。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "unwritable_directory_unlink_denial_restores_permissions_only_after_giveup_and_continues_same_cleanup_cycle"
+              },
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "sharing_violation_keeps_busy_file_and_continues_same_cleanup_cycle"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L168:C3",
+            "title": "does not follow a symlink used as the legacy root",
+            "suites": [
+              "LegacySlsFailedLogCleanupService"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实legacy/pending root分别为目录符号链接，临时外部JSONL保持完整、链接仍在、skipped=1/deleted=0/logicalBytes=0；配套修复生产legacy root跟随链接删除外部内容的缺陷，并在clean_pending入口拒绝symlink/reparse。Windows symlink权限前提和执行结果待root确认。 草案仅静态检查，执行待root。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "symlink_legacy_or_pending_root_never_deletes_external_jsonl_files"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L183:C3",
+            "title": "accepts only non-hidden top-level legacy JSONL names",
+            "suites": [
+              "isLegacyJsonlName"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原始全部五项文件名输入精确对应生产谓词：internal-sls.jsonl/a.jsonl=true，.hidden.jsonl/.jsonl/notes.txt=false。 草案仅静态检查，执行待root。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/legacy_sls_failed_log_cleanup.rs",
+                "test": "jsonl_names_exclude_hidden_and_short_files"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "8声明逐项登记。L140已补普通非ignored Unix+Windows两个真实故障入口，旧requires-root ignored test仅保留补充证明，不参与严格映射门禁。需root实际执行新入口后再提升L140与整文件coverage；Windows执行证据独立。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/core/orchestrator-pilot-dir.test.ts",
+      "coverage": "complete",
+      "source_hash": "ed6951dd679038800692eed590928ebee7ba1e0d7860418007edbfeb12608519",
+      "cases": [
+        {
+          "source": {
+            "id": "L62:C3",
+            "title": "keeps the current pointer ahead of legacy and module package roots",
+            "suites": [
+              "Orchestrator.resolvePilotDir"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "保留current优先于遗留Node package及module fallback的优先级，fixture同时存在三者并断言返回实际Rust安装资源根；候选二进制优先自身资源是既有原生额外分支，非本测试假设。 草案待root实际执行，退役项不能计作Rust迁移测试数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/utils/runtime_paths.rs",
+                "test": "current_pointer_precedes_module_fallback_even_when_a_legacy_node_package_exists"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L75:C3",
+            "title": "keeps the legacy package ahead of the module package root",
+            "suites": [
+              "Orchestrator.resolvePilotDir"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "Node dataDir/package/dist/index.js作为可执行资源根的优先级退出生产；真实legacy Node布局存在时不能抢占完整Rust module根，仅Node布局必须报错。 草案待root实际执行，退役项不能计作Rust迁移测试数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "Node dataDir/package/dist/index.js作为可执行资源根的优先级退出生产；真实legacy Node布局存在时不能抢占完整Rust module根，仅Node布局必须报错。",
+            "replacement": [
+              {
+                "file": "src/utils/runtime_paths.rs",
+                "test": "legacy_node_package_does_not_override_complete_native_module_resources"
+              },
+              {
+                "file": "src/utils/runtime_paths.rs",
+                "test": "manifest_rejects_incompatible_incomplete_and_unlisted_resources"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L84:C3",
+            "title": "resolves the package root from a %s module URL",
+            "suites": [
+              "Orchestrator.resolvePilotDir"
+            ],
+            "parameters": [
+              "it.each(['src', 'dist', 'bundle'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "原三参数src/dist/bundle是JavaScript module URL位置，原生可执行文件没有模块URL；替代实际bin/root二进制路径及Cargo target/debug和deps布局的资源根解析。 草案待root实际执行，退役项不能计作Rust迁移测试数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "原三参数src/dist/bundle是JavaScript module URL位置，原生可执行文件没有模块URL；替代实际bin/root二进制路径及Cargo target/debug和deps布局的资源根解析。",
+            "replacement": [
+              {
+                "file": "src/utils/runtime_paths.rs",
+                "test": "native_binary_and_cargo_layouts_resolve_their_own_resources_without_module_urls"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L92:C3",
+            "title": "derives the source package root from import.meta.url by default",
+            "suites": [
+              "Orchestrator.resolvePilotDir"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "import.meta.url属于已删除的ESM进程入口；Rust由当前原生可执行文件祖先或Cargo开发目录识别自己的资源根。替代fixture实际创建Cargo标记和target路径并调用生产resolver。 草案待root实际执行，退役项不能计作Rust迁移测试数。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "import.meta.url属于已删除的ESM进程入口；Rust由当前原生可执行文件祖先或Cargo开发目录识别自己的资源根。替代fixture实际创建Cargo标记和target路径并调用生产resolver。",
+            "replacement": [
+              {
+                "file": "src/utils/runtime_paths.rs",
+                "test": "native_binary_and_cargo_layouts_resolve_their_own_resources_without_module_urls"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L97:C3",
+            "title": "falls back to dataDir when the module package root lacks %s",
+            "suites": [
+              "Orchestrator.resolvePilotDir"
+            ],
+            "parameters": [
+              "it.each(['package.json', 'agents.d'] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "保留旧fallback的保护目标：缺少可识别module资源根时，仅完整原生dataDir才可承接；完整原生module不需要旧package.json；若module已有runtime-manifest声称资源所有权却缺agents.d/assets，必须报错而不能把另一个安装的dataDir混为其资源。原先“任意dataDir无条件兜底”被明确的原生资源所有权/完整性安全边界替代。两种each参数逐项见safety-resolution.json；退役项不计Rust迁移测试数。候选待root实跑后登记。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "retired",
+            "reason": "原先private Node module resolver以package.json/agents.d判包并无条件返回可为空目录的dataDir。原生resolve_with明确在claimed module marker后return checked_root（不吞掉不完整包错误）；仅未识别module时才尝试checked_root(data)。因此需要退役的是旧无验证fallback机制，而非资源完整性保护目标；该目标被原生严格校验保留并加强。",
+            "replacement": [
+              {
+                "file": "src/utils/runtime_paths.rs",
+                "test": "absent_module_markers_use_valid_data_resources_but_incomplete_native_packages_fail_closed"
+              },
+              {
+                "file": "src/utils/runtime_paths.rs",
+                "test": "candidate_and_explicit_roots_win_over_separate_cache"
+              },
+              {
+                "file": "src/utils/runtime_paths.rs",
+                "test": "manifest_rejects_incompatible_incomplete_and_unlisted_resources"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "逐项限定退役：current-pointer优先module fallback为原生保留合同；三项Node/ESM载体机制及最后无验证dataDir兜底机制退役并各给原生替代。最后退役理由是明确claimed-root完整性/所有权安全边界，而非泛称Node已移除。原生fallback仍支持无module marker时的有效dataDir资源。退役数与Rust迁移数分开，全部新测试执行待root。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/core/orchestrator-codex-watchdog.test.ts",
+      "coverage": "complete",
+      "source_hash": "6ae3554e59bb1492e9b08ba479d19da44b4d5a622dd67fb6221c44c3c13b442b",
+      "cases": [
+        {
+          "source": {
+            "id": "L66:C3",
+            "title": "wires config.toml change checks only for Codex trust targets",
+            "suites": [
+              "Orchestrator Codex trust watchdog target"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实loader载入Codex与Claude定义。断言只有Codex配置changeWatchPath及needsRepair回调；回调修复前为true，实际repairFn写入Codex Hook JSON/TOML和id=codex部署记录，Claude无记录无配置文件，修复后回调false。原mock calledWith由实际目标文件/记录归属替代。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "codex_trust_watchdog_uses_real_change_and_repair_callbacks"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "逐声明原生实际builder+DeploymentManager+临时文件系统合同；4个独立env_clear自测试子进程场景共享，不读取真实Agent配置，不启动Orchestrator主生命周期或实际Agent命令。执行待root。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/core/orchestrator-directory-plugin-watchdog.test.ts",
+      "coverage": "complete",
+      "source_hash": "8e1e6662b64e7d97b1788d0daf3d42452457556ddb8679d8d047a27d64f3f367",
+      "cases": [
+        {
+          "source": {
+            "id": "L80:C3",
+            "title": "builds watchdog targets only for configured directory plugins",
+            "suites": [
+              "Orchestrator.buildDirectoryPluginInterceptTargets"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实loader保留directoryPlugin缺配置定义，原生builder必须过滤它及其他deployMode，仅产出directory-plugin:hermes-agent；补生产mode_intercepts配置存在性校验，直接回归缺陷。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "directory_targets_require_complete_config_and_repair_real_plugin_state"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L103:C3",
+            "title": "disables self-healing when Hermes is disabled by agent control",
+            "suites": [
+              "Orchestrator.buildDirectoryPluginInterceptTargets"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "以agents.hermes-agent.enabled=false构造真实Orchestrator，实际directory target enabled回调false。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "directory_targets_require_complete_config_and_repair_real_plugin_state"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L113:C3",
+            "title": "checks source, detection, health, and repair through DeploymentManager",
+            "suites": [
+              "Orchestrator.buildDirectoryPluginInterceptTargets"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "无显式agent gate时target默认enabled=true；真实源目录与检测路径使precondition=true，首次check=false，repair经DeploymentManager复制管理插件并写部署记录，随后check=true；移走检测路径或源目录后同一回调false，均为真实FS。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "directory_targets_require_complete_config_and_repair_real_plugin_state"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "逐声明原生实际builder+DeploymentManager+临时文件系统合同；4个独立env_clear自测试子进程场景共享，不读取真实Agent配置，不启动Orchestrator主生命周期或实际Agent命令。执行待root。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/core/orchestrator-dsh-watchdog.test.ts",
+      "coverage": "complete",
+      "source_hash": "5cf747aed132c3df73647a94bca95354a1873f12668e7af7e6776120c51453b6",
+      "cases": [
+        {
+          "source": {
+            "id": "L79:C3",
+            "title": "only builds targets for complete dsh-yaml-patch definitions",
+            "suites": [
+              "Orchestrator.buildDshYamlPatchInterceptTargets"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实loader更早拒绝缺dshYamlPatch定义；有完整声明及另一种deployMode时实际builder只生成dsh-yaml-patch:dsh。保留生产loader提前拒绝语义，不为测试恢复无效定义。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "dsh_targets_recheck_detection_propagate_failures_and_preserve_foreign_yaml"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L91:C3",
+            "title": "checks asset, detection, health, repair, cleanup, and enabled gate",
+            "suites": [
+              "Orchestrator.buildDshYamlPatchInterceptTargets"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实插件源+configured temp YAML target：enabled/precondition=true，check=false，repair实际生成managed块、enabled marker及dsh记录，随后check=true；cleanup去除自产YAML/marker/记录；显式agent disabled时同类target关闭。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "dsh_targets_recheck_detection_propagate_failures_and_preserve_foreign_yaml"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L112:C3",
+            "title": "rechecks strategy-aware detection when DSH starts after Pilot",
+            "suites": [
+              "Orchestrator.buildDshYamlPatchInterceptTargets"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "同一实际target、同一实际DshRuntimeLocator以空/tmp proc_root和无配置路径执行：检测路径不存在时precondition=false，创建路径后precondition=true，确保每次重做策略感知检测而非缓存首次false。无真实proc扫描。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "dsh_targets_recheck_detection_propagate_failures_and_preserve_foreign_yaml"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L124:C3",
+            "title": "surfaces deployment and cleanup failures to the watchdog",
+            "suites": [
+              "Orchestrator.buildDshYamlPatchInterceptTargets"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实不属于Pilot的冲突YAML块使DeploymentManager部署失败；repair向外返回其完整原始错误并含conflict；cleanup向外报failed to remove DSH YAML patch，原始冲突YAML字节保持完全不变。原mock任意失败字符串以真实策略错误逐字传播替代。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "dsh_targets_recheck_detection_propagate_failures_and_preserve_foreign_yaml"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L139:C3",
+            "title": "treats a transient not-detected skip as a failed repair",
+            "suites": [
+              "Orchestrator.buildDshYamlPatchInterceptTargets"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实DSH未检测到时deploy_single返回NotDetected skip，repair必须以DSH disappeared before YAML patch repair向watchdog报错，不能将skip冒充修复成功。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "dsh_targets_recheck_detection_propagate_failures_and_preserve_foreign_yaml"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "逐声明原生实际builder+DeploymentManager+临时文件系统合同；4个独立env_clear自测试子进程场景共享，不读取真实Agent配置，不启动Orchestrator主生命周期或实际Agent命令。执行待root。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/core/orchestrator-grok-build-watchdog.test.ts",
+      "coverage": "complete",
+      "source_hash": "7dfd1664e39ecc0d51e75829bd1d082f43921e05d765330903f76e8ac1dbd77a",
+      "cases": [
+        {
+          "source": {
+            "id": "L84:C3",
+            "title": "checks live detection, exact Hook config, and every Grok runtime asset",
+            "suites": [
+              "Grok Build watchdog target"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实grok-build target id及默认gate/precondition；通过DeploymentManager修复后健康。逐一删除全部4个Grok runtime资产，逐一验证check=false、真实repair恢复精确源字节、随后check=true，故任何runtime资产缺失都不能被仅配置健康掩盖。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "grok_target_checks_every_asset_repairs_settings_and_scopes_cleanup"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L97:C3",
+            "title": "restores assets and a missing settings directory, then verifies health again",
+            "suites": [
+              "Grok Build watchdog target"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实缺失的Hook settings父目录和runtime资产，使check=false；repair恢复全部资产并实际创建Hook设置及四个事件各一项，之后生产check=true。原mock调用次数由实际修复前后健康与全部产物断言承接，不用名称匹配。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "grok_target_checks_every_asset_repairs_settings_and_scopes_cleanup"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L109:C3",
+            "title": "surfaces failed repair and removes only the Grok definition on cleanup",
+            "suites": [
+              "Grok Build watchdog target"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实非法Hook JSON触发底层invalid JSON settings: hooks 必须为对象，repair原样抛出且不改非法内容；恢复配置后cleanup仅移除Grok Hook与其部署记录，另一实际部署的Agent记录和配置字节完整保留。 草案未Cargo，须root实际执行后再登记已验证；平台标签不构成实跑证据。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/core/orchestrator_watchdog_tests.rs",
+                "test": "grok_target_checks_every_asset_repairs_settings_and_scopes_cleanup"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "逐声明原生实际builder+DeploymentManager+临时文件系统合同；4个独立env_clear自测试子进程场景共享，不读取真实Agent配置，不启动Orchestrator主生命周期或实际Agent命令。执行待root。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/grok-build.test.ts",
+      "coverage": "complete",
+      "source_hash": "1dca7cf622f1e1c9301524adbb62153daa31587135452273e2afbe410e859ff3",
+      "cases": [
+        {
+          "source": {
+            "id": "L148:C3",
+            "title": "builds ENTRY → AGENT → STEP → LLM/TOOL and scopes reconstructed attributes",
+            "suites": [
+              "Grok Build OTLP reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "冻结TS helper原125ms完整turn，真实GenAI/Flusher导出ENTRY1/AGENT1/STEP2/LLM2/TOOL1，agent描述/datasource/system=grok；仅首LLM有system instructions且不漏入input，tool duration严格serde i64=125、id/unified、ToolError/code2，其他span无duration，ENTRY duration7000ms。 下一批草案未Cargo，待中央验证；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/grok_output_contracts.rs",
+                "test": "grok_reconstruction_scopes_original_attributes_duration_and_system_content_to_the_right_spans"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L184:C3",
+            "title": "omits a truthful zero duration instead of fabricating a positive value",
+            "suites": [
+              "Grok Build OTLP reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原success+duration0 fixture，实际TOOL不含duration且status非2，不伪造正数。 下一批草案未Cargo，待中央验证；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/grok_output_contracts.rs",
+                "test": "grok_reconstruction_scopes_original_attributes_duration_and_system_content_to_the_right_spans"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L191:C3",
+            "title": "marks cancelled TOOL/AGENT/ENTRY while preserving the real tool_call LLM outcome",
+            "suites": [
+              "Grok Build OTLP reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原取消fixture，LLM保留真实tool_call成功code，TOOL/AGENT/ENTRY code2，AGENT error.type=cancelled，TOOL默认ToolCancelled。 下一批草案未Cargo，待中央验证；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/grok_output_contracts.rs",
+                "test": "grok_cancellation_classified_llm_error_and_prompt_only_failure_preserve_the_original_status_scope"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L207:C3",
+            "title": "marks a classified failed LLM attempt and both root spans",
+            "suites": [
+              "Grok Build OTLP reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原rate_limit失败fixture，LLM/AGENT/ENTRY全code2/error.type=rate_limit/error.message=model request failed。 下一批草案未Cargo，待中央验证；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/grok_output_contracts.rs",
+                "test": "grok_cancellation_classified_llm_error_and_prompt_only_failure_preserve_the_original_status_scope"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L224:C3",
+            "title": "keeps a prompt-only StopFailure as failed ENTRY/AGENT without an invented LLM",
+            "suites": [
+              "Grok Build OTLP reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原promptOnly StopFailure fixture，真实LLM数量0，仅ENTRY/AGENT失败network_error，不造LLM。 下一批草案未Cargo，待中央验证；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/grok_output_contracts.rs",
+                "test": "grok_cancellation_classified_llm_error_and_prompt_only_failure_preserve_the_original_status_scope"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L244:C3",
+            "title": "waits for the explicit turn terminal when records arrive one at a time",
+            "suites": [
+              "Grok Build OTLP reconstruction"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原success完整turn逐条send，最后Otherterminal之前export为空，terminal后ENTRY1/TOOL1。 下一批草案未Cargo，待中央验证；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "tests/grok_output_contracts.rs",
+                "test": "grok_incremental_records_wait_for_the_explicit_other_terminal_before_export"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "只补冻结TS enrichGrokBuildSpans已经承诺的Grok专用投影：prepare_grok移除的positive duration/error metadata需在匹配span恢复；不变更Generic/通用pair/边界/Doubao。类型按原SDK合法整数duration保留serde i64。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/failed-log.test.ts",
+      "coverage": "complete",
+      "source_hash": "201e2188f07046b91ff0724b6c266e29b4087a6bc1a4963a1236f5e139a4a9dc",
+      "cases": [
+        {
+          "source": {
+            "id": "L44:C3",
+            "title": "writes the existing full span and _error to a safe daily file",
+            "suites": [
+              "OtlpTraceFlusher failed-log lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际tempdir只1个safe daily文件，无目录跳跃，精确_error={code:2,message:connection refused}，完整failed-span及diagnostic payload保留，单行JSON。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_failed_log_contracts::complete_error_object_and_diagnostic_span_stay_in_one_safe_daily_file"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L72:C3",
+            "title": "does not append a recent legacy fixed file",
+            "suites": [
+              "OtlpTraceFlusher failed-log lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际写入fresh legacy固定名文件legacy换行，新writer完全不追加，仍legacy换行；目录恰2个文件，新增daily suffix文件。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_failed_log_contracts::a_fresh_legacy_fixed_file_remains_untouched_when_daily_evidence_is_written"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L98:C3",
+            "title": "switches to a new file after the local calendar date changes",
+            "suites": [
+              "OtlpTraceFlusher failed-log lifecycle"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "注入Local日历2026-08-20 23:59/2026-08-21 00:01，实际两daily文件分别含完整_error(code2/first day和second day)；不全局修改时钟。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_failed_log_contracts::local_midnight_rollover_uses_two_daily_files_and_preserves_each_error"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "仅为既有private failed writer补error.code和可注入Local日期的测试边界；生产wrapper仍code1，时钟None在ensure_dir之后取真实Local::now，日历时点与旧TS一致。不改失败文件payload或生产导出行为，不将原code2合同退役。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/concurrent-subagent.test.ts",
+      "coverage": "complete",
+      "source_hash": "c00303f555769f74fa2904111fe5957e41c9ec7b68beacf3edd2246d30779e3c",
+      "cases": [
+        {
+          "source": {
+            "id": "L46:C3",
+            "title": "does NOT split a turn's records across buffers when a concurrent subagent in a different session starts mid-stream",
+            "suites": [
+              "OtlpTraceFlusher - concurrent subagent regression"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "真实MiMo flusher：主turn3条未转换、不同session子turn2条不抢占；子stop恰1次/3条且全sub-turn；主恢复s2完成后仅第2次/5条且全main turn/trace。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_concurrent_subagent_contracts::different_session_subagent_never_splits_the_main_turn_before_its_own_completion"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L159:C3",
+            "title": "keeps interleaved Codex sessions isolated until their own stop signals",
+            "suites": [
+              "OtlpTraceFlusher - concurrent subagent regression"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原交错Codex a/b源记录，终止前零转换，按原声明在stop记录后flush，恰2转换，a4条/b2条且各turn完全隔离；不改Codex显式terminal/持久化生产规则。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_concurrent_subagent_contracts::interleaved_codex_sessions_keep_exact_four_and_two_record_conversions_without_cross_preemption"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L210:C3",
+            "title": "preempts an abandoned same-session buffer with no llm.response when a new same-session turn arrives",
+            "suites": [
+              "OtlpTraceFlusher - concurrent subagent regression"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "同session s1:t1只有Other无response，新s1:t2到达前者实际被抢占，转换1条精确s1:t1，不靠伪造response。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_concurrent_subagent_contracts::signal_b_requires_two_known_matching_sessions_and_learns_late_session_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L254:C3",
+            "title": "does NOT preempt when both session ids are missing",
+            "suites": [
+              "OtlpTraceFlusher - concurrent subagent regression"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "两侧session均缺失实际不抢占，converter零次、并存2个buffer。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_concurrent_subagent_contracts::signal_b_requires_two_known_matching_sessions_and_learns_late_session_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L280:C3",
+            "title": "does NOT preempt a known-session buffer when the incoming session is missing",
+            "suites": [
+              "OtlpTraceFlusher - concurrent subagent regression"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧buffer已知session/新未知不抢占，converter零次、并存2个buffer。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_concurrent_subagent_contracts::signal_b_requires_two_known_matching_sessions_and_learns_late_session_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L300:C3",
+            "title": "does NOT preempt an unknown-session buffer when the incoming session is known",
+            "suites": [
+              "OtlpTraceFlusher - concurrent subagent regression"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "旧buffer未知session/新已知不抢占，converter零次、并存2个buffer。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_concurrent_subagent_contracts::signal_b_requires_two_known_matching_sessions_and_learns_late_session_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L320:C3",
+            "title": "learns a session id from later records before applying Signal B",
+            "suites": [
+              "OtlpTraceFlusher - concurrent subagent regression"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "原late-session先未知后补session，直接验证buffer学得late-session，再不同parallel-session到达不抢占，converter零次。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_concurrent_subagent_contracts::signal_b_requires_two_known_matching_sessions_and_learns_late_session_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L353:C3",
+            "title": "force-flushes oldest incomplete buffers when MAX_TURN_BUFFERS is exceeded",
+            "suites": [
+              "OtlpTraceFlusher - concurrent subagent regression"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "实际70个不同未完成session：显式flush前buffer恰64、最旧6个已逐个1条被转换，flush后共70；保留旧>=6断言并加强避免无界实现也因最终flush误通过。 下一批草案未Cargo，待中央运行；platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_concurrent_subagent_contracts::seventy_unfinished_sessions_force_out_the_six_oldest_before_explicit_flush"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "仅增加真实flusher内部转换边界/队列测试，注入记录converter保持旧vitest mock边界，不伪称网络端到端；没有生产更改，所有mutex snapshot同步复制后断言，避免guard跨await。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/turn-boundary.test.ts",
+      "coverage": "complete",
+      "source_hash": "54c5f5d0aa3ad2b521917bb7065feb95726b0d8089fb137790594576b5371593",
+      "cases": [
+        {
+          "source": {
+            "id": "L47:C3",
+            "title": "keeps incremental Hermes retries and overlapping same-session turns until their explicit ends",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原6次send/sendBatch/flush/shutdown操作及4条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::hermes_realtime_retry_overlapping_turns_wait_for_explicit_end"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L73:C3",
+            "title": "flushes a failed legacy OpenClaw turn without llm_output",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原3次send/sendBatch/flush/shutdown操作及3条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::legacy_openclaw_agent_end_flushes_failed_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L89:C3",
+            "title": "flushes incomplete legacy cleanup without claiming a model failure",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原2次send/sendBatch/flush/shutdown操作及1条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::legacy_openclaw_cleanup_does_not_invent_model_failure"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L103:C3",
+            "title": "Signal A: finish_reason=stop triggers immediate flush",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原2次send/sendBatch/flush/shutdown操作及3条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::stop_finishes_the_complete_pair"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L120:C3",
+            "title": "Signal A: finish_reason=cancelled triggers immediate flush",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原2次send/sendBatch/flush/shutdown操作及2条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::cancelled_finishes_the_complete_pair"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L135:C3",
+            "title": "does not close a Codex turn on intermediate root or subagent stops",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原5次send/sendBatch/flush/shutdown操作及4条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::codex_root_and_subagent_stops_wait_for_explicit_parent_end"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L176:C3",
+            "title": "claude-code: a mid-turn error span does NOT end the turn; turn.end does",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原3次send/sendBatch/flush/shutdown操作及3条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::claude_retry_error_waits_for_turn_end"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L201:C3",
+            "title": "Signal A: finish_reason=tool_calls does NOT end turn",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原1次send/sendBatch/flush/shutdown操作及1条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::tool_calls_does_not_close_the_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L213:C3",
+            "title": "OpenClaw uses llm_output as its default boundary even after a per-call stop",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原2次send/sendBatch/flush/shutdown操作及3条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::openclaw_per_call_stop_waits_for_llm_output"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L240:C3",
+            "title": "Signal B: new groupKey triggers flush of old buffer",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原2次send/sendBatch/flush/shutdown操作及3条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::known_session_new_trace_preempts_the_old_buffer"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L262:C3",
+            "title": "Signal B: does NOT preempt when session identity is unavailable",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原3次send/sendBatch/flush/shutdown操作及4条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::unknown_session_traces_do_not_preempt_each_other"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L293:C3",
+            "title": "Signal C: shutdown drains all pending buffers",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原3次send/sendBatch/flush/shutdown操作及3条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::shutdown_drains_the_pending_buffer_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L307:C3",
+            "title": "backfills gen_ai.turn.id when using trace_id as group key",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原2次send/sendBatch/flush/shutdown操作及1条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::trace_group_key_backfills_turn_identity"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L326:C5",
+            "title": "Codex-like step: tool_call response then tools in same batch does not early-flush",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection",
+              "sendBatch — regression vs master sequential send()"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原1次send/sendBatch/flush/shutdown操作及2条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::codex_step_with_tools_in_one_batch_keeps_six_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L367:C5",
+            "title": "Hermes retry batch: error response does not drop the successful retry",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection",
+              "sendBatch — regression vs master sequential send()"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原1次send/sendBatch/flush/shutdown操作及2条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::hermes_retry_in_the_same_batch_keeps_four_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L400:C5",
+            "title": "OpenClaw error/recovery across batches waits for the llm_output marker",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection",
+              "sendBatch — regression vs master sequential send()"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原3次send/sendBatch/flush/shutdown操作及5条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::openclaw_error_and_recovery_batches_wait_for_the_output_marker"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L457:C5",
+            "title": "Claude-like batch: tools sorted before stop are all included in one flush",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection",
+              "sendBatch — regression vs master sequential send()"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原1次send/sendBatch/flush/shutdown操作及2条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::claude_sorted_tools_and_stop_batch_keeps_four_records"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L485:C5",
+            "title": "Cursor-like batch: records after stop in same batch are kept (differs from master send loop)",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection",
+              "sendBatch — regression vs master sequential send()"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原1次send/sendBatch/flush/shutdown操作及2条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::cursor_stop_and_child_records_in_the_same_batch_all_survive"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L523:C5",
+            "title": "multi-turn batch: each completed turn flushes once at batch end",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection",
+              "sendBatch — regression vs master sequential send()"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原2次send/sendBatch/flush/shutdown操作及3条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::two_codex_turns_in_a_batch_convert_once_each"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L555:C5",
+            "title": "cross-batch late entries after stop are still dropped (dual-root guard unchanged)",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection",
+              "sendBatch — regression vs master sequential send()"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原2次send/sendBatch/flush/shutdown操作及2条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::late_tool_from_the_next_batch_never_reopens_the_closed_turn"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L584:C3",
+            "title": "drops late entries for already-flushed turns (prevents dual-root)",
+            "suites": [
+              "OtlpTraceFlusher - turn boundary detection"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "严格回放冻结TS callback原5次send/sendBatch/flush/shutdown操作及4条原expect字面断言，实际Rust Flusher+记录converter检查中间calls零/精确次数、每call记录长度/指定字段/末条subset，非最终计数粗证。Hermes另实际Rust boundary processor比对原JS前后marker；incomplete cleanup验证实际转换记录无伪造error/success。fixture录制不模拟生产逻辑、不算执行证明；新目标待中央Cargo，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_turn_boundary_contracts::late_single_events_and_shutdown_never_convert_again"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "测试夹具直接记录冻结TS原callback操作与assertion常量，期望非由Rust或模拟flusher推导；Node仅离线开发生成，Rust测试无Node依赖。真实业务buffer/配对/终止完全由生产flusher执行，不更改Generic/Doubao/Codex语义。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/runtime-observability.test.ts",
+      "coverage": "partial",
+      "source_hash": "5c8c28911094a001896a755632497ef74d3e74f8a2f4951b5d8c7fbc040bb780",
+      "cases": [
+        {
+          "source": {
+            "id": "L36:C3",
+            "title": "reads largest/oldest buffers without serializing or copying event content",
+            "suites": [
+              "Trace runtime scalar snapshots"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "原older/a20与larger/b40+60保留2buffer/3record/120bytes、largest100bytes/2record/100ms、oldest200ms；注入Instant仅改变观测时点。返回scalar快照不泄漏private body且修改owned snapshot不改变实时counter。独立integration binary对3个128KiB真实payload只在同步snapshot调用开启线程本地allocator，分配<16KiB，从实际行为约束不复制/序列化payload。JS process.memoryUsage spy无Rust同名API；当前snapshot源码仅读取buffer标量和ID，不采样进程内存，不能把平台列表当执行证明。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::snapshots_keep_exact_largest_oldest_scalars_without_live_counter_aliasing"
+              },
+              {
+                "file": "tests/runtime_snapshot_allocation.rs",
+                "test": "snapshot_does_not_copy_or_serialize_retained_conversation_payloads"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L60:C3",
+            "title": "accounts bytes before a same-batch successor can remove the previous buffer",
+            "suites": [
+              "Trace runtime scalar snapshots"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "f84e388 main同题将该计费fixture明确改为claude-code；承接main真实同batch first123与next64*10 => removed1/123、pending1/64/640、flush removed2/763、重复flush完全不变。保留原baseline Codex65record负控：pending2/65/763、removed0/converter0，不为旧SignalB抢占回退；另承接main Codex12/34 pending2/46负控并显式turn.end只移除first。此为逐fixture supersession，不退役整case。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::main_claude_successor_accounts_original_bytes_while_the_original_codex_fixture_is_retained"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L75:C3",
+            "title": "marks unavailable byte measurements without blocking collection",
+            "suites": [
+              "Trace runtime scalar snapshots"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "精确保留旧长度不匹配bytes[100]、NaN、-1、0序列；5pending/0bytes/4unmeasured，flush removed_unmeasured4。未测量状态不阻止所有5条被真实buffer接纳与清除。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::unavailable_measurements_never_block_collection_and_are_removed_exactly_once"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L88:C3",
+            "title": "removal is recorded before conversion settles and never leaves a second turn state",
+            "suites": [
+              "Trace runtime scalar snapshots"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "f84e388 main同题改为claude-code；持有真实service转换锁，用private finish_buffer生命周期边界启动旧12byte buffer转换；转换尚未settle且converter0时，真实removed12已可见，next34真实pending1；解锁完成并flush pending0、removed2/46。Rust send.await自身提供转换背压，旧JS fire-and-forget send后即可观察下一buffer不是相同API时序；该语言差异明确保留，mapping维持partial供root审查，不伪造原send调用顺序完全一致。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::removal_accounting_is_visible_before_the_blocked_conversion_settles"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L104:C3",
+            "title": "keeps counters cumulative across idle reports and preserves existing buffer eviction",
+            "suites": [
+              "Trace runtime scalar snapshots"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "原70个Codex不同session各1byte，保留当前有意修复hard64：pending64/removed6，并断言真实buffers64；baseline和f84 main仍写旧65/5，逐子断言明确更正off-by-one，不退役case。flush实际Capture converter收到合计70原business records，累计removed70/bytes70，多次空flush完全不变，fresh7仍removed70/pending7。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::cumulative_counters_keep_every_record_after_the_intentional_hard_64_eviction_fix"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L116:C3",
+            "title": "caps diagnostic dimensions without dropping business records",
+            "suites": [
+              "Trace runtime scalar snapshots"
+            ],
+            "parameters": []
+          },
+          "coverage": "partial",
+          "behavior": "原70个不同agent维度各1byte，诊断snapshot限制64，真实buffer硬限64（原baseline与main旧65需按已授权off-by-one修正）；flush真实buffer0、诊断仍64，实际Capture converter接收全部70条business records，诊断限维不删除业务记录。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::diagnostic_dimensions_cap_at_64_without_dropping_any_of_the_seventy_business_records"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "冻结baseline逐声明映射；main仅用于解释已变fixture，不新增baseline分母。hard64/6为已授权修正旧65/5，保持Codex无SignalB抢占。真实Rust API背压与JS fire-and-forget时序差异明确列出，不能只按测试名升级complete。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
+    },
+    {
+      "legacy": "tests/unit/flushers/otlp-trace-flusher/runtime-stage-outcome.test.ts",
+      "coverage": "complete",
+      "source_hash": "ba9aee741edf7ac2fe2959880e9b373bdcfdd45bf6638d98b7435a87d37adc21",
+      "cases": [
+        {
+          "source": {
+            "id": "L53:C3",
+            "title": "counts actual synchronous conversion calls for %s/%s, without memory samples",
+            "suites": [
+              "Trace runtime converter counters"
+            ],
+            "parameters": [
+              "it.each([['same', 'same', 1], ['user', 'inner', 2]] as const)"
+            ]
+          },
+          "coverage": "complete",
+          "behavior": "保留原trace_id/time/opencode request+response fixture及it.each same/same和user/inner两组。TimedConverter每次推进独立10ms并实际调用GenAiEventLogConverter；同service1次/10ms与异service2次/20ms，真实两endpoint export2、removed1/pending0/failed0。计时hook仅cfg(test)，release不含可变clock字段。Rust无process.memoryUsage API；当前conversion路径未采样进程内存，原JS spy不机械迁移为无效API断言。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::actual_conversion_calls_and_durations_follow_one_or_two_service_groups"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L69:C3",
+            "title": "excludes conversion-lock waiting rather than replacing the sum with a maximum",
+            "suites": [
+              "Trace runtime converter counters"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "按原fixture预持有inner真实Tokio conversion锁；user实际export推进500ms后释放inner gate，两次同步转换各10ms。最终独立clock520、converter_duration20/calls2、exports2；证明不是含wait的520，也不是取max10，使用实际production锁和实际converter/exporter链。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::actual_conversion_lock_wait_is_excluded_while_two_durations_still_sum"
+              }
+            ]
+          }
+        },
+        {
+          "source": {
+            "id": "L86:C3",
+            "title": "preserves normal failure handling without a separate diagnostic turn to clean up",
+            "suites": [
+              "Trace runtime converter counters"
+            ],
+            "parameters": []
+          },
+          "coverage": "complete",
+          "behavior": "注入converter实际Err，旧100+200bytes总量，send_batch成功返回，calls1/duration10/failed1/removed300/pending0、exports0；真实buffers空、仅既有conversion state且active0，无另建诊断turn。 草案仅rustfmt/apply-check；待中央Cargo实际运行，platforms仅适用范围。",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "target": {
+            "kind": "rust",
+            "tests": [
+              {
+                "file": "src/flushers/otlp_trace_flusher.rs",
+                "test": "legacy_runtime_contracts::failed_conversion_accounts_bytes_once_without_a_pending_diagnostic_turn"
+              }
+            ]
+          }
+        }
+      ],
+      "rust": [],
+      "note": "冻结baseline逐声明映射；main仅用于解释已变fixture，不新增baseline分母。hard64/6为已授权修正旧65/5，保持Codex无SignalB抢占。真实Rust API背压与JS fire-and-forget时序差异明确列出，不能只按测试名升级complete。 2026-10-31 Linux glibc2.34/Rust1.99.1全workspace1971项通过，额外root-sticky普通ignored入口已显式单跑通过。严格Clippy与完整普通Unix EACCES/同轮继续/summary已通过。Windows目标代码未以Linux代验。runtime-observability背压及64/6差异保持逐subassert说明与partial，未因执行通过自动消除语义差异。"
     }
   ]
 }

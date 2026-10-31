@@ -594,4 +594,112 @@ mod tests {
             assert!(resource_file(dir.path(), "link").is_err());
         }
     }
+    fn legacy_node_package(root: &Path) {
+        fs::create_dir_all(root.join("dist")).unwrap();
+        fs::create_dir_all(root.join("agents.d")).unwrap();
+        fs::write(root.join("dist/index.js"), "").unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+    }
+
+    #[test]
+    fn current_pointer_precedes_module_fallback_even_when_a_legacy_node_package_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        let installed = data.join("versions/v2");
+        let legacy = data.join("package");
+        let module = root.path().join("module");
+        package(&installed);
+        package(&module);
+        legacy_node_package(&legacy);
+        fs::write(data.join("current"), "v2\n").unwrap();
+        assert_eq!(
+            resolve_with(&data, None, None, None, &[module.to_str().unwrap()]).unwrap(),
+            fs::canonicalize(&installed).unwrap(),
+        );
+        assert!(legacy.join("dist/index.js").is_file());
+        assert!(module.join("runtime-manifest.json").is_file());
+    }
+
+    #[test]
+    fn legacy_node_package_does_not_override_complete_native_module_resources() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        legacy_node_package(&data.join("package"));
+        let module = root.path().join("native-module");
+        package(&module);
+        assert_eq!(
+            resolve_with(&data, None, None, None, &[module.to_str().unwrap()]).unwrap(),
+            fs::canonicalize(&module).unwrap(),
+        );
+        assert!(resolve_with(&data, None, None, None, &[]).is_err());
+        assert!(data.join("package/dist/index.js").is_file());
+    }
+
+    #[test]
+    fn native_binary_and_cargo_layouts_resolve_their_own_resources_without_module_urls() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        for (label, relative) in [
+            ("bin-layout", "bin/loongsuite-pilot"),
+            ("root-layout", "loongsuite-pilot"),
+        ] {
+            let own = root.path().join(label);
+            package(&own);
+            let exe = own.join(relative);
+            fs::create_dir_all(exe.parent().unwrap()).unwrap();
+            fs::write(&exe, "candidate path fixture").unwrap();
+            assert_eq!(
+                resolve_with(&data, None, None, Some(&exe), &[]).unwrap(),
+                fs::canonicalize(&own).unwrap()
+            );
+        }
+        for relative in [
+            "target/debug/loongsuite-pilot",
+            "target/debug/deps/native-test-fixture",
+        ] {
+            let development = root.path().join(relative.replace('/', "-"));
+            fs::create_dir_all(development.join("src")).unwrap();
+            fs::create_dir_all(development.join("agents.d")).unwrap();
+            fs::create_dir_all(development.join("assets")).unwrap();
+            fs::write(development.join("Cargo.toml"), "").unwrap();
+            fs::write(development.join("src/main.rs"), "").unwrap();
+            let exe = development.join(relative);
+            fs::create_dir_all(exe.parent().unwrap()).unwrap();
+            fs::write(&exe, "development path fixture").unwrap();
+            assert_eq!(
+                resolve_with(&data, None, None, Some(&exe), &[]).unwrap(),
+                fs::canonicalize(&development).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn absent_module_markers_use_valid_data_resources_but_incomplete_native_packages_fail_closed() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        let module = root.path().join("module");
+        fs::create_dir_all(&data).unwrap();
+        fs::create_dir_all(&module).unwrap();
+        assert!(resolve_with(&data, None, None, None, &[module.to_str().unwrap()]).is_err());
+        package(&data);
+        assert_eq!(
+            resolve_with(&data, None, None, None, &[module.to_str().unwrap()]).unwrap(),
+            fs::canonicalize(&data).unwrap(),
+        );
+        for missing in ["agents.d", "assets"] {
+            package(&module);
+            fs::remove_dir(module.join(missing)).unwrap();
+            assert!(
+                resolve_with(&data, None, None, None, &[module.to_str().unwrap()]).is_err(),
+                "{missing}"
+            );
+            // The old package.json marker is no longer consulted at all.
+            fs::create_dir(module.join(missing)).unwrap();
+            assert!(!module.join("package.json").exists());
+            assert_eq!(
+                resolve_with(&data, None, None, None, &[module.to_str().unwrap()]).unwrap(),
+                fs::canonicalize(&module).unwrap(),
+            );
+        }
+    }
 }

@@ -269,6 +269,10 @@ async fn run_check(args: &clap::ArgMatches) -> i32 {
             "resourceRoot": root,
             "mode": if development { "development" } else { "installed" },
             "gitCommit": manifest.as_ref().map(|item| &item.git_commit),
+            "runtimeCapabilities": {
+                "containerServiceHelper": if cfg!(target_os = "linux") { 1 } else { 0 },
+                "containerHookPin": if cfg!(target_os = "linux") { 1 } else { 0 },
+            },
             "agentDefinitions": agents,
             "configValid": true,
         }))

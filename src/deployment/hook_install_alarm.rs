@@ -72,5 +72,14 @@ mod tests {
             Some(&failed_report(None)),
             &sent
         ));
+        let mut successful = failed_report(Some(false));
+        successful.agents[0].status = "ok".into();
+        assert!(!should_relay_hook_install_alarm(
+            Some(&successful),
+            &HashSet::new()
+        ));
+        let mut later = failed_report(Some(false));
+        later.ts = "later-timestamp".into();
+        assert!(should_relay_hook_install_alarm(Some(&later), &sent));
     }
 }

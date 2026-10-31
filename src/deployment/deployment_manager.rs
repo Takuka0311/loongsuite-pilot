@@ -121,6 +121,15 @@ impl DeploymentManager {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_test_dsh_locator(
+        mut self,
+        locator: super::dsh_runtime_locator::DshRuntimeLocator,
+    ) -> Self {
+        self.dsh = DshYamlPatchStrategy::with_locator(self.data_dir.clone(), locator);
+        self
+    }
+
     pub(crate) fn pilot_dir(&self) -> &str {
         self.loader.pilot_dir()
     }

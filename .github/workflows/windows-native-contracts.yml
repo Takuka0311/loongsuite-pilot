@@ -90,6 +90,9 @@ jobs:
           failures=0
           for filter in \
             inputs::base::tests \
+            core::orchestrator::watchdog_contract_tests \
+            core::legacy_sls_failed_log_cleanup::tests \
+            flushers:: \
             core::input_manager:: \
             utils::candidate_process::tests \
             core::config_loader::tests::reads_inner_config_from_canonical_data_dir \
@@ -114,4 +117,4 @@ jobs:
           test "$failures" -eq 0
       - name: Native interceptor, upstream context, and Hook timing
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-        run: cargo test --locked -p loongsuite-pilot --test interceptor_native --test upstream_context --test hook_timing -- --nocapture
+        run: cargo test --locked -p loongsuite-pilot --test interceptor_native --test upstream_context --test hook_timing --test grok_output_contracts --test runtime_snapshot_allocation -- --nocapture

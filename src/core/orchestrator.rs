@@ -1248,7 +1248,7 @@ impl Orchestrator {
         entries
     }
 
-    fn build_watchdog(&self, deployment: &DeploymentManager) -> HookWatchdog {
+    fn hook_watchdog_targets(&self, deployment: &DeploymentManager) -> Vec<PluginCheckTarget> {
         let mut targets = Vec::new();
         for def in deployment.get_definitions() {
             if def.deploy_mode != DeployMode::Hook || def.hook.is_none() || def.id == "grok-build" {
@@ -1310,6 +1310,11 @@ impl Orchestrator {
             }
             targets.push(target);
         }
+        targets
+    }
+
+    fn build_watchdog(&self, deployment: &DeploymentManager) -> HookWatchdog {
+        let targets = self.hook_watchdog_targets(deployment);
         let enabled = {
             let bits = Arc::clone(&self.bits);
             let agents = Arc::clone(&self.agents);
@@ -1441,7 +1446,10 @@ impl Orchestrator {
     ) -> Vec<InterceptCheckTarget> {
         let mut targets = Vec::new();
         for def in deployment.get_definitions() {
-            if def.deploy_mode != mode {
+            if def.deploy_mode != mode
+                || (mode == DeployMode::DirectoryPlugin && def.directory_plugin.is_none())
+                || (mode == DeployMode::DshYamlPatch && def.dsh_yaml_patch.is_none())
+            {
                 continue;
             }
             let deployment_arc =
@@ -1493,10 +1501,11 @@ impl Orchestrator {
                             if result.skipped == Some(true)
                                 && result.reason == Some(DeploySkipReason::NotDetected)
                             {
-                                return Err(format!(
-                                    "Agent disappeared before repair for {}",
-                                    def.id
-                                ));
+                                return Err(if def.deploy_mode == DeployMode::DshYamlPatch {
+                                    "DSH disappeared before YAML patch repair".into()
+                                } else {
+                                    format!("Agent disappeared before repair for {}", def.id)
+                                });
                             }
                             if !result.success {
                                 return Err(result
@@ -1517,7 +1526,11 @@ impl Orchestrator {
                             if deployment.undeploy_agent(&def).await {
                                 Ok(())
                             } else {
-                                Err(format!("failed to remove {}", def.id))
+                                Err(if def.deploy_mode == DeployMode::DshYamlPatch {
+                                    "failed to remove DSH YAML patch".into()
+                                } else {
+                                    format!("failed to remove {}", def.id)
+                                })
                             }
                         })
                     }))
@@ -3231,6 +3244,10 @@ impl crate::flushers::AlarmSink for AlarmBridge {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "orchestrator_watchdog_tests.rs"]
+mod watchdog_contract_tests;
 
 #[cfg(test)]
 mod tests {

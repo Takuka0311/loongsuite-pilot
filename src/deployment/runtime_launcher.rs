@@ -141,7 +141,50 @@ impl RuntimeLauncher {
         }
         Ok(Some(descriptor))
     }
-    pub(super) fn bind(&self, source: &str, destination: &Path, config: &Path) -> Result<String> {
+    fn installed_helper(&self, package: &Path, activate_source: bool) -> Result<PathBuf> {
+        let versions = self.cache_dir.join("versions");
+        ensure!(
+            package.is_absolute()
+                && ordinary(&versions)?.is_some_and(|m| m.is_dir())
+                && ordinary(package)?.is_some_and(|m| m.is_dir()),
+            "Container control helper source must be an installed package directly in this cache/versions"
+        );
+        let package = std::fs::canonicalize(package)?;
+        let versions = std::fs::canonicalize(&versions)?;
+        ensure!(package.parent() == Some(versions.as_path()),
+            "Container control helper source must be an installed package directly in this cache/versions");
+        let name = package
+            .file_name()
+            .and_then(|name| name.to_str())
+            .context("Invalid installed container package name")?;
+        ensure!(
+            crate::utils::runtime_paths::safe_component(name),
+            "Invalid installed container package name"
+        );
+        if !activate_source {
+            let current = super::native_install::read_pointer(&self.cache_dir.join("current"))?;
+            let previous = super::native_install::read_pointer(&self.cache_dir.join("previous"))?;
+            ensure!(
+                current.as_deref() == Some(name) || previous.as_deref() == Some(name),
+                "Container service sync source must be retained by current or previous"
+            );
+        }
+        let helper = crate::utils::runtime_paths::resource_file(&package, "bin/loongsuite-pilot")?;
+        ensure!(
+            !helper.to_string_lossy().chars().any(char::is_control),
+            "Invalid container helper path"
+        );
+        Ok(helper)
+    }
+
+    pub(super) fn bind(
+        &self,
+        source: &str,
+        destination: &Path,
+        config: &Path,
+        package: &Path,
+        activate_source: bool,
+    ) -> Result<String> {
         ensure!(
             self.launcher_path == destination && self.config_path == config,
             "Container launcher/config binding differs from this installation"
@@ -151,9 +194,11 @@ impl RuntimeLauncher {
             body.matches("# ---- Dispatch ----").count() == 1,
             "Unknown service dispatch layout"
         );
+        let helper = self.installed_helper(package, activate_source)?;
         let mut prefix=String::from("#!/bin/bash\n# Managed Docker runtime; original version ELF and user config preserved.\n");
         for (name, value) in [
             ("LP_RUNTIME_ID", self.container_id.clone()),
+            ("LP_RUNTIME_HELPER", helper.to_string_lossy().into_owned()),
             ("LP_RUNTIME_IMAGE", self.image.clone()),
             (
                 "LP_RUNTIME_DOCKER",
@@ -229,6 +274,19 @@ mod tests {
         let file = root.join("cache/container-runtime.json");
         std::fs::write(&file, value.to_string()).unwrap();
         std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let package = root.join("cache/versions/fixture");
+        std::fs::create_dir_all(package.join("bin")).unwrap();
+        std::fs::write(
+            package.join("bin/loongsuite-pilot"),
+            b"render-only ELF fixture",
+        )
+        .unwrap();
+        std::fs::set_permissions(
+            package.join("bin/loongsuite-pilot"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        std::fs::write(root.join("cache/current"), b"fixture\n").unwrap();
     }
     #[test]
     fn missing_descriptor_preserves_native_bootstrap_and_does_not_create_state() {
@@ -291,8 +349,21 @@ mod tests {
                 source,
                 &root.path().join("bin/loongsuite-pilot"),
                 &root.path().join("data/config.json"),
+                &root.path().join("cache/versions/fixture"),
+                false,
             )
             .unwrap();
+        let helper = root
+            .path()
+            .join("cache/versions/fixture/bin/loongsuite-pilot");
+        assert!(bound.contains(&format!(
+            "LP_RUNTIME_HELPER={}\n",
+            quote(helper.to_str().unwrap())
+        )));
+        assert!(!bound.contains(&format!(
+            "LP_RUNTIME_HELPER={}\n",
+            quote(std::env::current_exe().unwrap().to_str().unwrap())
+        )));
         assert!(bound.starts_with("#!/bin/bash\n"));
         assert!(bound.contains("docker") && bound.contains("container-supervise"));
         assert!(bound.contains("process_matches_installed_entry"));
@@ -302,10 +373,33 @@ mod tests {
             .bind(
                 source,
                 &root.path().join("other"),
-                &root.path().join("data/config.json")
+                &root.path().join("data/config.json"),
+                &root.path().join("cache/versions/fixture"),
+                false,
             )
             .is_err());
         assert!(!root.path().join("data/init-type").exists());
+    }
+
+    #[test]
+    fn helper_pin_rejects_temporary_and_unretained_sources() {
+        let root = tempfile::tempdir().unwrap();
+        prepare(root.path(), &descriptor(root.path()));
+        let runtime = RuntimeLauncher::read(&root.path().join("cache"), &root.path().join("data"))
+            .unwrap()
+            .unwrap();
+        let temporary = root.path().join("temporary-unpacked");
+        std::fs::create_dir_all(temporary.join("bin")).unwrap();
+        std::fs::write(temporary.join("bin/loongsuite-pilot"), b"fixture").unwrap();
+        assert!(runtime.installed_helper(&temporary, false).is_err());
+        assert!(runtime.installed_helper(&temporary, true).is_err());
+        let orphan = root.path().join("cache/versions/pending");
+        std::fs::create_dir_all(orphan.join("bin")).unwrap();
+        std::fs::write(orphan.join("bin/loongsuite-pilot"), b"fixture").unwrap();
+        assert!(runtime.installed_helper(&orphan, false).is_err());
+        assert!(runtime.installed_helper(&orphan, true).is_ok());
+        std::fs::write(root.path().join("cache/previous"), b"pending\n").unwrap();
+        assert!(runtime.installed_helper(&orphan, false).is_ok());
     }
 
     #[test]
@@ -325,6 +419,8 @@ mod tests {
                     include_str!("../../scripts/loongsuite-pilot.sh"),
                     &root.path().join("bin/loongsuite-pilot"),
                     &root.path().join("data/config.json"),
+                    &root.path().join("cache/versions/fixture"),
+                    false,
                 )
                 .unwrap();
             assert!(rendered.contains(if enabled {

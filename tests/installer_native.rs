@@ -1467,7 +1467,7 @@ Cmd-Install
                 } else {
                     assert!(!data.exists());
                 }
-                if scenario != "new" {
+                if !matches!(scenario, "new" | "supported-enricher") {
                     assert!(!fixture.root.path().join("cache").exists());
                 }
             }

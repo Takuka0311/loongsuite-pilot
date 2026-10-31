@@ -54,9 +54,8 @@ function Resolve-PilotBinary {
 
 function ConvertTo-PilotNativeArgument {
     param([string]$Value)
-    if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') { return $Value }
-    # Start-Process joins ArgumentList into a Windows command line. Escape for
-    # the native argv parser without introducing cmd.exe or a text pipeline.
+    # Quote every argument for PowerShell's Legacy native binder, including
+    # empty values and trailing backslashes. No command shell is involved.
     $escaped = $Value -replace '(\\*)"', '$1$1\"'
     $escaped = $escaped -replace '(\\+)$', '$1$1'
     return '"' + $escaped + '"'
@@ -75,14 +74,24 @@ function Invoke-PilotNative {
     try {
         $binary = Resolve-PilotBinary -HookDir $HookDir
         $quoted = @($Arguments | ForEach-Object { ConvertTo-PilotNativeArgument $_ })
-        # Inherit the original byte handles; PowerShell's native-command
-        # pipeline can keep redirected stdin open or transcode UTF-8.
-        $process = Start-Process -FilePath $binary -ArgumentList $quoted -NoNewWindow -PassThru -ErrorAction Stop
-        # Keep the native process handle for ExitCode on Windows PowerShell.
-        $null = $process.Handle
-        # Wait only for this hook, not its detached retry descendants.
-        Wait-Process -InputObject $process -ErrorAction Stop
-        if ($null -eq $process.ExitCode -or $process.ExitCode -ne 0) { throw 'native hook failed' }
+        # A standalone native invocation inherits the original byte handles.
+        # Do not capture its output or put it in a PowerShell text pipeline.
+        # Pin Legacy in this function's scope so PS5.1 and PS7 use the same CRT
+        # quoting. Native execution waits for this process, not retry descendants,
+        # and obtains its actual exit code without reopening an already-exited PID.
+        $PSNativeCommandArgumentPassing = 'Legacy'
+        $global:LASTEXITCODE = 9009
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            # Native stderr is diagnostic data; read the actual exit code before
+            # restoring the wrapper's Stop policy for PowerShell operations.
+            $ErrorActionPreference = 'Continue'
+            & $binary @quoted
+            $nativeExit = $global:LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        if ($null -eq $nativeExit -or $nativeExit -ne 0) { throw 'native hook failed' }
     } catch {
         Write-Error '[loongsuite-pilot] native hook unavailable' -ErrorAction Continue
         if ($EmptyResult) { Write-Output $EmptyResult }
