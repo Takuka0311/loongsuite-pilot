@@ -1,4 +1,4 @@
-name: ARM Worker ACL Stage Probe
+name: Config Bridge Windows Matrix
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: arm-worker-acl-probe-${{ github.ref }}
+  group: config-bridge-matrix-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -16,15 +16,21 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
-  probe:
-    name: Exact ACL phases (ARM64)
-    runs-on: windows-11-arm
+  config:
+    name: Original config bridge (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-2022, target: x86_64-pc-windows-msvc}
+          - {os: windows-11-arm, target: aarch64-pc-windows-msvc}
     defaults:
       run:
         shell: bash
     env:
-      RUSTUP_TOOLCHAIN: 1.99.1-aarch64-pc-windows-msvc
+      RUSTUP_TOOLCHAIN: 1.99.1-${{ matrix.target }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
         with:
@@ -38,67 +44,29 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Inspect exact original ACL summary reader before Rust compilation
-        run: python scripts/testing/arm-acl-module-probe.py --reader
-      - name: Save module evidence immediately
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: acl-reader-modes-${{ github.sha }}
-          path: ${{ runner.temp }}/acl-reader-modes.log
-          if-no-files-found: ignore
-          retention-days: 3
       - name: Locked native Rust toolchain
         run: |
           set -euo pipefail
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
           test "$(rustc --version | cut -d' ' -f2)" = 1.99.1
-          test "$(rustc -vV | sed -n 's/^host: //p')" = aarch64-pc-windows-msvc
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "${{ matrix.target }}"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           prefix-key: rust-release-v1
-          key: aarch64-pc-windows-msvc-opensource
+          key: ${{ matrix.target }}-opensource
           cache-on-failure: true
-      - name: Compile only the ACL probe and worker acceptance targets
-        run: cargo test --locked -p loongsuite-pilot --lib --test windows_worker_acl_probe --test local_worker_acl_history --no-run
-      - name: Fixed production command, unchanged 15 second child budget
-        run: |
-          set -uo pipefail
-          failures=0
-          log="$RUNNER_TEMP/worker-acl-probe.log"
-          : > "$log"
-          for test in a_current_production_acl_stage_probe; do
-            if cargo test --locked -p loongsuite-pilot --test windows_worker_acl_probe "$test" -- --exact --nocapture --test-threads=1 2>&1 | tee -a "$log"; then
-              :
-            else
-              failures=$((failures + 1))
-            fi
-          done
-          test "$failures" -eq 0
-      - name: Real ACL inheritance and idempotence
-        if: ${{ !cancelled() }}
+      - name: Compile only the original installer target
+        run: cargo test --locked -p loongsuite-pilot --test installer_native --no-run
+      - name: Execute every original config bridge matrix
         run: |
           set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --test local_worker_acl_history windows_private_worker_removes_inherited_access_and_is_idempotent -- --exact --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/real-acl.log"
-      - name: Native cancellation timeout and output boundaries
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --lib private_directory:: -- --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/acl-boundaries.log"
-      - name: Whole Native worker original fifteen second total budget
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --lib actual_native_manifest_worker_uses_the_same_real_adapter_without_node_or_unix_shell_entry -- --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/whole-worker.log"
-      - name: Save fixed phase evidence
+          test "$(cargo test --locked -p loongsuite-pilot --test installer_native installer_config_bridge_history:: -- --list | grep -c ': test$')" -eq 4
+          cargo test --locked -p loongsuite-pilot --test installer_native installer_config_bridge_history:: -- --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/config-bridge.log"
+      - name: Preserve actual matrix logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: worker-acl-phases-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/worker-acl-probe.log
-            ${{ runner.temp }}/real-acl.log
-            ${{ runner.temp }}/acl-boundaries.log
-            ${{ runner.temp }}/whole-worker.log
+          name: config-bridge-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/config-bridge.log
           if-no-files-found: ignore
           retention-days: 3
