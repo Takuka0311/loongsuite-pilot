@@ -297,23 +297,6 @@ impl Harness {
     }
     async fn write(&self, session: &str, records: Vec<String>, initial_turn: Option<&str>) {
         let root = self.root.path();
-        let sessions = root.join("sessions");
-        let directories = [
-            sessions.clone(),
-            sessions.join("2026"),
-            sessions.join("2026").join("08"),
-            sessions.join("2026").join("08").join("07"),
-        ];
-        let before: Vec<_> = directories
-            .iter()
-            .filter_map(|p| {
-                std::fs::metadata(p)
-                    .ok()?
-                    .modified()
-                    .ok()
-                    .map(|mtime| (p.clone(), mtime))
-            })
-            .collect();
         let file = root
             .join("sessions")
             .join("2026")
@@ -335,20 +318,6 @@ impl Harness {
             .unwrap();
         output.flush().await.unwrap();
         drop(output);
-        eprintln!(
-            "CODEX_DIRECTORY_OBSERVATION case={:?} session={} directories={:?}",
-            std::thread::current().name(),
-            session,
-            before
-                .iter()
-                .map(|(path, time)| (
-                    path.strip_prefix(root).unwrap(),
-                    time.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos()
-                ))
-                .collect::<Vec<_>>()
-        );
         if let Some(turn) = initial_turn {
             let wakeups = root.join("wakeups");
             tokio::fs::create_dir_all(&wakeups).await.unwrap();
@@ -368,12 +337,6 @@ impl Harness {
         bounded(running.input.run_cycle()).await;
         bounded(running.input.run_cycle()).await;
         bounded(running.state.save()).await.unwrap();
-        let disk: Value = tokio::fs::read(root.join("state.json"))
-            .await
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_else(|| json!({}));
-        eprintln!("CODEX_DIRECTORY_STAGE case={:?} session={} emitted={} spans={} jsonl={} stateSources={:?}",std::thread::current().name(),session,self.emitted.lock().unwrap().len(),self.spans.lock().unwrap().len(),root.join("output").join("codex-all.jsonl").exists(),disk.as_object().unwrap().keys().filter(|key|key.starts_with("codex-transcript:")).collect::<Vec<_>>());
     }
     async fn logs(&self) -> Vec<Value> {
         let raw =
