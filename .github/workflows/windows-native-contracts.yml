@@ -1,4 +1,4 @@
-name: Windows remaining integration diagnostics
+name: Windows installer and library unblock diagnostics
 
 on:
   workflow_dispatch:
@@ -20,15 +20,17 @@ env:
 
 jobs:
   native:
-    name: Remaining integrations (${{ matrix.target }})
+    name: Unblocked ${{ matrix.suite }} (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-2022, target: x86_64-pc-windows-msvc}
-          - {os: windows-11-arm, target: aarch64-pc-windows-msvc}
+          - {suite: installer, os: windows-2022, target: x86_64-pc-windows-msvc}
+          - {suite: installer, os: windows-11-arm, target: aarch64-pc-windows-msvc}
+          - {suite: lib, os: windows-2022, target: x86_64-pc-windows-msvc}
+          - {suite: lib, os: windows-11-arm, target: aarch64-pc-windows-msvc}
     defaults:
       run:
         shell: bash
@@ -59,23 +61,35 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Continue all remaining native integration targets after failures
-        id: remaining
+      - name: Run complete installer contracts without packaging
+        if: matrix.suite == 'installer'
         run: |
           set -uo pipefail
-          log="$RUNNER_TEMP/pilot-remaining-integrations.log"
-          printf 'base=e15900948906f5116be301c409b5a62bba98509d\ntarget_count=48\n' > "$log"
+          log="$RUNNER_TEMP/pilot-unblocked-tests.log"
+          printf 'base=e15900948906f5116be301c409b5a62bba98509d\nsuite=installer\ndashboard_patch=38b9d607e3880c8f0e5b27b00602176353ee84c307ce5d9677dda6a6cdcf1c58\n' > "$log"
           set +e
-          cargo test --no-fail-fast --locked -p loongsuite-pilot --test codex_http_recovery_history --test codex_delivery --test codex_subagent_lifecycle --test interceptor_native --test upstream_context --test hook_timing --test grok_output_contracts --test runtime_snapshot_allocation --test doubao_delivery --test doubao_pipeline --test hosted_collect_durability --test claude_processor_history --test cursor_dispatch_history --test qoder_trace_cli_history --test qoder_trace_ide_history --test qoder_trace_multimodal_surfaces --test qoder_trace_multimodal_pipeline --test qoder_trace_multimodal_attachments --test qoder_trace_collect_history --test dsh_otlp_history --test qoder_cli_multimodal_contracts --test codex_timing_native_history --test qoder_cn_sqlite_contracts --test workspace_policy_native --test legacy_restore_flows --test always_capture_content_history --test ide_snapshot_flow_history --test hook_jsonl_integration_history --test qoder_native_wakeup --test qoder_native_transcript_input --test qoder_533_recovery_pipeline --test qoder_533_durability_pipeline --test qoder_ide_lag_history --test qoder_ide_retry_history --test cli_probe_error_contract --test intercept_token_reader_history --test updater_metrics_entry --test upstream_link_reparent_history --test local_worker_acl_history --test trace_history --test host_plugin_native_projection_history --test eager_cli_history --test hook_entry_history --test qoder_cold_start_history --test qoder_cli_segment_span_timing_history --test normalization_latest_main_history --test opencode_tool_payload_history --test turn_boundary_latest_main_history -- --nocapture 2>&1 | tee -a "$log"
+          cargo test --no-fail-fast --locked -p loongsuite-pilot --test installer_dashboard_history --test installer_native --test installer_uninstall_survivability_history -- --nocapture --skip uninstall_default_url_and_explicit_candidates_use_the_whole_public_powershell_entry_in_both_shells_and_clm 2>&1 | tee -a "$log"
           result="${PIPESTATUS[0]}"
           set -e
           printf 'cargo_exit=%s\n' "$result" | tee -a "$log"
           exit "$result"
-      - name: Upload complete per-target results even after a failing target
+      - name: Run complete lib contracts without packaging
+        if: matrix.suite == 'lib'
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/pilot-unblocked-tests.log"
+          printf 'base=e15900948906f5116be301c409b5a62bba98509d\nsuite=lib\ndashboard_patch=38b9d607e3880c8f0e5b27b00602176353ee84c307ce5d9677dda6a6cdcf1c58\n' > "$log"
+          set +e
+          cargo test --locked -p loongsuite-pilot --lib -- --nocapture --skip actual_native_manifest_worker_uses_the_same_real_adapter_without_node_or_unix_shell_entry 2>&1 | tee -a "$log"
+          result="${PIPESTATUS[0]}"
+          set -e
+          printf 'cargo_exit=%s\n' "$result" | tee -a "$log"
+          exit "$result"
+      - name: Upload complete harness results even on test failure
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: remaining-integrations-${{ matrix.target }}-${{ github.sha }}
-          path: ${{ runner.temp }}/pilot-remaining-integrations.log
+          name: unblocked-${{ matrix.suite }}-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/pilot-unblocked-tests.log
           retention-days: 3
           if-no-files-found: warn
