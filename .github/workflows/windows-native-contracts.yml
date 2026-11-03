@@ -27,6 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - {os: windows-2022, target: x86_64-pc-windows-msvc}
           - {os: windows-11-arm, target: aarch64-pc-windows-msvc}
     defaults:
       run:
@@ -59,28 +60,19 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Compile the unchanged Native library contract
+      - name: Compile the Native library contract
         id: compile
         run: cargo test --locked -p loongsuite-pilot --lib --no-run
-      - name: Real Hermes and HookManager native path fixtures
+      - name: Whole Qoder Native source and exact same-version Stop contracts
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: |
           set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --lib inputs::hermes_log::tests::identity_and_watch_paths -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/hermes-watch-path.log"
-          cargo test --locked -p loongsuite-pilot --lib hooks::hook_manager::tests::builds_qoder_work_and_qwen_work_entrypoints -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/hooks-qwen-settings-path.log"
-      - name: Original 180s scaled Copilot replay in isolation
-        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --lib inputs::copilot_log::disk_governance_tests::replay_at_128_256_512_turns_is_segmented_duplicate_free_and_linear -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/copilot-scaled-replay-isolated.log"
-      - name: Save original isolated Copilot replay evidence
+          cargo test --locked -p loongsuite-pilot --lib inputs::qoder_trace:: -- --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/qoder-pending-stop-full-native.log"
+      - name: Save exact Qoder Native acceptance evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: copilot-scaled-replay-isolated-arm64-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/copilot-scaled-replay-isolated.log
-            ${{ runner.temp }}/hermes-watch-path.log
-            ${{ runner.temp }}/hooks-qwen-settings-path.log
+          name: qoder-pending-stop-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/qoder-pending-stop-full-native.log
           retention-days: 3
           if-no-files-found: error
