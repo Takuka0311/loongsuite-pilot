@@ -59,15 +59,15 @@ jobs:
           prefix-key: rust-release-v1
           key: aarch64-pc-windows-msvc-opensource
           cache-on-failure: true
-      - name: Compile only the ACL probe and Dashboard candidate
-        run: cargo test --locked -p loongsuite-pilot --test windows_worker_acl_probe --test installer_dashboard_history --no-run
-      - name: Original first then explicit builtins, same 15 second child budget
+      - name: Compile only the ACL probe and worker acceptance targets
+        run: cargo test --locked -p loongsuite-pilot --lib --test windows_worker_acl_probe --test local_worker_acl_history --no-run
+      - name: Fixed production command, unchanged 15 second child budget
         run: |
           set -uo pipefail
           failures=0
           log="$RUNNER_TEMP/worker-acl-probe.log"
           : > "$log"
-          for test in a_original_acl_stage_probe b_builtin_import_acl_stage_probe; do
+          for test in a_current_production_acl_stage_probe; do
             if cargo test --locked -p loongsuite-pilot --test windows_worker_acl_probe "$test" -- --exact --nocapture --test-threads=1 2>&1 | tee -a "$log"; then
               :
             else
@@ -75,11 +75,21 @@ jobs:
             fi
           done
           test "$failures" -eq 0
-      - name: Real Dashboard original matrix with Archive parent preload candidate
+      - name: Real ACL inheritance and idempotence
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --test installer_dashboard_history -- --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/dashboard-candidate.log"
+          cargo test --locked -p loongsuite-pilot --test local_worker_acl_history windows_private_worker_removes_inherited_access_and_is_idempotent -- --exact --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/real-acl.log"
+      - name: Native cancellation timeout and output boundaries
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          cargo test --locked -p loongsuite-pilot --lib private_directory:: -- --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/acl-boundaries.log"
+      - name: Whole Native worker original fifteen second total budget
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          cargo test --locked -p loongsuite-pilot --lib actual_native_manifest_worker_uses_the_same_real_adapter_without_node_or_unix_shell_entry -- --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/whole-worker.log"
       - name: Save fixed phase evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -87,6 +97,8 @@ jobs:
           name: worker-acl-phases-${{ github.sha }}
           path: |
             ${{ runner.temp }}/worker-acl-probe.log
-            ${{ runner.temp }}/dashboard-candidate.log
+            ${{ runner.temp }}/real-acl.log
+            ${{ runner.temp }}/acl-boundaries.log
+            ${{ runner.temp }}/whole-worker.log
           if-no-files-found: ignore
           retention-days: 3

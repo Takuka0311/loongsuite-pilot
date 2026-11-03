@@ -127,7 +127,7 @@ async fn probe(explicit_imports: bool) {
     let case = if explicit_imports {
         "explicit-builtin-imports"
     } else {
-        "original-autoload"
+        "current-production"
     };
     let mut command = tokio::process::Command::new("powershell.exe");
     command
@@ -168,7 +168,7 @@ async fn probe(explicit_imports: bool) {
 // A real test exists only on Windows. Other targets type-check these complete
 // portable bodies without registering a fake passed or ignored Windows test.
 #[cfg_attr(windows, tokio::test)]
-pub async fn a_original_acl_stage_probe() {
+pub async fn a_current_production_acl_stage_probe() {
     probe(false).await;
 }
 
