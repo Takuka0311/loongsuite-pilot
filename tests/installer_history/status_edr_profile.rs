@@ -254,6 +254,7 @@ fn status_original_public_powershell_argument_and_writer_matrix_in_both_shells()
             .0
             .trim_start_matches('\u{feff}')
             .to_string();
+        child.push('\n');
         for name in [
             "Invoke-InstallerHelper",
             "Get-InstallConfigJson",
