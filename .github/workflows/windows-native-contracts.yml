@@ -1,4 +1,4 @@
-name: Windows installer and library unblock diagnostics
+name: Windows full library serial diagnostics
 
 on:
   workflow_dispatch:
@@ -20,15 +20,13 @@ env:
 
 jobs:
   native:
-    name: Unblocked ${{ matrix.suite }} (${{ matrix.target }})
+    name: Serial full lib (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {suite: installer, os: windows-2022, target: x86_64-pc-windows-msvc}
-          - {suite: installer, os: windows-11-arm, target: aarch64-pc-windows-msvc}
           - {suite: lib, os: windows-2022, target: x86_64-pc-windows-msvc}
           - {suite: lib, os: windows-11-arm, target: aarch64-pc-windows-msvc}
     defaults:
@@ -61,26 +59,15 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Run complete installer contracts without packaging
-        if: matrix.suite == 'installer'
-        run: |
-          set -uo pipefail
-          log="$RUNNER_TEMP/pilot-unblocked-tests.log"
-          printf 'base=e15900948906f5116be301c409b5a62bba98509d\nsuite=installer\ndashboard_patch=38b9d607e3880c8f0e5b27b00602176353ee84c307ce5d9677dda6a6cdcf1c58\n' > "$log"
-          set +e
-          cargo test --no-fail-fast --locked -p loongsuite-pilot --test installer_dashboard_history --test installer_native --test installer_uninstall_survivability_history -- --nocapture --skip uninstall_default_url_and_explicit_candidates_use_the_whole_public_powershell_entry_in_both_shells_and_clm 2>&1 | tee -a "$log"
-          result="${PIPESTATUS[0]}"
-          set -e
-          printf 'cargo_exit=%s\n' "$result" | tee -a "$log"
-          exit "$result"
-      - name: Run complete lib contracts without packaging
+      - name: Run serial full lib contracts without packaging
+        timeout-minutes: 30
         if: matrix.suite == 'lib'
         run: |
           set -uo pipefail
           log="$RUNNER_TEMP/pilot-unblocked-tests.log"
-          printf 'base=e15900948906f5116be301c409b5a62bba98509d\nsuite=lib\ndashboard_patch=38b9d607e3880c8f0e5b27b00602176353ee84c307ce5d9677dda6a6cdcf1c58\n' > "$log"
+          printf 'base=e15900948906f5116be301c409b5a62bba98509d\nsuite=lib-serial\ndashboard_patch=38b9d607e3880c8f0e5b27b00602176353ee84c307ce5d9677dda6a6cdcf1c58\n' > "$log"
           set +e
-          cargo test --locked -p loongsuite-pilot --lib -- --nocapture --skip actual_native_manifest_worker_uses_the_same_real_adapter_without_node_or_unix_shell_entry 2>&1 | tee -a "$log"
+          cargo test --locked -p loongsuite-pilot --lib -- --nocapture --test-threads=1 --skip actual_native_manifest_worker_uses_the_same_real_adapter_without_node_or_unix_shell_entry 2>&1 | tee -a "$log"
           result="${PIPESTATUS[0]}"
           set -e
           printf 'cargo_exit=%s\n' "$result" | tee -a "$log"
@@ -89,7 +76,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: unblocked-${{ matrix.suite }}-${{ matrix.target }}-${{ github.sha }}
+          name: full-lib-serial-${{ matrix.target }}-${{ github.sha }}
           path: ${{ runner.temp }}/pilot-unblocked-tests.log
           retention-days: 3
           if-no-files-found: warn
