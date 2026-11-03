@@ -59,21 +59,26 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Compile the existing installer Native test target
+      - name: Compile existing Native library contracts
         id: compile
-        run: cargo test --locked -p loongsuite-pilot --test installer_native --no-run
-      - name: Original PS5 and PS7 Full status argument and writer matrix
+        run: cargo test --locked -p loongsuite-pilot --lib --no-run
+      - name: Real Hermes watch path identity
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: |
           set -euo pipefail
-          powershell.exe -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
-          pwsh.exe -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
-          cargo test --locked -p loongsuite-pilot --test installer_native installer_status_edr_profile_history::status_original_public_powershell_argument_and_writer_matrix_in_both_shells -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/status-public-argument-writer.log"
-      - name: Save original status matrix evidence
+          cargo test --locked -p loongsuite-pilot --lib inputs::hermes_log::tests::identity_and_watch_paths -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/hermes-watch-path.log"
+      - name: Real HookManager QoderWork and Qwen entrypoints
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          cargo test --locked -p loongsuite-pilot --lib hooks::hook_manager::tests::builds_qoder_work_and_qwen_work_entrypoints -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/hooks-qwen-settings-path.log"
+      - name: Save exact native path fixture evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: status-public-writer-x64-${{ github.sha }}
-          path: ${{ runner.temp }}/status-public-argument-writer.log
+          name: hermes-hooks-native-path-x64-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/hermes-watch-path.log
+            ${{ runner.temp }}/hooks-qwen-settings-path.log
           retention-days: 3
           if-no-files-found: error
