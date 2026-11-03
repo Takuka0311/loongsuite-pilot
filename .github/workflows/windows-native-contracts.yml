@@ -59,35 +59,21 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Compile only discovery controls and native subagent lifecycle
+      - name: Compile the existing installer Native test target
         id: compile
-        run: cargo test --locked -p loongsuite-pilot --lib --test codex_subagent_lifecycle --no-run
-      - name: Real same-clock discovery and targeted IO controls
+        run: cargo test --locked -p loongsuite-pilot --test installer_native --no-run
+      - name: Original PS5 and PS7 Full status argument and writer matrix
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: |
           set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --lib discovery_cache_main_tests:: -- --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/codex-discovery-controls.log"
-      - name: Whole native subagent and real HTTP protobuf matrix
-        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --test codex_subagent_lifecycle -- --test-threads=8 --nocapture 2>&1 | tee "$RUNNER_TEMP/codex-subagent-whole.log"
-      - name: Repeat original pair concurrently with original bounds
-        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          for round in 1 2 3; do
-            printf 'pair round=%s\n' "$round" | tee -a "$RUNNER_TEMP/codex-subagent-pair.log"
-            cargo test --locked -p loongsuite-pilot --test codex_subagent_lifecycle native_codex_par -- --test-threads=2 --nocapture 2>&1 | tee -a "$RUNNER_TEMP/codex-subagent-pair.log"
-          done
-      - name: Save exact native discovery acceptance evidence
+          powershell.exe -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          pwsh.exe -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          cargo test --locked -p loongsuite-pilot --test installer_native installer_status_edr_profile_history::status_original_public_powershell_argument_and_writer_matrix_in_both_shells -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/status-public-argument-writer.log"
+      - name: Save original status matrix evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: codex-discovery-x64-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/codex-discovery-controls.log
-            ${{ runner.temp }}/codex-subagent-whole.log
-            ${{ runner.temp }}/codex-subagent-pair.log
+          name: status-public-writer-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/status-public-argument-writer.log
           retention-days: 3
           if-no-files-found: error
