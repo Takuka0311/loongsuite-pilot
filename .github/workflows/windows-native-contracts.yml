@@ -9,7 +9,7 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   native:
-    name: Config native path fixtures (${{ matrix.target }})
+    name: Trace linker original workload (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -47,22 +47,22 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Verify original ConfigLoader groups with exact native paths
+      - name: Verify the original isolated scaling and cache workload
         run: |
           set -uo pipefail
-          log="$RUNNER_TEMP/pilot-config-native-paths.log"
+          log="$RUNNER_TEMP/pilot-trace-linker-original-workload.log"
           : > "$log"
           failures=0
-          for filter in core::config_loader::doubao_listener_wiring_tests:: core::config_loader::migration_config_advanced_tests:: core::config_loader::migration_config_edge_tests::; do
+          for filter in core::upstream_link::trace_linker::load_history_tests::original_interleaving_scaling_and_cache_workloads_preserve_all_sizes_and_guards; do
             printf 'command: cargo test --lib %s\n' "$filter" >> "$log"
-            if cargo test --locked -p loongsuite-pilot --lib "$filter" -- --test-threads=1 --nocapture 2>&1 | tee -a "$log"; then :; else failures=1; fi
+            if cargo test --locked -p loongsuite-pilot --lib "$filter" -- --exact --test-threads=1 --nocapture 2>&1 | tee -a "$log"; then :; else failures=1; fi
           done
           test "$failures" -eq 0
       - name: Save native group results
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: config-native-paths-${{ matrix.target }}-${{ github.sha }}
-          path: ${{ runner.temp }}/pilot-config-native-paths.log
+          name: trace-linker-original-workload-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/pilot-trace-linker-original-workload.log
           retention-days: 3
           if-no-files-found: warn
