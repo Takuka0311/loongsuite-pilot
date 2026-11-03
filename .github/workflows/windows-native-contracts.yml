@@ -1,4 +1,4 @@
-name: Windows exact postinstall baseline diagnostics
+name: Windows eager and serial installer diagnostics
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ env:
 
 jobs:
   native:
-    name: Original postinstall (${{ matrix.target }})
+    name: Eager and serial installer (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     strategy:
@@ -66,12 +66,12 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --locked -p loongsuite-pilot --test installer_native --no-run 2>&1 | tee "$RUNNER_TEMP/pilot-postinstall-compile.log"
-      - name: Repeat the unchanged exact postinstall contract
+      - name: Repeat the unchanged exact eager contract
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: |
           set -euo pipefail
-          log="$RUNNER_TEMP/pilot-postinstall-baseline.log"
-          pilot_case=installer_version_hook_history::postinstall_l16_actual_installed_native_hook_entry_ignores_caller_cwd_and_decoy_postinstall
+          log="$RUNNER_TEMP/pilot-eager-baseline.log"
+          pilot_case=installer_asset_tree_history::actual_eager_entry_installs_resources_and_prepared_child_does_not_wait_for_parent_locks
           cargo test --locked -p loongsuite-pilot --test installer_native "$pilot_case" -- --exact --list --color never --test-threads=1 2>&1 | tee "$log"
           python -c 'import pathlib,sys; cases=[line for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.endswith(": test")]; assert cases==[sys.argv[2]+": test"], cases' "$log" "$pilot_case"
           failures=0
@@ -85,13 +85,32 @@ jobs:
             if [ "$pilot_exit" -ne 0 ]; then failures=1; fi
           done
           exit "$failures"
-      - name: Save original postinstall baseline logs
+      - name: Save original eager baseline logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: postinstall-baseline-${{ matrix.target }}-${{ github.sha }}
+          name: eager-baseline-${{ matrix.target }}-${{ github.sha }}
           path: |
             ${{ runner.temp }}/pilot-postinstall-compile.log
-            ${{ runner.temp }}/pilot-postinstall-baseline.log
+            ${{ runner.temp }}/pilot-eager-baseline.log
+          retention-days: 3
+          if-no-files-found: warn
+      - name: Complete original installer suite in one test thread
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/pilot-installer-serial.log"
+          set +e
+          cargo test --no-fail-fast --locked -p loongsuite-pilot --test installer_native -- --nocapture --test-threads=1 --skip uninstall_default_url_and_explicit_candidates_use_the_whole_public_powershell_entry_in_both_shells_and_clm 2>&1 | tee "$log"
+          pilot_exit=$?
+          set -e
+          printf 'pipeline_exit=%s\n' "$pilot_exit" | tee -a "$log"
+          exit "$pilot_exit"
+      - name: Save complete serial installer suite log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: installer-serial-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/pilot-installer-serial.log
           retention-days: 3
           if-no-files-found: warn
