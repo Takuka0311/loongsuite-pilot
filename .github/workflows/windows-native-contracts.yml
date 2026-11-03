@@ -38,14 +38,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Inspect original Archive CLM error before Rust compilation
-        run: python scripts/testing/arm-acl-module-probe.py
+      - name: Inspect exact original ACL summary reader before Rust compilation
+        run: python scripts/testing/arm-acl-module-probe.py --reader
       - name: Save module evidence immediately
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: acl-module-modes-${{ github.sha }}
-          path: ${{ runner.temp }}/acl-module-modes.log
+          name: acl-reader-modes-${{ github.sha }}
+          path: ${{ runner.temp }}/acl-reader-modes.log
           if-no-files-found: ignore
           retention-days: 3
       - name: Locked native Rust toolchain
