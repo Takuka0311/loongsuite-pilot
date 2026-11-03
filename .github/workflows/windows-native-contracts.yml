@@ -59,26 +59,19 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Compile existing Native library contracts
+      - name: Compile the unchanged Native library contract
         id: compile
         run: cargo test --locked -p loongsuite-pilot --lib --no-run
-      - name: Real Hermes watch path identity
+      - name: Original 180s scaled Copilot replay in isolation
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         run: |
           set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --lib inputs::hermes_log::tests::identity_and_watch_paths -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/hermes-watch-path.log"
-      - name: Real HookManager QoderWork and Qwen entrypoints
-        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          cargo test --locked -p loongsuite-pilot --lib hooks::hook_manager::tests::builds_qoder_work_and_qwen_work_entrypoints -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/hooks-qwen-settings-path.log"
-      - name: Save exact native path fixture evidence
+          cargo test --locked -p loongsuite-pilot --lib inputs::copilot_log::disk_governance_tests::replay_at_128_256_512_turns_is_segmented_duplicate_free_and_linear -- --exact --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/copilot-scaled-replay-isolated.log"
+      - name: Save original isolated Copilot replay evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: hermes-hooks-native-path-x64-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/hermes-watch-path.log
-            ${{ runner.temp }}/hooks-qwen-settings-path.log
+          name: copilot-scaled-replay-isolated-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/copilot-scaled-replay-isolated.log
           retention-days: 3
           if-no-files-found: error
