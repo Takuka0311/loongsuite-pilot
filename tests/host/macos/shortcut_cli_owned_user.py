@@ -111,13 +111,17 @@ def main(args):
         # Account/package setup corresponds to original beforeEach. All original
         # case actions below share the original thirty-second overall deadline.
         started = time.monotonic(); DEADLINE = started + 30
+        action_count = 0
         def cli(action):
+            nonlocal action_count
             argv = ["/usr/bin/env", "-i", "HOME="+str(home), "USERPROFILE="+str(home),
                 "USER="+user, "LOGNAME="+user, "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
                 "AGENT_DATA_COLLECTION_CONFIG="+str(config), "LOONGSUITE_PILOT_DATA_DIR="+str(home / "data"),
                 "LOONGSUITE_PILOT_CACHE_DIR="+str(home / "cache"), "LOONGSUITE_PILOT_LANG=en", "NODE_PATH=",
                 str(binary), "dashboard-shortcut", action]
-            return command(argv, user=user, timeout=20).stdout.decode()
+            result = command(argv, user=user, timeout=20).stdout.decode()
+            action_count += 1
+            return result
         assert "http://127.0.0.1:9130/" in cli("install")
         shortcut = home / "Library/Application Support/LoongSuite Pilot/Shortcuts/LoongSuite Pilot Dashboard.webloc"
         stored = plistlib.loads(shortcut.read_bytes())
@@ -141,7 +145,7 @@ def main(args):
         assert snapshot(runner) == original_dock, "real runner Dock data changed"
         assert time.monotonic() - started < 30
         print(json.dumps({"result":"PASS","originalSource":"tests/integration/dashboard-shortcut-macos.test.mjs:L118:C3",
-            "actions":6,"seconds":time.monotonic()-started,"nativeCli":True,"privateUid":True,
+            "actions":action_count,"seconds":time.monotonic()-started,"nativeCli":True,"privateUid":True,
             "realUserDockUnchanged":True,"noUiOrDockStarted":True,"noNodeBuildOrDependencies":True}))
     finally:
         DEADLINE = None

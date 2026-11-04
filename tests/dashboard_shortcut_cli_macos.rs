@@ -56,7 +56,7 @@ fn physical_macos_whole_shipped_cli_install_status_uninstall_without_node_or_bui
     );
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(result["result"], "PASS");
-    assert_eq!(result["actions"], 6);
+    assert_eq!(result["actions"], 5);
     assert_eq!(result["realUserDockUnchanged"], true);
     assert_eq!(result["noUiOrDockStarted"], true);
 }
