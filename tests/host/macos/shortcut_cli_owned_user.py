@@ -102,7 +102,8 @@ def main(args):
             "ObjC.import('Foundation'); JSON.stringify({home:ObjC.unwrap($.NSHomeDirectory()),user:ObjC.unwrap($.NSUserName())})"],
             user=user).stdout
         identity = json.loads(identity)
-        assert identity == {"home":str(home), "user":user}, identity
+        assert identity["user"] == user, identity
+        assert pathlib.Path(identity["home"]).resolve(strict=True) == home.resolve(strict=True), identity
         assert command(["/usr/bin/id", "-u"], user=user).stdout.strip() == str(uid).encode()
         command(["/usr/bin/defaults", "import", "com.apple.dock", str(initial_file)], user=user)
         before_private = snapshot(user)
