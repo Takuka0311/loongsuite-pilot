@@ -9,7 +9,7 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   native:
-    name: Trace linker original workload (${{ matrix.target }})
+    name: Native worker stop status replay (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -17,7 +17,6 @@ jobs:
       matrix:
         include:
           - {os: windows-2022, target: x86_64-pc-windows-msvc}
-          - {os: windows-11-arm, target: aarch64-pc-windows-msvc}
     defaults:
       run:
         shell: bash
@@ -47,22 +46,27 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Verify the original isolated scaling and cache workload
+      - name: Repeat the original real native worker lifecycle with full stop diagnostics
         run: |
-          set -uo pipefail
-          log="$RUNNER_TEMP/pilot-trace-linker-original-workload.log"
-          : > "$log"
-          failures=0
-          for filter in core::upstream_link::trace_linker::load_history_tests::original_interleaving_scaling_and_cache_workloads_preserve_all_sizes_and_guards; do
-            printf 'command: cargo test --lib %s\n' "$filter" >> "$log"
-            if cargo test --locked -p loongsuite-pilot --lib "$filter" -- --exact --test-threads=1 --nocapture 2>&1 | tee -a "$log"; then :; else failures=1; fi
+          set -euo pipefail
+          log="$RUNNER_TEMP/pilot-native-worker-stop-replay.log"
+          pilot_case=core::orchestrator::local_worker_history_contract_tests::actual_native_manifest_worker_uses_the_same_real_adapter_without_node_or_unix_shell_entry
+          cargo test --locked -p loongsuite-pilot --lib "$pilot_case" -- --exact --list --color never 2>&1 | tee "$log"
+          python -c 'import pathlib,sys; cases=[line for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.endswith(": test")]; assert cases==[sys.argv[2]+": test"], cases' "$log" "$pilot_case"
+          for round in $(seq 1 20); do
+            printf '\noriginal_worker_round=%s\n' "$round" | tee -a "$log"
+            set +e
+            cargo test --locked -p loongsuite-pilot --lib "$pilot_case" -- --exact --test-threads=1 --nocapture 2>&1 | tee -a "$log"
+            pilot_phase_exit=$?
+            set -e
+            printf 'pipeline_exit=%s\n' "$pilot_phase_exit" | tee -a "$log"
+            if test "$pilot_phase_exit" -ne 0; then exit "$pilot_phase_exit"; fi
           done
-          test "$failures" -eq 0
       - name: Save native group results
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: trace-linker-original-workload-${{ matrix.target }}-${{ github.sha }}
-          path: ${{ runner.temp }}/pilot-trace-linker-original-workload.log
+          name: worker-stop-status-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/pilot-native-worker-stop-replay.log
           retention-days: 3
           if-no-files-found: warn
