@@ -119,7 +119,7 @@ def main(args):
                 "USER="+user, "LOGNAME="+user, "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
                 "AGENT_DATA_COLLECTION_CONFIG="+str(config), "LOONGSUITE_PILOT_DATA_DIR="+str(home / "data"),
                 "LOONGSUITE_PILOT_CACHE_DIR="+str(home / "cache"), "LOONGSUITE_PILOT_LANG=en", "NODE_PATH=",
-                str(binary), "dashboard-shortcut", action]
+                str(binary), "dashboard", "shortcut", action]
             result = command(argv, user=user, timeout=20).stdout.decode()
             action_count += 1
             return result
