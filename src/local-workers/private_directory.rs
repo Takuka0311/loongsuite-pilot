@@ -5,6 +5,13 @@ use tokio::process::Command;
 
 pub const WINDOWS_ACL_COMMAND_TIMEOUT_MS: u64 = 15_000;
 const WINDOWS_ACL_OUTPUT_LIMIT: usize = 1024 * 1024;
+const ACL_TARGET_ENV: &str = "LOONGSUITE_WORKER_ACL_TARGET";
+#[cfg(any(windows, test))]
+#[path = "private_directory_policy.rs"]
+mod acl_policy;
+#[cfg(windows)]
+#[path = "private_directory_windows.rs"]
+mod windows_native;
 
 pub const WINDOWS_ACL_PROTECT: &str = r#"
 $ErrorActionPreference = "Stop"
@@ -12,6 +19,9 @@ $target = $env:LOONGSUITE_WORKER_ACL_TARGET
 if ([string]::IsNullOrWhiteSpace($target)) {
   throw "local worker directory path is empty"
 }
+
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 
 $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowedSids = @($currentSid, "S-1-5-18", "S-1-5-32-544") | Select-Object -Unique
@@ -94,20 +104,66 @@ pub async fn prepare_private_local_worker_directory_on(
     if platform != WorkerPlatform::Win32 {
         return Ok(());
     }
-    let mut command = Command::new("powershell.exe");
-    command
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            WINDOWS_ACL_PROTECT,
-        ])
-        .env("LOONGSUITE_WORKER_ACL_TARGET", directory);
+    #[cfg(windows)]
+    let mut command = native_acl_command(directory)?;
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = Command::new("powershell.exe");
+        command
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                WINDOWS_ACL_PROTECT,
+            ])
+            .env(ACL_TARGET_ENV, directory);
+        command
+    };
     execute_windows_acl_command(
         &mut command,
         Duration::from_millis(WINDOWS_ACL_COMMAND_TIMEOUT_MS),
     )
     .await
+}
+
+#[cfg(windows)]
+fn native_acl_command(directory: &str) -> Result<Command, String> {
+    #[cfg(test)]
+    let mut command = candidate_tests::native_protection_command(directory);
+    #[cfg(not(test))]
+    let mut command = {
+        let executable =
+            std::env::current_exe().map_err(|e| format!("LocalWorkerDirectoryAclUnsafe: {e}"))?;
+        let mut command = Command::new(executable);
+        command.args(["installer-helper", "protect-worker-directory"]);
+        command
+    };
+    command.env(ACL_TARGET_ENV, directory);
+    Ok(command)
+}
+
+fn acl_target_from_env() -> Result<String, String> {
+    let target =
+        std::env::var(ACL_TARGET_ENV).map_err(|_| "worker ACL target is missing".to_owned())?;
+    if target.trim().is_empty() || target.encode_utf16().count() > 32767 {
+        return Err("worker ACL target is empty or exceeds its path bound".into());
+    }
+    Ok(target)
+}
+pub(crate) async fn prepare_worker_directory_from_env() -> Result<(), String> {
+    prepare_private_local_worker_directory(&acl_target_from_env()?).await
+}
+pub(crate) fn protect_worker_directory_from_env() -> Result<(), String> {
+    let target = acl_target_from_env()?;
+    #[cfg(windows)]
+    {
+        windows_native::protect(&target)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = target;
+        Err("native Windows ACL helper is unavailable on this platform".into())
+    }
 }
 
 async fn execute_windows_acl_command(

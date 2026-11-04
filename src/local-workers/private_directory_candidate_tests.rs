@@ -40,6 +40,12 @@ fn native_acl_boundary_fixture() {
     let root = Path::new(&root);
     let mode = std::env::var("PILOT_ACL_BOUNDARY_MODE").unwrap();
     match mode.as_str() {
+        "protect-native" => {
+            if let Err(error) = super::protect_worker_directory_from_env() {
+                eprintln!("{error}");
+                std::process::exit(7);
+            }
+        }
         "success" => println!("ACL_NATIVE_SUCCESS"),
         "failure" => {
             eprintln!("ACL_NATIVE_FAILURE");
@@ -187,4 +193,15 @@ async fn native_acl_candidate_cancellation_reaps_only_its_owned_tree() {
         native_fixture::stopped(sentinel_leaf).await;
     })
     .await;
+}
+
+#[cfg(windows)]
+pub(super) fn native_protection_command(directory: &str) -> tokio::process::Command {
+    let mut command =
+        tokio::process::Command::new(std::env::current_exe().expect("native fixture executable"));
+    command
+        .args(["--exact", FIXTURE, "--nocapture"])
+        .env("PILOT_ACL_BOUNDARY_ROOT", directory)
+        .env("PILOT_ACL_BOUNDARY_MODE", "protect-native");
+    command
 }

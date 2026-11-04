@@ -1,26 +1,48 @@
-//! Historical Windows ACL contract uses real temporary files and native PowerShell.
+//! Historical Windows ACL contract uses the real Native prepare entry and an independent PowerShell ACL oracle.
 #![cfg(windows)]
 
-use loongsuite_pilot::local_workers::prepare_private_local_worker_directory;
 use serde_json::Value;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
 async fn powershell(script: &str, directory: &Path, token: &Path) -> String {
-    let output = tokio::time::timeout(
+    let phase = if script.contains("Read-AclSummary") {
+        "summary"
+    } else {
+        "setup"
+    };
+    let started = std::time::Instant::now();
+    eprintln!("acl-history phase={phase} stage=start elapsed_ms=0");
+    let script = format!(
+        r#"Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+Import-Module -Name ($PSHOME + '\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+{script}"#
+    );
+    let attempt = tokio::time::timeout(
         Duration::from_secs(30),
         tokio::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .args(["-NoProfile", "-NonInteractive", "-Command"])
+            .arg(script)
             .env("ACL_TEST_TARGET", directory)
             .env("ACL_TEST_TOKEN", token)
             .stdin(Stdio::null())
             .kill_on_drop(true)
             .output(),
     )
-    .await
-    .expect("historical ACL PowerShell probe timed out")
-    .expect("historical ACL PowerShell probe did not start");
+    .await;
+    eprintln!(
+        "acl-history phase={phase} stage={} elapsed_ms={}",
+        if attempt.is_err() {
+            "timeout"
+        } else {
+            "returned"
+        },
+        started.elapsed().as_millis()
+    );
+    let output = attempt
+        .expect("historical ACL PowerShell probe timed out")
+        .expect("historical ACL PowerShell probe did not start");
     assert!(
         output.status.success(),
         "ACL probe {:?}: stdout={} stderr={}",
@@ -51,8 +73,24 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"#,
     std::fs::create_dir_all(token.parent().unwrap()).unwrap();
     std::fs::write(&token, "secret").unwrap();
     let raw = directory.to_str().unwrap();
-    prepare_private_local_worker_directory(raw).await.unwrap();
-    prepare_private_local_worker_directory(raw).await.unwrap();
+    for _ in 0..2 {
+        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_loongsuite-pilot"));
+        command
+            .args(["installer-helper", "prepare-worker-directory"])
+            .env("LOONGSUITE_WORKER_ACL_TARGET", raw);
+        let output = loongsuite_pilot::utils::candidate_process::output(
+            &mut command,
+            Duration::from_secs(15),
+            1024 * 1024,
+        )
+        .await
+        .unwrap();
+        assert!(
+            output.status.success(),
+            "native public prepare failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     let output = powershell(
         r#"$ErrorActionPreference = 'Stop'
 function Read-AclSummary([string]$target) {

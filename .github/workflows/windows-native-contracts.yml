@@ -9,7 +9,7 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   native:
-    name: Native worker stop status replay (${{ matrix.target }})
+    name: Native ACL and original worker replay (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -47,24 +47,36 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pilot-native-home"
           echo "HOME=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
           echo "USERPROFILE=$RUNNER_TEMP/pilot-native-home" >> "$GITHUB_ENV"
-      - name: Repeat the original real native worker lifecycle with full stop diagnostics
+      - name: Verify real Native ACL and repeat the original worker lifecycle
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/pilot-native-worker-stop-replay.log"
           pilot_case=core::orchestrator::local_worker_history_contract_tests::actual_native_manifest_worker_uses_the_same_real_adapter_without_node_or_unix_shell_entry
           cargo test --locked -p loongsuite-pilot --lib "$pilot_case" -- --exact --list --color never 2>&1 | tee "$log"
           python -c 'import pathlib,sys; cases=[line for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.endswith(": test")]; assert cases==[sys.argv[2]+": test"], cases' "$log" "$pilot_case"
-          cargo test --locked -p loongsuite-pilot --lib deployment::worker_manifest_supervisor:: -- --test-threads=1 --nocapture 2>&1 | tee -a "$log"
-          cargo test --locked -p loongsuite-pilot --lib deployment::worker_process:: -- --test-threads=1 --nocapture 2>&1 | tee -a "$log"
+          failed=0
+          phase_result=0
+          run_phase() {
+            phase_name="$1"
+            shift
+            printf '\nphase=%s\n' "$phase_name" | tee -a "$log"
+            set +e
+            "$@" 2>&1 | tee -a "$log"
+            phase_result=$?
+            set -e
+            printf 'phase=%s pipeline_exit=%s\n' "$phase_name" "$phase_result" | tee -a "$log"
+            if test "$phase_result" -ne 0; then failed=1; fi
+          }
+          run_phase native_acl_boundary cargo test --locked -p loongsuite-pilot --lib local_workers::private_directory:: -- --test-threads=1 --nocapture
+          run_phase native_acl_real_inheritance cargo test --locked -p loongsuite-pilot --test local_worker_acl_history -- --test-threads=1 --nocapture
+          run_phase native_supervisor cargo test --locked -p loongsuite-pilot --lib deployment::worker_manifest_supervisor:: -- --test-threads=1 --nocapture
+          run_phase native_birth_order cargo test --locked -p loongsuite-pilot --lib deployment::worker_process:: -- --test-threads=1 --nocapture
           for round in $(seq 1 20); do
             printf '\noriginal_worker_round=%s\n' "$round" | tee -a "$log"
-            set +e
-            cargo test --locked -p loongsuite-pilot --lib "$pilot_case" -- --exact --test-threads=1 --nocapture 2>&1 | tee -a "$log"
-            pilot_phase_exit=$?
-            set -e
-            printf 'pipeline_exit=%s\n' "$pilot_phase_exit" | tee -a "$log"
-            if test "$pilot_phase_exit" -ne 0; then exit "$pilot_phase_exit"; fi
+            run_phase original_worker cargo test --locked -p loongsuite-pilot --lib "$pilot_case" -- --exact --test-threads=1 --nocapture
+            if test "$phase_result" -ne 0; then break; fi
           done
+          exit "$failed"
       - name: Save native group results
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

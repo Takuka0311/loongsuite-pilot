@@ -41,6 +41,7 @@ pub(crate) fn command() -> Command {
             }),
         )
         .subcommands(["probe-count", "probe-detected"].map(input_command))
+        .subcommands(["prepare-worker-directory", "protect-worker-directory"].map(Command::new))
         .subcommand(
             input_command("cleanup-rollback-hermes").arg(
                 Arg::new("from-env")
@@ -188,6 +189,17 @@ fn options(args: &ArgMatches) -> Result<Options> {
 pub(crate) async fn run(args: &ArgMatches) -> Result<i32> {
     let (name, args) = args.subcommand().context("缺少安装辅助操作")?;
     let output = match name {
+        "prepare-worker-directory" => {
+            crate::local_workers::prepare_worker_directory_from_env()
+                .await
+                .map_err(anyhow::Error::msg)?;
+            String::new()
+        }
+        "protect-worker-directory" => {
+            crate::local_workers::protect_worker_directory_from_env()
+                .map_err(anyhow::Error::msg)?;
+            String::new()
+        }
         "cleanup-rollback-hermes" => {
             let value = if args.get_flag("from-env") {
                 let mut values = serde_json::Map::new();
