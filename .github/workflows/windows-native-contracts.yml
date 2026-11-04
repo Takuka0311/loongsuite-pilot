@@ -17,6 +17,7 @@ jobs:
       matrix:
         include:
           - {os: windows-2022, target: x86_64-pc-windows-msvc}
+          - {os: windows-11-arm, target: aarch64-pc-windows-msvc}
     defaults:
       run:
         shell: bash
@@ -53,6 +54,8 @@ jobs:
           pilot_case=core::orchestrator::local_worker_history_contract_tests::actual_native_manifest_worker_uses_the_same_real_adapter_without_node_or_unix_shell_entry
           cargo test --locked -p loongsuite-pilot --lib "$pilot_case" -- --exact --list --color never 2>&1 | tee "$log"
           python -c 'import pathlib,sys; cases=[line for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.endswith(": test")]; assert cases==[sys.argv[2]+": test"], cases' "$log" "$pilot_case"
+          cargo test --locked -p loongsuite-pilot --lib deployment::worker_manifest_supervisor:: -- --test-threads=1 --nocapture 2>&1 | tee -a "$log"
+          cargo test --locked -p loongsuite-pilot --lib deployment::worker_process:: -- --test-threads=1 --nocapture 2>&1 | tee -a "$log"
           for round in $(seq 1 20); do
             printf '\noriginal_worker_round=%s\n' "$round" | tee -a "$log"
             set +e
