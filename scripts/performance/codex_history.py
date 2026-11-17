@@ -26,6 +26,8 @@ from runtime_layout import resolve
 
 
 SESSIONS = 64
+STARTUP_SECONDS = 60
+WARMUP_SECONDS = 90
 TERMINAL_STATUS = "gen_ai.turn.end"
 
 
@@ -182,11 +184,13 @@ def run_round(args, directory, load, repeat, smoke=False):
                     raise RuntimeError("native host did not map the exact adjacent SDK")
                 time.sleep(.05)
 
-        deadline = time.monotonic() + 25
-        await_input(fixture, container, deadline)
+        # The first launch may have to persist ownership for all sessions.
+        # Keep that startup time outside the subsequent delivery deadline.
+        await_input(fixture, container, time.monotonic() + STARTUP_SECONDS)
         warm_turns = [fixture.append_turn(session) for session in range(SESSIONS)]
         write_json(directory / "expected.json", warm_turns)
-        await_turns(output, 0, {normalized_turn(turn) for turn in warm_turns}, deadline)
+        await_turns(output, 0, {normalized_turn(turn) for turn in warm_turns},
+                    time.monotonic() + WARMUP_SECONDS)
         validate_output((row for _, row in output.records), warm_turns)
         if smoke:
             observation = resources(container, cgroup, cpu=True, direct_cpu=True)
